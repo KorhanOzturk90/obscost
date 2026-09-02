@@ -1,0 +1,6 @@
+groups:
+  - name: warnonly-group
+    interval: 1m
+    rules:
+      - record: job:heavy_range:rate25h
+        expr: sum(rate(http_requests_total[25h]))

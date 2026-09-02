@@ -1,0 +1,6 @@
+groups:
+  - name: bad-expr-group
+    interval: 1m
+    rules:
+      - record: broken
+        expr: sum(((

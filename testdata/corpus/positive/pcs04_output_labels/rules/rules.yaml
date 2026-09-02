@@ -1,0 +1,6 @@
+groups:
+  - name: output-labels
+    interval: 1m
+    rules:
+      - record: pod:container_cpu:rate5m
+        expr: sum by (pod, namespace) (rate(container_cpu_usage_seconds_total[5m]))

@@ -1,0 +1,6 @@
+groups:
+  - name: other-group
+    interval: 1m
+    rules:
+      - record: other:metric
+        expr: rate(other_metric_total[5m])

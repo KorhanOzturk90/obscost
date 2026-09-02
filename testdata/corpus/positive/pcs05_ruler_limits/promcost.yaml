@@ -1,0 +1,8 @@
+tenancy:
+  unmapped: "tenant:platform"
+limits:
+  sources:
+    - type: file
+      path: testdata/corpus/positive/pcs05_ruler_limits/limits.yaml
+checks:
+  disable: [PC-S06]

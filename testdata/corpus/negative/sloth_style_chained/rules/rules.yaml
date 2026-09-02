@@ -1,0 +1,8 @@
+groups:
+  - name: sloth-style-chain
+    interval: 1m
+    rules:
+      - record: slo:errors:ratio_rate5m
+        expr: sum(rate(http_requests_total{code=~"5.."}[5m])) / sum(rate(http_requests_total[5m]))
+      - record: slo:errors:ratio_rate1h
+        expr: avg_over_time(slo:errors:ratio_rate5m[1h])

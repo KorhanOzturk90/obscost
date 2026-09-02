@@ -1,0 +1,10 @@
+groups:
+  - name: many-rules
+    interval: 1m
+    rules:
+      - record: a:rate5m
+        expr: rate(metric_a[5m])
+      - record: b:rate5m
+        expr: rate(metric_b[5m])
+      - record: c:rate5m
+        expr: rate(metric_c[5m])
