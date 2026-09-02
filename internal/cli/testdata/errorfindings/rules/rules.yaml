@@ -1,0 +1,7 @@
+groups:
+  - name: heavy-subquery-group
+    interval: 5m
+    rules:
+      - alert: HeavySubqueryAlert
+        expr: avg_over_time(up[30d:5m]) < 0.5
+        for: 5m

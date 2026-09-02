@@ -1,0 +1,11 @@
+groups:
+  - name: payments-group
+    interval: 30s
+    rules:
+      - alert: PaymentsDown
+        expr: up{job="payments"} == 0
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: payments is down

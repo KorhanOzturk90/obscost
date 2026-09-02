@@ -1,0 +1,6 @@
+groups:
+  - name: payments-group
+    interval: 1m
+    rules:
+      - record: payments:success_rate
+        expr: sum(rate(payments_success_total[5m])) / sum(rate(payments_total[5m]))

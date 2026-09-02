@@ -1,0 +1,10 @@
+[
+  {
+    "check_id": "PC-S04",
+    "severity": "info",
+    "tenant": "",
+    "file": "rules.yaml",
+    "group": "output-labels",
+    "rule": "pod:container_cpu:rate5m"
+  }
+]

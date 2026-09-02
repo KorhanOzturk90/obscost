@@ -15,4 +15,19 @@ Not a linter — [pint](https://cloudflare.github.io/pint/) owns rule hygiene. p
 | `rewrite` | Suggested rewrite with warm-up / backfill notes |
 | `pint-config` | Per-tenant pint HCL from tenancy discovery |
 
-Implementation will be a single Go binary using upstream `prometheus/promql/parser`.
+Implementation is a single Go binary using upstream `prometheus/promql/parser`.
+
+### Status
+
+Milestone 1 is implemented: the parser and static-tier checks (`PC-S01`–`PC-S06`), with golden-corpus tests, behind `promcost check`. Live-tier metering, fleet-tier reports, and the other subcommands above are not yet built.
+
+### Building
+
+```
+go build -o bin/promcost ./cmd/promcost   # or: make build
+go test ./...                              # or: make test
+```
+
+```
+./bin/promcost check --dir path/to/rules [--config promcost.yaml] [--offline] [--fail-on warn|error]
+```

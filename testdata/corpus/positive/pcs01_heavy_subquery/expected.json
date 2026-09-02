@@ -1,0 +1,10 @@
+[
+  {
+    "check_id": "PC-S01",
+    "severity": "error",
+    "tenant": "",
+    "file": "rules.yaml",
+    "group": "heavy-subquery",
+    "rule": "HeavySubqueryAlert"
+  }
+]

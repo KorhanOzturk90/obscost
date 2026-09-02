@@ -1,0 +1,6 @@
+groups:
+  - name: interval-ratio
+    interval: 1s
+    rules:
+      - alert: SlowRatioAlert
+        expr: rate(http_requests_total[3h]) > 0

@@ -1,0 +1,10 @@
+[
+  {
+    "check_id": "PC-S05",
+    "severity": "error",
+    "tenant": "platform",
+    "file": "rules.yaml",
+    "group": "many-rules",
+    "rule": ""
+  }
+]

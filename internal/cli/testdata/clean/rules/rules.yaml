@@ -1,0 +1,6 @@
+groups:
+  - name: clean-group
+    interval: 1m
+    rules:
+      - record: job:up:count
+        expr: count(up)

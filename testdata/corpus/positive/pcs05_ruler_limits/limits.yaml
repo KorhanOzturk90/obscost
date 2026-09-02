@@ -1,0 +1,3 @@
+overrides:
+  platform:
+    ruler_max_rules_per_rule_group: 2

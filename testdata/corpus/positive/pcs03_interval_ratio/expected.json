@@ -1,0 +1,10 @@
+[
+  {
+    "check_id": "PC-S03",
+    "severity": "warn",
+    "tenant": "",
+    "file": "rules.yaml",
+    "group": "interval-ratio",
+    "rule": "SlowRatioAlert"
+  }
+]

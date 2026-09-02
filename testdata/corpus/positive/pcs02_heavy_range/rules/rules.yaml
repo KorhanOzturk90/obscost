@@ -1,0 +1,6 @@
+groups:
+  - name: heavy-range
+    interval: 1m
+    rules:
+      - record: job:http_requests:rate25h
+        expr: sum(rate(http_requests_total[25h]))

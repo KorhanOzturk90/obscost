@@ -1,0 +1,10 @@
+[
+  {
+    "check_id": "PC-S06",
+    "severity": "error",
+    "tenant": "",
+    "file": "unmapped-team/rules.yaml",
+    "group": "other-group",
+    "rule": "other:metric"
+  }
+]
