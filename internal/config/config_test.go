@@ -83,6 +83,9 @@ func TestLoadFullSpecExample(t *testing.T) {
 	if cfg.Backend.Type != "mimir" {
 		t.Errorf("Backend.Type = %q, want mimir", cfg.Backend.Type)
 	}
+	if cfg.Backend.Auth.BearerTokenEnv != "PROMCOST_TOKEN" {
+		t.Errorf("Backend.Auth.BearerTokenEnv = %q, want PROMCOST_TOKEN", cfg.Backend.Auth.BearerTokenEnv)
+	}
 	if got, want := cfg.Checks.Thresholds.RecordingRangeWarn.Duration(), 24*time.Hour; got != want {
 		t.Errorf("RecordingRangeWarn = %v, want %v", got, want)
 	}
@@ -128,6 +131,20 @@ func TestLoadEmptyPathReturnsDefaults(t *testing.T) {
 	}
 	if cfg.Tenancy.Unmapped != "error" {
 		t.Errorf("Tenancy.Unmapped = %q, want error", cfg.Tenancy.Unmapped)
+	}
+}
+
+func TestLoadBackendBasicAuth(t *testing.T) {
+	path := writeTemp(t, "backend:\n  type: mimir\n  url: https://mimir.internal/prometheus\n  auth:\n    username_env: PROMCOST_GC_INSTANCE_ID\n    password_env: PROMCOST_GC_TOKEN\n")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Backend.Auth.UsernameEnv != "PROMCOST_GC_INSTANCE_ID" {
+		t.Errorf("Backend.Auth.UsernameEnv = %q, want PROMCOST_GC_INSTANCE_ID", cfg.Backend.Auth.UsernameEnv)
+	}
+	if cfg.Backend.Auth.PasswordEnv != "PROMCOST_GC_TOKEN" {
+		t.Errorf("Backend.Auth.PasswordEnv = %q, want PROMCOST_GC_TOKEN", cfg.Backend.Auth.PasswordEnv)
 	}
 }
 

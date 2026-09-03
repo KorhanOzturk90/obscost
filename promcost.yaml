@@ -1,0 +1,20 @@
+tenancy:
+  unmapped: "tenant:default"   # route every rule to one tenant, skip real tenancy mapping
+
+limits:
+  sources:
+    - type: file
+      path: ./runtime-overrides.yaml
+
+# Grafana Cloud free-tier Mimir. Fill in `url` from your own Grafana Cloud
+# portal (Connections -> your stack -> Prometheus/Mimir details -> query
+# endpoint); it's a per-stack URL, don't reuse someone else's. Auth is read
+# from the two env vars below at run time, never written here — see
+# docs/grafana-cloud-setup.md for how to get the instance ID and token.
+backend:
+  type: mimir
+  url: https://<cluster>.grafana.net/api/prom   # placeholder: your stack's query API URL
+  auth:
+    username_env: PROMCOST_GC_INSTANCE_ID
+    password_env: PROMCOST_GC_TOKEN
+  timeout: 10s

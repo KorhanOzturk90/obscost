@@ -43,7 +43,9 @@ func newRootCmd(stdout, stderr io.Writer) *cobra.Command {
 }
 
 // Run executes the CLI and returns a process exit code (spec §2):
-// 0 clean, 1 config/usage error, 2 findings at or above --fail-on.
+// 0 clean, 1 config/usage error, 2 findings at or above --fail-on,
+// 3 backend unreachable under --strict (check degrades to static-only with
+// a warning instead, unless --strict was passed).
 func Run(args []string, stdout, stderr io.Writer) int {
 	root := newRootCmd(stdout, stderr)
 	root.SetArgs(args)

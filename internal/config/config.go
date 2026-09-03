@@ -1,8 +1,10 @@
 // Package config loads and represents promcost.yaml (spec §3). This
 // milestone parses the full schema (so a spec-example config always loads
-// without error) but only the static-tier-relevant subset is consumed:
-// checks.disable, checks.thresholds, tenancy, and limits.sources (file type
-// only). backend, cost_model, and pint are parsed and carried for later
+// without error) but only the static-tier-relevant subset is consumed by
+// the static checks: checks.disable, checks.thresholds, tenancy, and
+// limits.sources (file type only). backend is additionally consumed by
+// internal/meter's real Meter implementation when check runs non-offline;
+// cost_model and pint are still just parsed and carried for later
 // milestones.
 package config
 
@@ -13,8 +15,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// BackendAuth selects how the Meter authenticates to the backend. At most
+// one scheme is meant to be configured; if both bearer and basic fields are
+// set, the Meter constructor prefers basic auth deterministically rather
+// than erroring at load time (consistent with how LimitsSource's type is
+// validated at use, not at parse time).
 type BackendAuth struct {
 	BearerTokenEnv string `yaml:"bearer_token_env,omitempty"`
+	UsernameEnv    string `yaml:"username_env,omitempty"`
+	PasswordEnv    string `yaml:"password_env,omitempty"`
 }
 
 type BackendConfig struct {
