@@ -14,6 +14,9 @@ import (
 	"github.com/KorhanOzturk90/obscost/internal/config"
 	"github.com/KorhanOzturk90/obscost/internal/loader/dir"
 	"github.com/KorhanOzturk90/obscost/internal/report"
+	"github.com/KorhanOzturk90/obscost/internal/rule"
+	"github.com/KorhanOzturk90/obscost/internal/telemetry"
+	"github.com/KorhanOzturk90/obscost/internal/telemetry/mimirlogs"
 	"github.com/KorhanOzturk90/obscost/internal/telemetry/ndjson"
 	"github.com/KorhanOzturk90/obscost/internal/tenancy"
 )
@@ -26,6 +29,7 @@ func newReportCmd(stdout io.Writer) *cobra.Command {
 	var (
 		dirPath       string
 		telemetryPath string
+		telemetryFmt  string
 		configPath    string
 		format        string
 		since         string
@@ -38,6 +42,7 @@ func newReportCmd(stdout io.Writer) *cobra.Command {
 			return runReport(cmd.Context(), stdout, reportOptions{
 				dir:           dirPath,
 				telemetryPath: telemetryPath,
+				telemetryFmt:  telemetryFmt,
 				configPath:    configPath,
 				format:        format,
 				since:         since,
@@ -46,7 +51,8 @@ func newReportCmd(stdout io.Writer) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&dirPath, "dir", "", "directory of rule files providing rule definitions (required)")
-	cmd.Flags().StringVar(&telemetryPath, "telemetry", "", "path to a newline-delimited JSON rule-execution log (required)")
+	cmd.Flags().StringVar(&telemetryPath, "telemetry", "", "path to a rule-execution telemetry file (required)")
+	cmd.Flags().StringVar(&telemetryFmt, "telemetry-format", "ndjson", "format of --telemetry: ndjson|mimirlogs (Mimir's -ruler.query-stats-enabled log)")
 	cmd.Flags().StringVar(&configPath, "config", "", "path to promcost.yaml")
 	cmd.Flags().StringVar(&format, "format", "md", "output format: md|json")
 	cmd.Flags().StringVar(&since, "since", "", "only include executions at or after this long ago (e.g. 24h, 7d, 2w); empty means no filtering")
@@ -63,6 +69,7 @@ func newReportCmd(stdout io.Writer) *cobra.Command {
 type reportOptions struct {
 	dir           string
 	telemetryPath string
+	telemetryFmt  string
 	configPath    string
 	format        string
 	since         string
@@ -105,7 +112,10 @@ func runReport(ctx context.Context, stdout io.Writer, opts reportOptions) error 
 		return fmt.Errorf("%d rule file(s) failed to load", len(loadErrs))
 	}
 
-	src := ndjson.New(ndjson.Config{Path: opts.telemetryPath})
+	src, err := newTelemetrySource(opts, definitions)
+	if err != nil {
+		return err
+	}
 	executions, readErrs, err := src.Read(ctx)
 	if err != nil {
 		return err
@@ -143,6 +153,22 @@ func runReport(ctx context.Context, stdout io.Writer, opts reportOptions) error 
 		RuleDefinitions: agg.RuleDefinitions,
 		GeneratedAt:     time.Now(),
 	})
+}
+
+// newTelemetrySource selects the telemetry.Source implementation for
+// --telemetry-format. mimirlogs additionally needs the already-loaded rule
+// definitions (its log lines carry no rule group/name, only tenant + raw
+// query text — see internal/telemetry/mimirlogs's package doc); ndjson
+// (the default, preserving today's behavior) does not.
+func newTelemetrySource(opts reportOptions, definitions []rule.AnnotatedRule) (telemetry.Source, error) {
+	switch opts.telemetryFmt {
+	case "", "ndjson":
+		return ndjson.New(ndjson.Config{Path: opts.telemetryPath}), nil
+	case "mimirlogs":
+		return mimirlogs.New(mimirlogs.Config{Path: opts.telemetryPath, Definitions: definitions}), nil
+	default:
+		return nil, fmt.Errorf("unknown --telemetry-format %q, want ndjson|mimirlogs", opts.telemetryFmt)
+	}
 }
 
 // parseSinceDuration accepts stdlib duration syntax plus a trailing d/w

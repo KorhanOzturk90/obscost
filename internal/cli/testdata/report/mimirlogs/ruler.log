@@ -1,0 +1,3 @@
+ts=2026-01-15T10:30:00.123456789Z caller=compat.go:394 level=info user=analytics msg="query stats" component=ruler query="sum(rate(http_requests_total[5m]))" query_wall_time_seconds=0.523 fetched_series_count=1200 fetched_chunk_bytes=45231 fetched_chunks_count=340 sharded_queries=0 result_series_count=1
+ts=2026-01-15T10:31:00.987654321Z caller=compat.go:394 level=info user=analytics msg="query stats" component=ruler query="sum(rate(http_requests_total[5m]))" result_series_count=1
+ts=2026-01-15T10:29:00.000000000Z caller=distributor.go:210 level=info user=analytics msg="push request" component=distributor samples=42

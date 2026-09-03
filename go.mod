@@ -3,6 +3,7 @@ module github.com/KorhanOzturk90/obscost
 go 1.27.1
 
 require (
+	github.com/go-logfmt/logfmt v0.6.1
 	github.com/prometheus/common v0.70.1
 	github.com/prometheus/prometheus v0.314.0
 	github.com/spf13/cobra v1.10.2

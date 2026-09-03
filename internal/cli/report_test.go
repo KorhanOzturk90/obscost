@@ -21,6 +21,29 @@ func TestReport_Clean(t *testing.T) {
 	}
 }
 
+func TestReport_MimirlogsFormat(t *testing.T) {
+	// Real-format Mimir ruler query-stats log (--telemetry-format
+	// mimirlogs): two query-stats lines (one local eval with stats, one
+	// remote eval with none) both matching the fixture's single rule
+	// definition by expression text, plus an unrelated distributor log
+	// line that must be silently ignored.
+	stdout, stderr, code := run("report",
+		"--dir", "testdata/report/mimirlogs/rules",
+		"--telemetry", "testdata/report/mimirlogs/ruler.log",
+		"--telemetry-format", "mimirlogs",
+		"--config", "testdata/report/mimirlogs/promcost.yaml",
+	)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0. stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "Total executions: 2") {
+		t.Errorf("expected both real query-stats lines to be parsed (and the unrelated distributor line ignored), got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "customer_activity") {
+		t.Errorf("expected the query text to have been matched back to the customer_activity rule definition, got:\n%s", stdout)
+	}
+}
+
 func TestReport_Unmatched(t *testing.T) {
 	// An execution whose namespace doesn't match any loaded rule definition
 	// is a legitimate, reportable observation — not a load/read failure.
