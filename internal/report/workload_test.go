@@ -13,6 +13,7 @@ import (
 
 func sampleWorkloadResult() WorkloadResult {
 	return WorkloadResult{
+		Window:          "last 7d",
 		GeneratedAt:     time.Date(2026, 1, 2, 15, 4, 5, 0, time.UTC),
 		TotalExecutions: 2463,
 		TotalSamples:    9_800_000,
@@ -54,7 +55,7 @@ func sampleWorkloadResult() WorkloadResult {
 				Group:            "g",
 				RuleName:         "deleted_rule",
 				Timestamp:        time.Date(2026, 1, 2, 12, 0, 0, 0, time.UTC),
-				SamplesProcessed: 500,
+				SamplesProcessed: rule.Ptr(uint64(500)),
 			},
 		},
 	}

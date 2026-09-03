@@ -32,10 +32,11 @@ type mdTenantAggregate struct {
 type mdUnmatchedExecution struct {
 	RuleID    string
 	Timestamp string
-	Samples   uint64
+	Samples   string // "unknown" if the source didn't report this stat
 }
 
 type workloadMDData struct {
+	Window          string
 	GeneratedAt     string
 	TotalExecutions int
 	TotalSamples    uint64
@@ -48,7 +49,13 @@ type workloadMDData struct {
 // pre-sorted, pre-formatted data — attribution.Aggregate already guarantees
 // deterministic tenant/rule ordering, so this template only renders, it
 // never computes or re-sorts.
-const workloadMDTemplateSrc = `# promcost workload report
+//
+// Every figure below is an OBSERVED measurement from ingested execution
+// telemetry — never an estimate or a euro figure (PRODUCT-DIRECTION.md:
+// "do not start with euros"). A stat that reads as a real 0 was measured as
+// 0; a source that didn't measure a stat at all shows "unknown" instead
+// (see rule.RuleExecution's doc comment) — the two are never conflated.
+const workloadMDTemplateSrc = `# promcost workload report — {{ .Window }} (observed)
 
 Generated: {{ .GeneratedAt }}
 Total executions: {{ .TotalExecutions }}
@@ -94,7 +101,12 @@ Executions whose rule identity didn't match any loaded rule definition (deleted 
 var workloadMDTmpl = template.Must(template.New("workload_md").Parse(workloadMDTemplateSrc))
 
 func (workloadMDReporter) Render(w io.Writer, result WorkloadResult) error {
+	window := result.Window
+	if window == "" {
+		window = "all time"
+	}
 	data := workloadMDData{
+		Window:          window,
 		GeneratedAt:     result.GeneratedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		TotalExecutions: result.TotalExecutions,
 		TotalSamples:    result.TotalSamples,
@@ -129,11 +141,22 @@ func (workloadMDReporter) Render(w io.Writer, result WorkloadResult) error {
 		data.Unmatched = append(data.Unmatched, mdUnmatchedExecution{
 			RuleID:    e.RuleID().String(),
 			Timestamp: e.Timestamp.UTC().Format("2006-01-02T15:04:05Z"),
-			Samples:   e.SamplesProcessed,
+			Samples:   formatOptionalUint64(e.SamplesProcessed),
 		})
 	}
 
 	return workloadMDTmpl.Execute(w, data)
+}
+
+// formatOptionalUint64 renders a RuleExecution stat pointer as its decimal
+// value, or the literal string "unknown" when the source didn't report it
+// — never as 0, which would misrepresent an unmeasured stat as an observed
+// zero.
+func formatOptionalUint64(v *uint64) string {
+	if v == nil {
+		return "unknown"
+	}
+	return fmt.Sprintf("%d", *v)
 }
 
 func formatPct(pct float64) string {

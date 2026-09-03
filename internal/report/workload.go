@@ -13,6 +13,10 @@ import (
 // `promcost report` run. Parallel to Result/Reporter — the check command's
 // existing Finding-oriented types are untouched.
 type WorkloadResult struct {
+	// Window describes the --since filter applied before aggregation, e.g.
+	// "last 7d", or "all time" when no --since was given. Display-only —
+	// filtering itself already happened before Aggregate ran.
+	Window          string                         `json:"window"`
 	Tenants         []attribution.TenantAggregate `json:"tenants"`
 	Unmatched       []rule.RuleExecution          `json:"unmatched,omitempty"`
 	TotalExecutions int                           `json:"total_executions"`

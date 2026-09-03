@@ -135,6 +135,7 @@ func runReport(ctx context.Context, stdout io.Writer, opts reportOptions) error 
 
 	agg := attribution.Aggregate(executions, definitions)
 	return rep.Render(stdout, report.WorkloadResult{
+		Window:          windowLabel(opts.since),
 		Tenants:         agg.Tenants,
 		Unmatched:       agg.Unmatched,
 		TotalExecutions: agg.TotalExecutions,
@@ -164,4 +165,14 @@ func parseSinceDuration(s string) (time.Duration, error) {
 		return time.Duration(weeks) * 7 * 24 * time.Hour, nil
 	}
 	return time.ParseDuration(s)
+}
+
+// windowLabel renders the raw --since flag value for display (e.g. "7d" ->
+// "last 7d"); report.WorkloadResult.Window is display-only, the actual
+// filtering already happened above via parseSinceDuration.
+func windowLabel(since string) string {
+	if since == "" {
+		return ""
+	}
+	return "last " + since
 }

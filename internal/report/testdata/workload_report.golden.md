@@ -1,4 +1,4 @@
-# promcost workload report
+# promcost workload report — last 7d (observed)
 
 Generated: 2026-01-02T15:04:05Z
 Total executions: 2463

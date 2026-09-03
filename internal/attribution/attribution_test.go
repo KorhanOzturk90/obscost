@@ -31,7 +31,20 @@ func exec(tenant, namespace, group, name string, samples uint64) rule.RuleExecut
 		Group:            group,
 		RuleName:         name,
 		Timestamp:        time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
-		SamplesProcessed: samples,
+		SamplesProcessed: rule.Ptr(samples),
+	}
+}
+
+// execNoSamples builds an execution that reports every stat as genuinely
+// unmeasured (nil), not zero — exercises Aggregate's missing-vs-zero
+// handling (see rule.RuleExecution's doc comment).
+func execNoSamples(tenant, namespace, group, name string) rule.RuleExecution {
+	return rule.RuleExecution{
+		Tenant:    tenant,
+		Namespace: namespace,
+		Group:     group,
+		RuleName:  name,
+		Timestamp: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
 }
 
@@ -204,5 +217,38 @@ func TestAggregate_TieBreakDeterminism(t *testing.T) {
 	// Identical share -> tie-break alphabetically by tenant name.
 	if report.Tenants[0].Tenant != "alpha" || report.Tenants[1].Tenant != "beta" {
 		t.Errorf("tenant order = [%s, %s], want [alpha, beta]", report.Tenants[0].Tenant, report.Tenants[1].Tenant)
+	}
+}
+
+// An execution whose source didn't measure SamplesProcessed (nil, not 0)
+// must not be counted as "0 samples processed" — it should contribute
+// nothing to any sum, distinct from a source that genuinely measured 0.
+func TestAggregate_MissingStatIsExcludedNotZero(t *testing.T) {
+	definitions := []rule.AnnotatedRule{
+		def("analytics", "a/rules.yaml", "g", "r1", rule.KindRecording),
+	}
+	executions := []rule.RuleExecution{
+		exec("analytics", "a/rules.yaml", "g", "r1", 100),      // measured: 100 samples
+		execNoSamples("analytics", "a/rules.yaml", "g", "r1"),  // unmeasured: unknown, not 0
+	}
+
+	report := Aggregate(executions, definitions)
+	if len(report.Tenants) != 1 {
+		t.Fatalf("len(Tenants) = %d, want 1", len(report.Tenants))
+	}
+	ta := report.Tenants[0]
+
+	// Both executions count toward Executions (an execution happened,
+	// regardless of whether its stats were measured).
+	if ta.Executions != 2 {
+		t.Errorf("Executions = %d, want 2 (both executions counted, even the unmeasured one)", ta.Executions)
+	}
+	// Only the measured execution's 100 samples contribute to the sum — the
+	// unmeasured one contributes nothing, not a fabricated 0.
+	if ta.SamplesProcessed != 100 {
+		t.Errorf("SamplesProcessed = %d, want 100 (nil execution must not count as 0)", ta.SamplesProcessed)
+	}
+	if len(ta.Rules) != 1 || ta.Rules[0].SamplesProcessed != 100 {
+		t.Fatalf("Rules = %+v, want one rule with SamplesProcessed=100", ta.Rules)
 	}
 }

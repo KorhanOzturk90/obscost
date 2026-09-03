@@ -99,7 +99,7 @@ func Aggregate(executions []rule.RuleExecution, definitions []rule.AnnotatedRule
 	var totalSamples uint64
 	for _, e := range executions {
 		totalExecutions++
-		totalSamples += e.SamplesProcessed
+		totalSamples += valueOr(e.SamplesProcessed, 0)
 	}
 
 	var tenants []TenantAggregate
@@ -115,12 +115,12 @@ func Aggregate(executions []rule.RuleExecution, definitions []rule.AnnotatedRule
 
 		for _, e := range tenantExecutions {
 			id := e.RuleID()
-			tenantSamples += e.SamplesProcessed
+			tenantSamples += valueOr(e.SamplesProcessed, 0)
 
 			def, ok := defsByID[id]
 			if !ok {
 				unmatchedExecutions++
-				unmatchedSamples += e.SamplesProcessed
+				unmatchedSamples += valueOr(e.SamplesProcessed, 0)
 				unmatched = append(unmatched, e)
 				continue
 			}
@@ -131,11 +131,11 @@ func Aggregate(executions []rule.RuleExecution, definitions []rule.AnnotatedRule
 				ruleAccum[id] = ra
 			}
 			ra.Executions++
-			ra.SamplesProcessed += e.SamplesProcessed
-			ra.DurationSecondsSum += e.DurationSeconds
-			ra.FetchedSeries += e.FetchedSeries
-			ra.FetchedChunks += e.FetchedChunks
-			ra.FetchedBytes += e.FetchedBytes
+			ra.SamplesProcessed += valueOr(e.SamplesProcessed, 0)
+			ra.DurationSecondsSum += valueOr(e.DurationSeconds, 0)
+			ra.FetchedSeries += valueOr(e.FetchedSeries, 0)
+			ra.FetchedChunks += valueOr(e.FetchedChunks, 0)
+			ra.FetchedBytes += valueOr(e.FetchedBytes, 0)
 		}
 
 		tenantExecutionCount := len(tenantExecutions)
@@ -198,4 +198,22 @@ func pct(part, total uint64) float64 {
 		return 0
 	}
 	return 100 * float64(part) / float64(total)
+}
+
+// valueOr returns *p, or fallback if p is nil. Every stat sum in Aggregate
+// goes through this: a RuleExecution whose source didn't measure a given
+// stat (nil) contributes nothing to that sum, rather than the sum silently
+// treating "unknown" as "zero". This is a deliberate, documented tradeoff:
+// aggregate totals are "sum of what was observed", not "sum with unknowns
+// backfilled as zero" — a rule evaluated entirely via Mimir's remote
+// query-frontend path (see internal/telemetry/mimirlogs) may report
+// Executions > 0 with SamplesProcessed/FetchedSeries/etc. under-counted
+// relative to reality if some of its executions carried no stats at all,
+// rather than the totals being wrong in the other, more dangerous
+// direction (fabricating workload that was never observed).
+func valueOr[T any](p *T, fallback T) T {
+	if p == nil {
+		return fallback
+	}
+	return *p
 }

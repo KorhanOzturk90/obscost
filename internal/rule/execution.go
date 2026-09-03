@@ -28,19 +28,37 @@ func (id RuleID) String() string {
 // metering-model sketch, plus QueryText/QueryHash: docs/runtime-telemetry-
 // notes.md calls for retaining both when a source can provide them, for
 // future explanation/correlation use.
+//
+// The five workload-stat fields are pointers, not bare numbers: a nil
+// pointer means "this source didn't measure this stat," which is a
+// different, non-zero fact. This matters concretely for Mimir's own ruler
+// query-stats log (internal/telemetry/mimirlogs) — when the ruler delegates
+// to a remote query-frontend rather than evaluating locally, that log line
+// carries no fetched-series/chunk/byte or wall-time fields at all. Treating
+// an absent stat as a real 0 would silently understate every remote-
+// evaluated rule's workload. internal/attribution sums only the non-nil
+// observations it sees; it never invents a 0 for a stat a source didn't
+// report.
 type RuleExecution struct {
 	Tenant           string    `json:"tenant"`
 	Namespace        string    `json:"namespace"`
 	Group            string    `json:"group"`
 	RuleName         string    `json:"rule_name"`
 	Timestamp        time.Time `json:"timestamp"`
-	DurationSeconds  float64   `json:"duration_seconds"`
-	SamplesProcessed uint64    `json:"samples_processed"`
-	FetchedSeries    uint64    `json:"fetched_series"`
-	FetchedChunks    uint64    `json:"fetched_chunks"`
-	FetchedBytes     uint64    `json:"fetched_bytes"`
+	DurationSeconds  *float64  `json:"duration_seconds,omitempty"`
+	SamplesProcessed *uint64   `json:"samples_processed,omitempty"`
+	FetchedSeries    *uint64   `json:"fetched_series,omitempty"`
+	FetchedChunks    *uint64   `json:"fetched_chunks,omitempty"`
+	FetchedBytes     *uint64   `json:"fetched_bytes,omitempty"`
 	QueryText        string    `json:"query_text,omitempty"`
 	QueryHash        string    `json:"query_hash,omitempty"`
+}
+
+// Ptr returns a pointer to v — a small ergonomic helper for constructing
+// RuleExecution's optional stat fields (e.g. rule.Ptr(uint64(1200))),
+// needed by every telemetry.Source implementation and by tests.
+func Ptr[T any](v T) *T {
+	return &v
 }
 
 // RuleID derives this execution's join key from its own flat fields.
