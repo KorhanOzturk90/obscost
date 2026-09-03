@@ -1,0 +1,12 @@
+apiVersion: 1
+
+datasources:
+  - name: Mimir
+    type: prometheus
+    access: proxy
+    url: http://mimir:8080/prometheus
+    isDefault: true
+    jsonData:
+      httpMethod: POST
+      # Multitenancy is disabled on this Mimir instance, so no
+      # X-Scope-OrgID header is required.

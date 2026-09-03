@@ -1,0 +1,25 @@
+// Self-monitoring loop: scrape Mimir's own /metrics endpoint and
+// remote_write those samples right back into the same Mimir instance.
+// This is what makes the mixin's dashboards/rules have anything to show —
+// Mimir ends up ingesting timeseries about its own distributor, ingester,
+// querier, compactor, ruler, etc. components (all exposed on one process
+// in single-binary/monolithic mode).
+
+prometheus.scrape "mimir_self" {
+	targets = [
+		{"__address__" = "mimir:8080"},
+	]
+	metrics_path    = "/metrics"
+	scrape_interval = "15s"
+	job_name        = "mimir"
+	forward_to      = [prometheus.remote_write.mimir.receiver]
+}
+
+prometheus.remote_write "mimir" {
+	endpoint {
+		url = "http://mimir:8080/api/v1/push"
+		// Multitenancy is disabled on this Mimir (-auth.multitenancy-enabled=false),
+		// so no X-Scope-OrgID header is required — every request lands in the
+		// implicit "anonymous" tenant.
+	}
+}
