@@ -1,0 +1,6 @@
+groups:
+  - name: g
+    interval: 1m
+    rules:
+      - record: customer_activity
+        expr: sum(rate(http_requests_total[5m]))

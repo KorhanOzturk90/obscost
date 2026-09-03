@@ -1,0 +1,1 @@
+{"tenant":"analytics","namespace":"team-a/wrong-file.yaml","group":"g","rule_name":"customer_activity","timestamp":"2026-01-01T00:00:00Z","duration_seconds":0.5,"samples_processed":1000}

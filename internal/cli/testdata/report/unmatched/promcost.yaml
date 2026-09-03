@@ -1,0 +1,6 @@
+tenancy:
+  discovery:
+    - source: static
+      map:
+        team-a: analytics
+  unmapped: error
