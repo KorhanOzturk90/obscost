@@ -4,16 +4,18 @@
 
 Obscost should not become a PromQL linter with a cost score attached.
 
-The long-term product is **observability workload attribution and governance for shared Prometheus-compatible infrastructure**, with Mimir as the first target.
+The long-term product is **metrics infrastructure workload attribution and governance for shared Prometheus-compatible infrastructure**, with Mimir as the first target.
+
+Mimir is the initial implementation target because it exposes useful rule, tenant, query and execution telemetry, but the product direction should remain broader than Mimir. The eventual architecture should support multiple metrics backends/solutions where the required workload signals can be obtained.
 
 The core question is:
 
-> **Where is my Mimir capacity going, who is consuming it, why, and what can we change?**
+> **Where is my metrics infrastructure capacity going, who is consuming it, why, and what can we change?**
 
 The desired hierarchy is:
 
 ```text
-Infrastructure → Tenant → Team → Rule group → Rule → PromQL expression → Workload
+Infrastructure → Ingestion / Queries → Tenant → Team → Rule / Metric → Workload → Cost
 ```
 
 The product loop is:
@@ -29,9 +31,10 @@ A platform/SRE team should be able to see something like:
 ```text
 Tenant analytics
 12% of rules
-37% of ruler workload
+37% of query/ruler workload
+28% of ingested samples
 
-Top contributors:
+Top query/ruler contributors:
   customer_activity:7d      21%
   funnel_conversion:30d      9%
   user_sessions:24h          4%
@@ -43,10 +46,16 @@ Primary causes:
   - high-cardinality dimensions
   - repeated recomputation
 
+Ingestion-side contributors:
+  - high sample volume
+  - unnecessary labels
+  - low-value / low-usage metrics
+
 Recommended actions:
   - introduce intermediate recording rules
   - reduce evaluation frequency/range where semantically safe
   - remove unnecessary dimensions
+  - drop/relabel/aggregate low-value raw metrics where justified
 
 Expected workload reduction: ~30%
 ```
@@ -59,11 +68,59 @@ to:
 
 > "This rule actually consumed a large amount of backend workload, this is why, and this change is likely to reduce it by X%."
 
+And eventually from:
+
+> "This metric is high-cardinality."
+
+to:
+
+> "This metric contributes materially to ingestion/storage cost, is lightly used, belongs to this team, and here is the safest way to reduce its footprint."
+
+## Product scope: two complementary cost surfaces
+
+The complete offering should eventually cover both sides of metrics infrastructure economics.
+
+### 1. Query / ruler workload
+
+```text
+Rule / query
+    ↓
+evaluation frequency
+    ↓
+series / samples / chunks / bytes
+    ↓
+execution time / CPU
+    ↓
+Tenant / team
+```
+
+This is the initial differentiation and primary MVP wedge.
+
+### 2. Raw metric ingestion / storage workload
+
+```text
+Metric / series
+    ↓
+sample volume / cardinality / retention / usage
+    ↓
+Ingestion + storage footprint
+    ↓
+Tenant / team
+```
+
+This area is already well served by several commercial and OSS products. It should therefore be a later expansion rather than the initial positioning.
+
+However, it is strategically important because it makes the platform complete and allows a team to answer the broader question:
+
+> **What is the total cost/workload contribution of this tenant across both data production and data consumption?**
+
+The two surfaces should ultimately be unified. For example, a high-cardinality metric can cause expensive recording rules, meaning ingestion waste and query waste can be causally connected.
+
 ## What to measure first
 
 Do **not** start with euros. First establish trustworthy resource/workload attribution using directly observable quantities:
 
-- rule evaluations
+- rule/query evaluations
 - samples processed
 - series touched/fetched
 - chunks fetched
@@ -71,10 +128,18 @@ Do **not** start with euros. First establish trustworthy resource/workload attri
 - query/rule execution time
 - CPU where available
 - output samples generated/ingested where useful
+- raw metric ingestion volume
+- active series/cardinality where available
+- query/alert/dashboard usage where available
+- retention/storage footprint where available
 
 The product should prefer statements such as:
 
 > `analytics` accounts for 37% of ruler execution workload and 42% of samples processed.
+
+and later:
+
+> `analytics` accounts for 28% of ingested samples and 37% of query/ruler workload.
 
 rather than claiming an exact monetary amount before the cost model is calibrated.
 
@@ -101,8 +166,8 @@ internal/
   analyzer/          # PromQL AST/static analysis
   loader/            # rule discovery
   tenancy/           # tenant and ownership attribution
-  meter/             # execution telemetry ingestion
-  attribution/       # map observations → rule → tenant → team
+  meter/             # execution + ingestion telemetry ingestion
+  attribution/       # map observations → rule/metric → tenant → team
   cost/              # workload/resource/economic model
   recommendation/    # remediation suggestions
   report/            # CLI/dashboard/report output
@@ -110,7 +175,7 @@ internal/
 
 ### Stable rule identity
 
-Every rule should have a stable identity composed of the fields needed to join rule definitions with runtime observations:
+Every rule should have a stable identity composed of the fields needed to join static definitions with runtime observations:
 
 ```go
 type RuleID struct {
@@ -121,11 +186,13 @@ type RuleID struct {
 }
 ```
 
-This identity should become the primary join key through the attribution pipeline.
+This identity should become the primary join key through the rule attribution pipeline.
 
 ### Metering model
 
-The meter should collect raw execution observations without deciding what they mean:
+The meter should collect raw observations without deciding what they mean.
+
+For runtime query/ruler observations, the initial conceptual shape remains:
 
 ```go
 type RuleExecution struct {
@@ -143,41 +210,138 @@ type RuleExecution struct {
 }
 ```
 
-The attribution layer turns these observations into daily/rolling aggregates at rule, tenant and team level.
+Later, introduce a backend-neutral observation model where fields are optional and source-specific metadata can be retained without contaminating the core attribution model.
+
+## Runtime evaluation statistics and Mimir logs
+
+Mimir should be treated as a first-class high-value telemetry source, not merely as a source of rule definitions.
+
+Mimir can emit **query/evaluation statistics** from components involved in query execution. Current Mimir configuration includes query-stat logging/metrics for ruler evaluations, and Mimir's query-frontend can expose query statistics such as estimated series count, fetched chunk/series/bytes information, query wall time, queue time, response time, cache hits/misses, split/shard counts, etc. citehttps://grafana.com/docs/mimir/latest/references/http-api/https://grafana.com/docs/mimir/latest/configure/configuration-parameters/
+
+The Mimir HTTP API supports requesting query statistics via `X-Mimir-Response-Query-Stats`, with results returned in the `Server-Timing` header. citehttps://grafana.com/docs/mimir/latest/references/http-api/
+
+Mimir also supports ruler query statistics via `-ruler.query-stats-enabled`, which reports ruler-query wall time as a per-tenant metric and an info-level log message. citehttps://grafana.com/docs/mimir/latest/configure/configuration-parameters/
+
+### Why this matters to Obscost
+
+These logs/statistics are potentially one of the most valuable inputs to the attribution engine because they can bridge:
+
+```text
+exact query / rule identity
+        ↓
+execution statistics
+        ↓
+observed workload
+        ↓
+tenant / team attribution
+```
+
+They may contain substantially richer information than a generic application log or high-level infrastructure metric.
+
+### Loki is a transport/storage detail, not a product dependency
+
+Mimir statistics may be shipped into Grafana Loki or another log aggregation system. Obscost should therefore **not depend on Loki as the canonical architecture**.
+
+Instead, the abstraction should be:
+
+```text
+Mimir / Prometheus logs & stats
+        ↓
+source adapter
+        ↓
+normalized execution observation
+        ↓
+attribution engine
+```
+
+A Loki adapter can be one implementation of the source interface because Mimir's own dashboards use Loki for slow-query logs. citehttps://grafana.com/docs/mimir/latest/manage/monitor-grafana-mimir/requirements/
+
+### Query text and query hash
+
+When available, retain both:
+
+- exact query text
+- stable query hash / source correlation identifier
+
+The exact query is valuable for explanation, static AST analysis, and remediation. A query hash is useful for correlating frontend and downstream/querier observations without relying solely on timestamps or string matching.
+
+### Be precise about "estimated bytes"
+
+Do not assume that one field called `estimated_bytes` exists or means "the exact bytes required to execute the query".
+
+Mimir exposes multiple size/cost-related statistics, including estimated series count and fetched byte/chunk/index statistics depending on the API/log source. These are different concepts and should remain distinct in the normalized data model. citehttps://grafana.com/docs/mimir/latest/references/http-api/
+
+The data model should therefore preserve the original statistic name/meaning rather than collapsing everything into a generic byte estimate.
+
+### Internal vs remote ruler evaluation
+
+This matters for attribution design. Mimir supports internal ruler evaluation, where the ruler runs its own querier, and remote evaluation, where the ruler delegates evaluation to the query-frontend. Remote evaluation can use query acceleration such as sharding. citehttps://grafana.com/docs/mimir/latest/references/architecture/components/ruler/
+
+Therefore the same logical rule can generate different execution telemetry depending on evaluation mode.
+
+Obscost should attribute at the **logical rule level** while retaining component/source information so it can avoid double-counting the same work when frontend and querier/ruler observations represent different stages of the same execution.
+
+This is an important early design constraint.
 
 ## Data sources / ingestion strategy
 
 Support multiple sources over time; avoid making the product depend on one telemetry format.
 
-### 1. Query logs — first prototype
+### 1. Mimir evaluation/query logs — preferred first runtime source
 
-Use query logs as the simplest way to bootstrap real observed execution data. Prometheus query logs identify recording/alerting rule groups and expose query execution information.
+Use Mimir query/evaluation statistics as the first serious runtime source when available.
 
 Desired pipeline:
 
 ```text
-query log
+Mimir stats/logs
   ↓
-parser
+source adapter
   ↓
-RuleExecution
+normalized execution observation
+  ↓
+RuleID / query identity
   ↓
 attribution
   ↓
 daily aggregates
 ```
 
-### 2. Mimir query statistics — richer observed cost
+This should be explored before building an elaborate generic telemetry collector because it may provide unusually rich data for the target backend.
 
-Use Mimir's query statistics to enrich attribution with dimensions such as samples processed, fetched series/chunks/bytes and query timing.
+### 2. Generic query logs — first portable fallback
 
-This should be the richer source for cost/workload modelling.
+Support Prometheus-compatible query logs and other backend-specific execution logs where they provide rule/query identity and useful statistics.
 
-### 3. Mimir / Prometheus metrics — infrastructure validation
+### 3. Mimir query statistics APIs
+
+Use Mimir APIs and response statistics where practical to enrich observations or calibrate the log-derived data.
+
+### 4. Mimir / Prometheus metrics — infrastructure validation
 
 Collect infrastructure-level signals such as ruler and querier CPU, memory, queueing, errors and related capacity metrics.
 
 The purpose is to validate that rule-level attribution correlates with real cluster resource consumption.
+
+### 5. Raw metric telemetry — later expansion
+
+Add ingestion/cardinality/usage sources after the query/ruler attribution path is proven.
+
+The raw-metric source layer should expose neutral observations such as:
+
+```text
+MetricIdentity
+Tenant
+Timestamp
+SamplesIngested
+ActiveSeries
+Cardinality
+BytesStored / estimated storage
+Retention
+UsageSignals
+```
+
+Only introduce fields that can actually be obtained from the target backend.
 
 ## Product milestones
 
@@ -348,6 +512,41 @@ not merely:
 
 > Which tenant owns it?
 
+### Milestone G — raw metric ingestion/cardinality attribution
+
+Extend the same attribution engine to raw metric production and storage.
+
+Initial output should answer:
+
+```text
+Tenant analytics
+
+Ingested samples:       28% of cluster
+Active series:          31% of cluster
+Storage footprint:      24% of cluster
+Low-use metrics:        17% of tenant samples
+```
+
+The first implementation should remain deliberately modest: identify high-impact raw metric sources, attribute them to tenants/teams, and surface usage/cardinality evidence.
+
+### Milestone H — unified metrics infrastructure economics
+
+Eventually provide a unified view:
+
+```text
+TOTAL METRICS INFRASTRUCTURE
+
+Ingestion / storage       57%
+Query / ruler compute     43%
+
+analytics
+  ingestion/storage       11.2%
+  query/ruler              8.4%
+  total                   19.6%
+```
+
+Only at this stage should a mature economic model become a major product surface.
+
 ## Cost model principles
 
 ### Do not lead with euros
@@ -369,13 +568,16 @@ Prefer a multidimensional workload model using:
 - execution time
 - CPU where available
 - evaluation frequency
+- ingestion volume
+- active series/cardinality
+- storage/retention where observable
 
 Then empirically calibrate relationships such as:
 
 ```text
-samples processed
+samples / bytes / series
       ↓
-execution time / CPU
+execution time / CPU / storage
       ↓
 cluster capacity
       ↓
@@ -391,6 +593,10 @@ Economic numbers should therefore be labelled as estimates and backed by observe
 ### Not just a PromQL linter
 
 Static linting remains useful, but existing ecosystem tooling already covers rule hygiene. The differentiator is attribution against observed workload.
+
+### Not a standalone cardinality manager
+
+Raw metric/cardinality optimisation is deliberately a later pillar because the market already contains strong offerings. Obscost should add this capability through the same workload attribution and ownership layer rather than becoming another clone of an existing cardinality explorer.
 
 ### Not an automatic PromQL rewriter
 
@@ -429,6 +635,7 @@ The most important evidence is not praise for the CLI. It is whether operators w
 2. credible attribution accuracy
 3. useful recommendations
 4. measurable before/after savings
+5. whether raw-metric attribution materially improves the value of the unified product
 
 The strongest signal is a customer discovering something like:
 
@@ -438,7 +645,7 @@ The strongest signal is a customer discovering something like:
 
 ### Weeks 1–2
 
-Build execution telemetry ingestion, preferably from query logs first. Store real observations locally and make them queryable.
+Build execution telemetry ingestion, with Mimir evaluation/query logs and stats as the preferred first source. Store real observations locally and make them queryable.
 
 ### Weeks 3–4
 
@@ -460,6 +667,8 @@ Build the GitHub Action / PR report for changed rules.
 
 Run against 3–5 real Mimir environments and use those results to calibrate the model and product positioning.
 
+Raw metric/cardinality attribution should begin only after the query/ruler attribution path produces reliable results in at least one real environment.
+
 ## Success metric for the next phase
 
 The most important near-term milestone is not adding PC-S07.
@@ -468,4 +677,8 @@ It is being able to reliably produce:
 
 > **Tenant X accounts for 37% of ruler workload, and these 12 rules explain 82% of it.**
 
-Once that works on real infrastructure, the project has moved from an interesting static analyzer toward a genuine workload attribution product.
+The next strategic milestone is to extend that same accounting model to ingestion/storage:
+
+> **Tenant X accounts for 37% of query/ruler workload and 28% of ingestion/storage workload.**
+
+Once both statements are trustworthy, Obscost is moving toward a complete metrics-infrastructure cost governance product rather than an expensive-query analyzer.
