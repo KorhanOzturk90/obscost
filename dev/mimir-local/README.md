@@ -12,12 +12,17 @@ instance, with a live ruler evaluating a real-world rule set, producing
 real metrics — rather than only static fixture files.
 
 **Not yet built here, and deliberately deferred:** the microservices split
-(distributor/ingester/querier/etc. as separate processes) and real
-multi-tenancy. Both are the planned next step, moving this into
-Kubernetes, where each Mimir component becomes its own Deployment and
-`-auth.multitenancy-enabled=true` becomes real. This rig is single-tenant
-(everything lands in Mimir's implicit `anonymous` tenant) and
-single-process on purpose, to keep the first pass simple.
+(distributor/ingester/querier/etc. as separate processes). That's the
+planned next step, moving this into Kubernetes, where each Mimir component
+becomes its own Deployment. This rig is single-process on purpose, to keep
+the first pass simple — but it **is** genuinely multi-tenant:
+`-auth.multitenancy-enabled=true`, every request requires `X-Scope-OrgID`,
+and two tenants are provisioned:
+
+- **`infra`** — holds the real self-monitoring data and the mixin's rules.
+- **`sandbox`** — deliberately empty (0 rule groups, no data), so you can
+  prove tenant isolation directly: query it and get nothing back, even
+  though `infra` right next to it is full of data.
 
 ## What's running
 
@@ -39,11 +44,13 @@ alertmanager config storage — chosen over the local-filesystem backend
 specifically so this config carries over to a real S3-compatible store on
 Kubernetes later. **Ruler storage is the one exception**: it uses Mimir's
 `local` backend (`-ruler-storage.backend=local`), scanning
-`mixin/rules/anonymous/*.yaml` directly, rather than S3. Mimir explicitly
-supports and documents this for a static, hand-provisioned rule set — it
-avoids needing `mimirtool` to push rules into an object-storage bucket
-just to load a fixed mixin. Revisit this if/when rule management needs to
-go through the ruler API instead.
+`mixin/rules/<tenant>/*.yaml` (`infra/` and `sandbox/`, per-tenant
+subdirectories — this is how Mimir's ruler expects local rule storage to
+be laid out once multi-tenancy is on) directly, rather than S3. Mimir
+explicitly supports and documents this for a static, hand-provisioned rule
+set — it avoids needing `mimirtool` to push rules into an object-storage
+bucket just to load a fixed mixin. Revisit this if/when rule management
+needs to go through the ruler API instead.
 
 ## First-time setup
 
@@ -70,8 +77,8 @@ until [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/ready)" 
 
 ## URLs
 
-- Grafana: <http://localhost:3000> (`admin` / `admin` — change or ignore, this is local-only; anonymous viewer access is also enabled)
-- Mimir HTTP API: <http://localhost:8080> (Prometheus-compatible query API under `/prometheus`, ruler under `/prometheus/api/v1/rules`, alertmanager under `/alertmanager`)
+- Grafana: <http://localhost:3000> (`admin` / `admin` — change or ignore, this is local-only; anonymous viewer access is also enabled). Its default datasource is the `infra` tenant; a second, non-default datasource points at `sandbox` — switch to it in a dashboard's datasource picker (the mixin's dashboards all expose one) to see the isolation firsthand.
+- Mimir HTTP API: <http://localhost:8080> (Prometheus-compatible query API under `/prometheus`, ruler under `/prometheus/api/v1/rules`, alertmanager under `/alertmanager`) — **every request needs an `X-Scope-OrgID: infra` or `X-Scope-OrgID: sandbox` header**, multi-tenancy is enforced (a request with no header gets `401`).
 - MinIO console: <http://localhost:9001> (`mimir` / `supersecret123`)
 - Alloy UI (scrape/remote_write debugging): <http://localhost:12345>
 
@@ -81,23 +88,34 @@ All credentials above are dev-only defaults, hardcoded in
 ## Verifying it's working
 
 ```bash
-# self-monitoring loop: Mimir ingesting metrics about itself
-curl -s 'http://localhost:8080/prometheus/api/v1/query?query=up' | jq
+# no tenant header -> rejected (multi-tenancy is enforced)
+curl -s -o /dev/null -w '%{http_code}\n' 'http://localhost:8080/prometheus/api/v1/query?query=up'   # expect 401
 
-# ruler picked up the mixin's rules (expect ~33 groups, ~244 rules, 0 errors)
-curl -s 'http://localhost:8080/prometheus/api/v1/rules' | jq '.data.groups | length'
+# self-monitoring loop: Mimir ingesting metrics about itself, landed in "infra"
+curl -s -H 'X-Scope-OrgID: infra' 'http://localhost:8080/prometheus/api/v1/query?query=up' | jq
+
+# tenant isolation: the exact same query against "sandbox" returns nothing
+curl -s -H 'X-Scope-OrgID: sandbox' 'http://localhost:8080/prometheus/api/v1/query?query=up' | jq '.data.result'   # expect []
+
+# ruler picked up the mixin's rules into "infra" (expect ~33 groups, ~244 rules, 0 errors)
+curl -s -H 'X-Scope-OrgID: infra' 'http://localhost:8080/prometheus/api/v1/rules' | jq '.data.groups | length'
+
+# "sandbox" has zero rule groups, on purpose
+curl -s -H 'X-Scope-OrgID: sandbox' 'http://localhost:8080/prometheus/api/v1/rules' | jq '.data.groups | length'   # expect 0
 
 # a recording rule producing real output (give it ~2 scrape/eval cycles after startup)
-curl -sG 'http://localhost:8080/prometheus/api/v1/query' \
+curl -sG -H 'X-Scope-OrgID: infra' 'http://localhost:8080/prometheus/api/v1/query' \
   --data-urlencode 'query=cluster_job:cortex_request_duration_seconds:99quantile' | jq
 
-# alertmanager reachable and has loaded the fallback config
-curl -s http://localhost:8080/alertmanager/api/v2/status | jq '.cluster.status'
+# alertmanager reachable and has loaded the fallback config (also tenant-scoped)
+curl -s -H 'X-Scope-OrgID: infra' http://localhost:8080/alertmanager/api/v2/status | jq '.cluster.status'
 ```
 
 In Grafana, open the **Mimir Mixin** folder — e.g. "Mimir / Overview" —
 and confirm panels render (may take a couple of minutes after first
-startup for enough scrape history to populate).
+startup for enough scrape history to populate) using the default `infra`
+datasource; switch the dashboard's `datasource` variable to the `sandbox`
+one to see the same panels come back empty.
 
 ## Stopping / resetting
 
@@ -108,8 +126,10 @@ docker compose down -v       # stop and wipe all state — start completely fres
 
 ## Known limitations of this pass
 
-- Single tenant only (`-auth.multitenancy-enabled=false`, everything under
-  the implicit `anonymous` tenant).
+- Only two tenants, one of them intentionally empty — not the full
+  scenario matrix (distinct synthetic load per tenant: cardinality, churn,
+  limit-hugging, etc.) that a real multi-tenant test rig would want. That
+  fuller matrix is still a separate, later task if/when it's needed.
 - Single process (`-target=all,alertmanager`) — no sharding, no real
   replication (`replication-factor=1` everywhere), not representative of
   how Mimir behaves under real multi-instance failure/rebalancing

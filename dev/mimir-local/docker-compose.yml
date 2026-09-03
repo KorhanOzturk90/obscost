@@ -44,7 +44,11 @@ services:
       # -target=all deliberately excludes alertmanager (it's not considered
       # "required for a functional instance") — must be added explicitly.
       - -target=all,alertmanager
-      - -auth.multitenancy-enabled=false
+      # Real multi-tenancy: every request (push, query, ruler, alertmanager)
+      # must carry X-Scope-OrgID. Two tenants are provisioned by
+      # fetch-mixin.sh: "infra" (self-monitoring data + the mixin's rules)
+      # and "sandbox" (deliberately empty, to prove tenant isolation).
+      - -auth.multitenancy-enabled=true
       - -server.http-listen-port=8080
       - -server.grpc-listen-port=9095
       # blocks + alertmanager storage: MinIO (S3-compatible), chosen so this

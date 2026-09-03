@@ -18,8 +18,11 @@ prometheus.scrape "mimir_self" {
 prometheus.remote_write "mimir" {
 	endpoint {
 		url = "http://mimir:8080/api/v1/push"
-		// Multitenancy is disabled on this Mimir (-auth.multitenancy-enabled=false),
-		// so no X-Scope-OrgID header is required — every request lands in the
-		// implicit "anonymous" tenant.
+		// Multitenancy is enabled — every write needs X-Scope-OrgID. Land
+		// self-monitoring data in the "infra" tenant, which also holds the
+		// mixin's rules (see fetch-mixin.sh).
+		headers = {
+			"X-Scope-OrgID" = "infra",
+		}
 	}
 }

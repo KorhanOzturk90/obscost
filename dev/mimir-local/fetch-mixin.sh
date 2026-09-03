@@ -18,10 +18,13 @@ API="https://api.github.com/repos/grafana/mimir/contents/operations/mimir-mixin-
 
 echo "Fetching mimir-mixin-compiled @ $MIXIN_REF into $OUT"
 rm -rf "$OUT"
-mkdir -p "$OUT/rules/anonymous" "$OUT/dashboards"
+# "infra" holds the mixin's real rules; "sandbox" is created empty on
+# purpose (0 rule groups) so it's there to prove tenant isolation
+# alongside "infra" once the stack is up.
+mkdir -p "$OUT/rules/infra" "$OUT/rules/sandbox" "$OUT/dashboards"
 
-curl -fsSL "$RAW/rules.yaml" -o "$OUT/rules/anonymous/recording-rules.yaml"
-curl -fsSL "$RAW/alerts.yaml" -o "$OUT/rules/anonymous/alerts.yaml"
+curl -fsSL "$RAW/rules.yaml" -o "$OUT/rules/infra/recording-rules.yaml"
+curl -fsSL "$RAW/alerts.yaml" -o "$OUT/rules/infra/alerts.yaml"
 
 # The dashboards/ directory has to be listed via the GitHub API (it's not a
 # single file we can curl directly); download each *.json it contains.
@@ -36,6 +39,7 @@ while IFS= read -r name; do
   count=$((count + 1))
 done <<< "$names"
 
-echo "Fetched $(wc -l < "$OUT/rules/anonymous/recording-rules.yaml") lines of recording rules,"
-echo "        $(wc -l < "$OUT/rules/anonymous/alerts.yaml") lines of alerting rules,"
+echo "Fetched $(wc -l < "$OUT/rules/infra/recording-rules.yaml") lines of recording rules,"
+echo "        $(wc -l < "$OUT/rules/infra/alerts.yaml") lines of alerting rules,"
+echo "        both loaded into tenant 'infra'; 'sandbox' tenant created empty."
 echo "        $count dashboards."

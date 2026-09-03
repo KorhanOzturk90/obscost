@@ -1,12 +1,29 @@
 apiVersion: 1
 
 datasources:
-  - name: Mimir
+  # Holds the real self-monitoring data + the mixin's rules — this is what
+  # the mixin's provisioned dashboards actually query.
+  - name: Mimir (infra tenant)
     type: prometheus
     access: proxy
     url: http://mimir:8080/prometheus
     isDefault: true
     jsonData:
       httpMethod: POST
-      # Multitenancy is disabled on this Mimir instance, so no
-      # X-Scope-OrgID header is required.
+      httpHeaderName1: X-Scope-OrgID
+    secureJsonData:
+      httpHeaderValue1: infra
+
+  # Deliberately empty tenant — point any panel/explore query at this
+  # datasource to confirm tenant isolation: it should return no data at
+  # all, even though "infra" right next to it has plenty.
+  - name: Mimir (sandbox tenant, empty — isolation check)
+    type: prometheus
+    access: proxy
+    url: http://mimir:8080/prometheus
+    isDefault: false
+    jsonData:
+      httpMethod: POST
+      httpHeaderName1: X-Scope-OrgID
+    secureJsonData:
+      httpHeaderValue1: sandbox
