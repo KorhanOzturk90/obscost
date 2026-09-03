@@ -30,7 +30,7 @@ and two tenants are provisioned:
 |---|---|---|
 | `mimir` | `grafana/mimir:3.2.0` | `-target=all,alertmanager` — query, ingest, ruler, alertmanager, compactor, everything in one process |
 | `minio` | `minio/minio:RELEASE.2025-09-07T16-13-09Z` | S3-compatible object storage for Mimir's blocks + alertmanager config |
-| `alloy` | `grafana/alloy:v1.19.2` | scrapes Mimir's own `/metrics` and remote-writes the samples back into Mimir — this is the "self-monitoring" loop |
+| `alloy` | `grafana/alloy:v1.19.2` | scrapes both Mimir's `/metrics` and its own `/metrics` (job `mimir` and job `alloy`), remote-writing both back into Mimir — Alloy monitors itself too, not just Mimir |
 | `grafana` | `grafana/grafana:11.5.2` | Prometheus datasource pointed at Mimir + the mixin's dashboards provisioned |
 
 Note on `-target=all,alertmanager`: Mimir's `-target=all` deliberately
@@ -77,7 +77,7 @@ until [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/ready)" 
 
 ## URLs
 
-- Grafana: <http://localhost:3000> (`admin` / `admin` — change or ignore, this is local-only; anonymous viewer access is also enabled). Its default datasource is the `infra` tenant; a second, non-default datasource points at `sandbox` — switch to it in a dashboard's datasource picker (the mixin's dashboards all expose one) to see the isolation firsthand.
+- Grafana: <http://localhost:3000> (`admin` / `admin` — change or ignore, this is local-only; anonymous access is also enabled, as **Editor**, not Grafana's usual anonymous-Viewer default — Viewer doesn't get the `datasources:explore` RBAC permission by default, so Explore would otherwise be invisible without logging in). Its default datasource is the `infra` tenant; a second, non-default datasource points at `sandbox` — switch to it in Explore or a dashboard's datasource picker (the mixin's dashboards all expose one) to see the isolation firsthand.
 - Mimir HTTP API: <http://localhost:8080> (Prometheus-compatible query API under `/prometheus`, ruler under `/prometheus/api/v1/rules`, alertmanager under `/alertmanager`) — **every request needs an `X-Scope-OrgID: infra` or `X-Scope-OrgID: sandbox` header**, multi-tenancy is enforced (a request with no header gets `401`).
 - MinIO console: <http://localhost:9001> (`mimir` / `supersecret123`)
 - Alloy UI (scrape/remote_write debugging): <http://localhost:12345>
@@ -93,6 +93,7 @@ curl -s -o /dev/null -w '%{http_code}\n' 'http://localhost:8080/prometheus/api/v
 
 # self-monitoring loop: Mimir ingesting metrics about itself, landed in "infra"
 curl -s -H 'X-Scope-OrgID: infra' 'http://localhost:8080/prometheus/api/v1/query?query=up' | jq
+# expect two results here: up{job="mimir"} and up{job="alloy"} — Alloy scrapes itself too
 
 # tenant isolation: the exact same query against "sandbox" returns nothing
 curl -s -H 'X-Scope-OrgID: sandbox' 'http://localhost:8080/prometheus/api/v1/query?query=up' | jq '.data.result'   # expect []

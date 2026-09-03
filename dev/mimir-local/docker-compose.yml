@@ -117,7 +117,11 @@ services:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
       GF_AUTH_ANONYMOUS_ENABLED: "true"
-      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      # Viewer (Grafana's usual anonymous default) does NOT get the
+      # datasources:explore RBAC permission by default — only Editor/Admin
+      # do — so anonymous sessions can't open Explore at all. Editor here,
+      # local-dev-only, purely so Explore works without logging in.
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Editor
     ports:
       - "3000:3000"
     volumes:

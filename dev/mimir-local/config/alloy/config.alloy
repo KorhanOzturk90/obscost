@@ -15,6 +15,21 @@ prometheus.scrape "mimir_self" {
 	forward_to      = [prometheus.remote_write.mimir.receiver]
 }
 
+// Alloy monitoring itself too: its own HTTP server (the same port the UI
+// at :12345 is served from) exposes /metrics with the usual Go runtime +
+// component-health metrics (e.g. alloy_build_info,
+// prometheus_remote_write_wal_samples_appended_total). "localhost" here is
+// Alloy's own container, not the host machine.
+prometheus.scrape "alloy_self" {
+	targets = [
+		{"__address__" = "localhost:12345"},
+	]
+	metrics_path    = "/metrics"
+	scrape_interval = "15s"
+	job_name        = "alloy"
+	forward_to      = [prometheus.remote_write.mimir.receiver]
+}
+
 prometheus.remote_write "mimir" {
 	endpoint {
 		url = "http://mimir:8080/api/v1/push"
