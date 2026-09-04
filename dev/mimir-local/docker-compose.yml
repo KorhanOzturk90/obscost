@@ -1,11 +1,11 @@
-# Local, single-tenant, self-monitoring Grafana Mimir stack for testing
-# promcost against real live rule/metric data. See README.md.
-#
-# Deliberately NOT modeling multi-tenancy or the microservices split here —
-# this is the "get one realistic Mimir instance running with real self-
-# monitoring metrics and the mixin's own rules/dashboards" step. Splitting
-# into per-component services and enabling multi-tenancy is the planned
-# next step, in Kubernetes.
+# Local, self-monitoring Grafana Mimir stack for testing promcost against
+# real live rule/metric data. See README.md. Real multi-tenancy IS enabled
+# (-auth.multitenancy-enabled=true below, two tenants: "infra"/"sandbox") —
+# it's the microservices split that's deliberately out of scope for this
+# first pass. This is the "get one realistic Mimir instance running with
+# real self-monitoring metrics and the mixin's own rules/dashboards" step;
+# splitting into per-component services is the planned next step, in
+# Kubernetes.
 
 services:
   minio:
@@ -15,8 +15,8 @@ services:
       MINIO_ROOT_USER: mimir
       MINIO_ROOT_PASSWORD: supersecret123
     ports:
-      - "9000:9000" # S3 API
-      - "9001:9001" # web console
+      - "127.0.0.1:9000:9000" # S3 API
+      - "127.0.0.1:9001:9001" # web console
     volumes:
       - minio-data:/data
     healthcheck:
@@ -87,8 +87,8 @@ services:
       - -ingester.ring.replication-factor=1
       - -store-gateway.sharding-ring.replication-factor=1
     ports:
-      - "8080:8080" # HTTP API (query, ruler, alertmanager, /metrics)
-      - "9095:9095" # gRPC (unused externally, exposed for debugging)
+      - "127.0.0.1:8080:8080" # HTTP API (query, ruler, alertmanager, /metrics)
+      - "127.0.0.1:9095:9095" # gRPC (unused externally, exposed for debugging)
     volumes:
       - mimir-data:/data
       - ./mixin/rules:/etc/mimir/rules:ro
@@ -109,7 +109,7 @@ services:
       - /etc/alloy/config.alloy
       - --server.http.listen-addr=0.0.0.0:12345
     ports:
-      - "12345:12345" # Alloy's own UI/API, handy for debugging the scrape/remote_write pipeline
+      - "127.0.0.1:12345:12345" # Alloy's own UI/API, handy for debugging the scrape/remote_write pipeline
     volumes:
       - ./config/alloy/config.alloy:/etc/alloy/config.alloy:ro
     depends_on:
@@ -127,7 +127,7 @@ services:
       # local-dev-only, purely so Explore works without logging in.
       GF_AUTH_ANONYMOUS_ORG_ROLE: Editor
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     volumes:
       - grafana-data:/var/lib/grafana
       - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
