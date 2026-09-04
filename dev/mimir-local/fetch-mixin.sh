@@ -28,7 +28,7 @@ curl -fsSL "$RAW/alerts.yaml" -o "$OUT/rules/infra/alerts.yaml"
 
 # The dashboards/ directory has to be listed via the GitHub API (it's not a
 # single file we can curl directly); download each *.json it contains.
-names=$(curl -fsSL "$API" | grep -o '"name": *"[^"]*\.json"' | sed -E 's/"name": *"([^"]*)"/\1/')
+names=$(curl -fsSL "$API" | grep -o '"name": *"[^"]*\.json"' | sed -E 's/"name": *"([^"]*)"/\1/') || true
 if [ -z "$names" ]; then
   echo "error: no dashboard JSON files found at $API — mixin-compiled layout may have changed" >&2
   exit 1
