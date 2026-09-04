@@ -1,0 +1,6 @@
+groups:
+  - name: g
+    interval: 1m
+    rules:
+      - record: revenue
+        expr: sum(rate(payment_total[5m]))

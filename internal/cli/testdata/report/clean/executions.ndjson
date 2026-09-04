@@ -1,0 +1,4 @@
+{"tenant":"analytics","namespace":"team-a/rules.yaml","group":"g","rule_name":"customer_activity","timestamp":"2026-01-01T00:00:00Z","duration_seconds":0.5,"samples_processed":1000}
+{"tenant":"analytics","namespace":"team-a/rules.yaml","group":"g","rule_name":"customer_activity","timestamp":"2026-01-01T00:01:00Z","duration_seconds":0.6,"samples_processed":1000}
+{"tenant":"analytics","namespace":"team-a/rules.yaml","group":"g","rule_name":"customer_activity","timestamp":"2026-01-01T00:02:00Z","duration_seconds":0.4,"samples_processed":1000}
+{"tenant":"payments","namespace":"team-b/rules.yaml","group":"g","rule_name":"revenue","timestamp":"2026-01-01T00:00:00Z","duration_seconds":0.2,"samples_processed":500}

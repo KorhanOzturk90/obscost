@@ -1,5 +1,6 @@
-// Package cli wires promcost's cobra command tree. Only `check` is
-// implemented this milestone; `scan`/`explain`/`rewrite`/`pint-config`
+// Package cli wires promcost's cobra command tree. `check` (static
+// analysis) and `report` (observed workload attribution, internal/
+// attribution) are implemented; `scan`/`explain`/`rewrite`/`pint-config`
 // reuse the same underlying analyzer.Analyzer with a different
 // loader/reporter later (see internal/cli/check.go's doc comment).
 package cli
@@ -39,6 +40,7 @@ func newRootCmd(stdout, stderr io.Writer) *cobra.Command {
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	root.AddCommand(newCheckCmd(stdout))
+	root.AddCommand(newReportCmd(stdout, stderr))
 	return root
 }
 

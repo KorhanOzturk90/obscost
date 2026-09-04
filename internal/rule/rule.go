@@ -4,6 +4,7 @@
 package rule
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -27,6 +28,38 @@ func (k Kind) String() string {
 	default:
 		return "unknown"
 	}
+}
+
+// ParseKind parses "recording" or "alerting".
+func ParseKind(s string) (Kind, error) {
+	switch s {
+	case "recording":
+		return KindRecording, nil
+	case "alerting":
+		return KindAlerting, nil
+	default:
+		return 0, fmt.Errorf("unknown rule kind %q, want recording|alerting", s)
+	}
+}
+
+// MarshalJSON renders Kind as its string form ("recording"/"alerting")
+// rather than the underlying int — matches Severity's precedent, and keeps
+// the encoding stable even if the iota ordering above ever changes.
+func (k Kind) MarshalJSON() ([]byte, error) {
+	return json.Marshal(k.String())
+}
+
+func (k *Kind) UnmarshalJSON(b []byte) error {
+	var str string
+	if err := json.Unmarshal(b, &str); err != nil {
+		return err
+	}
+	parsed, err := ParseKind(str)
+	if err != nil {
+		return err
+	}
+	*k = parsed
+	return nil
 }
 
 // SourceLocation identifies where a rule came from. File is a loader-defined
