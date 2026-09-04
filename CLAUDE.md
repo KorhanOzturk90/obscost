@@ -27,7 +27,9 @@ Try it against a fixture: `./bin/promcost check --dir testdata/corpus/positive/p
 
 ## What promcost is
 
-Cost attribution and load prediction for recording/alerting rules in multi-tenant Prometheus-compatible stacks (Mimir first). It is explicitly **not** a linter — pint owns rule hygiene (annotations, `for:`, owners, naming); promcost wraps pint and never re-implements a check pint already has (§6). Non-goals for v0: no UI, no daemon/SaaS control plane, no ServiceMonitor/PodMonitor cost prediction, no VictoriaMetrics/MetricsQL support.
+promcost attributes the resource use and cost of a shared, multi-tenant metrics platform (Grafana Mimir first) down to individual tenants, starting with recording/alerting rules — see `README.md` and `PRODUCT-DIRECTION.md` for the full thesis. It is explicitly **not** a linter — pint owns rule hygiene (annotations, `for:`, owners, naming); `check`'s static analysis wraps pint and never re-implements a check pint already has (§6), and `report`'s observed-workload attribution is a different, separate capability again (see "Repository status" above). Non-goals for v0: no UI, no daemon/SaaS control plane, no ServiceMonitor/PodMonitor cost prediction, no VictoriaMetrics/MetricsQL support.
+
+Everything from here down documents the original v0 spec's design for the static-analysis (`check`) side specifically — the `Meter`/live-tier/rewrite-engine material below is that spec's still-relevant future design, not yet built. It predates and is architecturally separate from `report`'s observed-workload-attribution layer, which is documented in "Repository status" above and in `docs/adr/`.
 
 ## Core architecture (§1)
 
@@ -67,7 +69,7 @@ Two distinct cost quantities are tracked per AST node (§5.3), and they must sta
 
 ## CLI surface (§2)
 
-Five subcommands, each with a distinct contract — don't blur them:
+Five subcommands from the original static-analysis spec, each with a distinct contract — don't blur them. (`report`, the observed-workload-attribution command, is a separate later addition not part of this original spec — see "Repository status" above.)
 
 | mode | input | network | zero-adoption? | purpose |
 |---|---|---|---|---|
