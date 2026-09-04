@@ -110,6 +110,12 @@ curl -sG -H 'X-Scope-OrgID: infra' 'http://localhost:8080/prometheus/api/v1/quer
 
 # alertmanager reachable and has loaded the fallback config (also tenant-scoped)
 curl -s -H 'X-Scope-OrgID: infra' http://localhost:8080/alertmanager/api/v2/status | jq '.cluster.status'
+
+# ruler query-stats logging (-ruler.query-stats-enabled=true): one logfmt
+# "query stats" line per rule evaluation on Mimir's stdout — this is the
+# real telemetry format internal/telemetry/mimirlogs parses. Expect one
+# line per rule per eval cycle, tagged user=infra, none for sandbox.
+docker compose logs mimir --since 2m | grep 'component=ruler' | grep 'msg="query stats"' | head -3
 ```
 
 In Grafana, open the **Mimir Mixin** folder — e.g. "Mimir / Overview" —

@@ -78,6 +78,10 @@ services:
       - -ruler.enable-api=true
       - -ruler.rule-path=/data/ruler
       - -ruler.alertmanager-url=http://localhost:8080/alertmanager
+      # Per-evaluation query-stats logging (logfmt, one "query stats" line
+      # per rule evaluation on stdout) — the real-world telemetry source
+      # promcost's internal/telemetry/mimirlogs parses. Off by default.
+      - -ruler.query-stats-enabled=true
       - -compactor.data-dir=/data/compactor
       # single-binary instance: nothing else to replicate/shard to.
       - -ingester.ring.replication-factor=1
