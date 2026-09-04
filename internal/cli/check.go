@@ -13,21 +13,29 @@ import (
 	"github.com/KorhanOzturk90/obscost/internal/config"
 	"github.com/KorhanOzturk90/obscost/internal/limits"
 	"github.com/KorhanOzturk90/obscost/internal/loader/dir"
+	"github.com/KorhanOzturk90/obscost/internal/meter"
 	"github.com/KorhanOzturk90/obscost/internal/report"
 	"github.com/KorhanOzturk90/obscost/internal/rule"
 	"github.com/KorhanOzturk90/obscost/internal/tenancy"
 )
 
 // newCheckCmd wires `check`: config.Load -> tenancy resolver -> limits
-// provider -> dir.Loader -> analyzer.Analyzer (checks.All()) -> md
-// reporter -> exit code. `scan` (not built this milestone) will reuse the
-// same Analyzer and check Registry with a CRD/ruler-API Loader and a
-// different Reporter/flags in its place.
+// provider -> meter.New (unless --offline or no backend.url) -> dir.Loader
+// -> analyzer.Analyzer (checks.All()) -> md reporter -> exit code. `scan`
+// (not built this milestone) will reuse the same Analyzer and check
+// Registry with a CRD/ruler-API Loader and a different Reporter/flags in
+// its place.
+//
+// No PC-L0x check is registered yet (checks.All() is still static-tier
+// only), so a constructed Meter has no functional effect on findings this
+// milestone — its only visible effect today is the --strict/exit-code-3
+// backend-reachability contract below.
 func newCheckCmd(stdout io.Writer) *cobra.Command {
 	var (
 		dirPath    string
 		configPath string
 		offline    bool
+		strict     bool
 		failOn     string
 	)
 
@@ -39,6 +47,7 @@ func newCheckCmd(stdout io.Writer) *cobra.Command {
 				dir:        dirPath,
 				configPath: configPath,
 				offline:    offline,
+				strict:     strict,
 				failOn:     failOn,
 			})
 		},
@@ -46,7 +55,8 @@ func newCheckCmd(stdout io.Writer) *cobra.Command {
 
 	cmd.Flags().StringVar(&dirPath, "dir", "", "directory of rule files to check (required)")
 	cmd.Flags().StringVar(&configPath, "config", "", "path to promcost.yaml")
-	cmd.Flags().BoolVar(&offline, "offline", false, "skip live/fleet-tier checks (reserved; a no-op until a live tier ships)")
+	cmd.Flags().BoolVar(&offline, "offline", false, "skip live-tier checks and never contact backend.url")
+	cmd.Flags().BoolVar(&strict, "strict", false, "exit 3 if backend.url is configured but unreachable, instead of degrading to static-only")
 	cmd.Flags().StringVar(&failOn, "fail-on", "error", "minimum severity that causes a non-zero exit: warn|error")
 	if err := cmd.MarkFlagRequired("dir"); err != nil {
 		panic(err) // programmer error: flag name typo
@@ -59,6 +69,7 @@ type checkOptions struct {
 	dir        string
 	configPath string
 	offline    bool
+	strict     bool
 	failOn     string
 }
 
@@ -80,6 +91,11 @@ func runCheck(ctx context.Context, stdout io.Writer, opts checkOptions) error {
 	resolver := tenancy.NewResolver(cfg.Tenancy)
 
 	limitsProvider, err := limits.NewChainProvider(ctx, cfg.Limits.Sources)
+	if err != nil {
+		return err
+	}
+
+	m, err := buildMeter(ctx, stdout, cfg, opts)
 	if err != nil {
 		return err
 	}
@@ -108,6 +124,7 @@ func runCheck(ctx context.Context, stdout io.Writer, opts checkOptions) error {
 	findings, err := analyzer.New(reg).Run(ctx, rules, analyzer.CheckContext{
 		Config: cfg,
 		Limits: limitsProvider,
+		Meter:  m,
 	})
 	if err != nil {
 		return err
@@ -130,6 +147,33 @@ func runCheck(ctx context.Context, stdout io.Writer, opts checkOptions) error {
 		return &exitError{code: 2, err: fmt.Errorf("findings at or above severity %s", failOnSeverity)}
 	}
 	return nil
+}
+
+// buildMeter constructs and probes the real Meter when a backend is
+// configured and --offline wasn't passed. A construction or probe failure
+// degrades to static-only (Meter: nil) with a warning printed to stdout,
+// unless --strict was passed, in which case it's exit code 3 (spec §2:
+// "backend unreachable... check mode degrades to static-only... unless
+// --strict").
+func buildMeter(ctx context.Context, stdout io.Writer, cfg config.Config, opts checkOptions) (meter.Meter, error) {
+	if opts.offline || cfg.Backend.URL == "" {
+		return nil, nil
+	}
+
+	m, err := meter.New(cfg.Backend, cfg.Tenancy.Header, cfg.Checks.Thresholds.PresenceWindow.Duration())
+	if err == nil {
+		if prober, ok := m.(meter.Prober); ok {
+			err = prober.Probe(ctx, "")
+		}
+	}
+	if err != nil {
+		if opts.strict {
+			return nil, &exitError{code: 3, err: fmt.Errorf("backend unreachable: %w", err)}
+		}
+		_, _ = fmt.Fprintln(stdout, "warning: backend unreachable, continuing with static-only checks:", err)
+		return nil, nil
+	}
+	return m, nil
 }
 
 func tenantsOf(rules []rule.AnnotatedRule) []string {

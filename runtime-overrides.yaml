@@ -1,0 +1,8 @@
+defaults:
+  max_fetched_series_per_query: 100000
+  max_fetched_chunk_bytes_per_query: 500000000
+  ruler_max_rules_per_rule_group: 20
+  ruler_max_rule_groups_per_tenant: 100
+
+overrides:
+  default: {}   # inherits defaults above as-is; add tenant-specific keys here to override
