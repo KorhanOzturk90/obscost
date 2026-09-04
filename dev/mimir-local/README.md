@@ -93,7 +93,7 @@ curl -s -o /dev/null -w '%{http_code}\n' 'http://localhost:8080/prometheus/api/v
 
 # self-monitoring loop: Mimir ingesting metrics about itself, landed in "infra"
 curl -s -H 'X-Scope-OrgID: infra' 'http://localhost:8080/prometheus/api/v1/query?query=up' | jq
-# expect two results here: up{job="mimir"} and up{job="alloy"} — Alloy scrapes itself too
+# expect two results here: up{job="mimir-local/mimir"} and up{job="alloy"} — Alloy scrapes itself too
 
 # tenant isolation: the exact same query against "sandbox" returns nothing
 curl -s -H 'X-Scope-OrgID: sandbox' 'http://localhost:8080/prometheus/api/v1/query?query=up' | jq '.data.result'   # expect []
@@ -141,3 +141,13 @@ docker compose down -v       # stop and wipe all state — start completely fres
   being notified of anything.
 - `promcost` itself isn't pointed at this yet — that's a deliberate
   follow-up, not done here.
+- The mixin dashboards are built for Kubernetes-SD-style labeling: they
+  populate their `$cluster`/`$namespace` template variables from
+  `cortex_build_info`'s `cluster`/`namespace` labels, and every panel query
+  filters on `job=~"($namespace)/(component-regex)"` — i.e. `job` is
+  expected to already be namespace-prefixed. Alloy has no Kubernetes SD
+  here to supply any of that automatically, so `config/alloy/config.alloy`
+  sets it by hand (`cluster="local"`, `namespace="mimir-local"`,
+  `job_name="mimir-local/mimir"`). Without it, every dashboard panel shows
+  "No data" even though Mimir is ingesting and querying fine — a mismatch
+  between exported labels and mixin assumptions, not a broken pipeline.

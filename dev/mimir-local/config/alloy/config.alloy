@@ -5,13 +5,21 @@
 // querier, compactor, ruler, etc. components (all exposed on one process
 // in single-binary/monolithic mode).
 
+// The mixin dashboards assume Kubernetes-style label conventions: a
+// "cluster" label, a "namespace" label, and a "job" label namespace-prefixed
+// as "<namespace>/<component>" (e.g. their template variables and every
+// panel query filter on job=~"($namespace)/(component-regex)"). Alloy has no
+// Kubernetes SD here to supply those automatically, so they're set by hand —
+// without them the dashboards' $cluster/$namespace variables stay empty and
+// every panel's job regex fails to match, even though Mimir is ingesting
+// fine (see dev/mimir-local/README.md troubleshooting note).
 prometheus.scrape "mimir_self" {
 	targets = [
-		{"__address__" = "mimir:8080"},
+		{"__address__" = "mimir:8080", "cluster" = "local", "namespace" = "mimir-local"},
 	]
 	metrics_path    = "/metrics"
 	scrape_interval = "15s"
-	job_name        = "mimir"
+	job_name        = "mimir-local/mimir"
 	forward_to      = [prometheus.remote_write.mimir.receiver]
 }
 
