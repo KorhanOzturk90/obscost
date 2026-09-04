@@ -60,11 +60,35 @@ func TestReport_Unmatched(t *testing.T) {
 	}
 }
 
-func TestReport_MalformedTelemetry(t *testing.T) {
+func TestReport_MalformedTelemetry_DefaultWarnsAndProceeds(t *testing.T) {
+	// A telemetry read error is routine, expected output (an unmatched or
+	// ambiguous mimirlogs line is a normal thing for real ruler logs to
+	// contain — see internal/cli/report.go's comment on this). report is
+	// informational, not a pass/fail gate like check, so by default it
+	// warns and still renders whatever did parse rather than discarding a
+	// mostly-good report over one bad line.
+	stdout, stderr, code := run("report",
+		"--dir", "testdata/report/malformed-telemetry/rules",
+		"--telemetry", "testdata/report/malformed-telemetry/executions.ndjson",
+		"--config", "testdata/report/malformed-telemetry/promcost.yaml",
+	)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0. stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "warning: telemetry record skipped") {
+		t.Errorf("expected a skip warning in stdout, got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "Total executions: 1") {
+		t.Errorf("expected the one valid line to still be reported, got:\n%s", stdout)
+	}
+}
+
+func TestReport_MalformedTelemetry_Strict(t *testing.T) {
 	_, stderr, code := run("report",
 		"--dir", "testdata/report/malformed-telemetry/rules",
 		"--telemetry", "testdata/report/malformed-telemetry/executions.ndjson",
 		"--config", "testdata/report/malformed-telemetry/promcost.yaml",
+		"--strict",
 	)
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1. stderr=%s", code, stderr)

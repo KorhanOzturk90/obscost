@@ -33,6 +33,7 @@ func newReportCmd(stdout io.Writer) *cobra.Command {
 		configPath    string
 		format        string
 		since         string
+		strict        bool
 	)
 
 	cmd := &cobra.Command{
@@ -46,6 +47,7 @@ func newReportCmd(stdout io.Writer) *cobra.Command {
 				configPath:    configPath,
 				format:        format,
 				since:         since,
+				strict:        strict,
 			})
 		},
 	}
@@ -56,6 +58,7 @@ func newReportCmd(stdout io.Writer) *cobra.Command {
 	cmd.Flags().StringVar(&configPath, "config", "", "path to promcost.yaml")
 	cmd.Flags().StringVar(&format, "format", "md", "output format: md|json")
 	cmd.Flags().StringVar(&since, "since", "", "only include executions at or after this long ago (e.g. 24h, 7d, 2w); empty means no filtering")
+	cmd.Flags().BoolVar(&strict, "strict", false, "fail instead of warning when telemetry records can't be read/matched (e.g. an unmatched or ambiguous mimirlogs line)")
 	if err := cmd.MarkFlagRequired("dir"); err != nil {
 		panic(err) // programmer error: flag name typo
 	}
@@ -73,6 +76,7 @@ type reportOptions struct {
 	configPath    string
 	format        string
 	since         string
+	strict        bool
 }
 
 func runReport(ctx context.Context, stdout io.Writer, opts reportOptions) error {
@@ -120,11 +124,22 @@ func runReport(ctx context.Context, stdout io.Writer, opts reportOptions) error 
 	if err != nil {
 		return err
 	}
+	// Unlike a --dir load error (a rule file that's actually broken, which
+	// stays fatal below), a telemetry read error is routine, expected
+	// output: an unmatched or ambiguous mimirlogs line (see that package's
+	// doc comment) is a normal thing for real ruler logs to contain, not a
+	// sign something is broken. report is an informational command, not a
+	// pass/fail gate the way check is — by default it warns and renders
+	// whatever did parse, rather than discarding a mostly-good report over
+	// a handful of expected skips. --strict opts back into the stricter,
+	// check-like "any read problem is fatal" behavior.
 	if len(readErrs) > 0 {
 		for _, re := range readErrs {
-			_, _ = fmt.Fprintln(stdout, "telemetry read error:", re.Error())
+			_, _ = fmt.Fprintln(stdout, "warning: telemetry record skipped:", re.Error())
 		}
-		return fmt.Errorf("%d telemetry record(s) failed to read", len(readErrs))
+		if opts.strict {
+			return fmt.Errorf("%d telemetry record(s) failed to read (--strict)", len(readErrs))
+		}
 	}
 
 	if sinceDuration > 0 {
