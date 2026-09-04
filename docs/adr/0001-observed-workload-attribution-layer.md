@@ -167,16 +167,17 @@ definitions already loaded from `--dir`.
 
 ```mermaid
 flowchart TD
-    L["Ruler log line:\ntenant + raw query text\n(no rule name!)"] --> IDX["Look up that exact query text\namong this tenant's loaded rules"]
+    L["Ruler log line:\ntenant + raw query text\n(no rule name!)"] --> P["Parse the query text,\nprint its canonical AST form\n(not a raw-text comparison —\nsee the note below)"]
+    P --> IDX["Look up that canonical form\namong this tenant's loaded rules\n(also indexed by canonical form)"]
     IDX -->|"exactly one match"| OK["Recovered identity\n-> full RuleExecution"]
     IDX -->|"no match"| E1["Rejected: no matching rule\n(execution dropped, reported)"]
     IDX -->|"two or more identical matches"| E2["Rejected: ambiguous\n(execution dropped, reported)"]
 ```
 
-**Decision:** match by exact text, scoped to the tenant the log line says
-it belongs to. If the text matches more than one loaded rule (two rules
-that happen to share identical PromQL), refuse to pick one — reject that
-line instead, with a clear reason.
+**Decision:** match by text, scoped to the tenant the log line says it
+belongs to. If the text matches more than one loaded rule (two rules that
+happen to share identical PromQL), refuse to pick one — reject that line
+instead, with a clear reason.
 
 **Why:** guessing which of two identical-looking rules produced an
 execution would silently attribute workload to the wrong rule. That's
@@ -184,11 +185,36 @@ exactly the kind of confidently-wrong output the "conservative, explainable"
 principle rules out. A dropped, explained execution is a far smaller
 problem than a wrongly-attributed one.
 
-**Trade-off:** two rules with byte-for-byte identical expressions in the
-same tenant can't currently be told apart from this log alone. In practice
-that's rare (it usually means genuinely duplicated rules, which is itself
-worth surfacing some other way) — accepted as a known limitation rather
-than solved with a heuristic.
+**A real bug this surfaced, caught by testing against a live Mimir
+instance instead of only hand-written fixtures:** "match by text" first
+meant comparing the log's raw `query` field against each rule's raw YAML
+`expr` text, byte for byte. Against real ruler output, that matched almost
+nothing — 289 out of 290 real query-stats log lines failed to match, not
+because the rules were missing, but because they weren't the same text.
+The reason: Prometheus's rule engine doesn't query using the rule file's
+original source text — it queries using its *parsed expression's own
+`String()` form*. A mixin author writing
+`sum(rate(m[1m])) by (cluster, job)` shows up in the real log as `sum by
+(cluster, job) (rate(m[1m]))` — the aggregation modifier gets reprinted in
+a different position. Same meaning, different bytes. **The fix: parse both
+sides and compare their canonical AST string, not the raw source text.**
+After that fix, the same real capture went from 289 unmatched lines to 12
+— and every one of those 12 was a genuine ambiguous-match case (see
+below), not a false negative. This is exactly why decision 4 shipped a
+portable format before a real-log parser: this is precisely the kind of
+subtly-wrong field mapping that's cheap to catch early and expensive to
+discover in someone else's production output.
+
+**Trade-off:** two rules with byte-for-byte identical *canonical*
+expressions in the same tenant can't be told apart from this log alone.
+The same live capture that validated the fix above also showed this isn't
+a rare, theoretical edge case: roughly 4% of real query-stats lines hit it
+— Mimir's own mixin genuinely does define pairs of alert rules (e.g. a
+warning/critical severity pair) that share byte-identical PromQL. Accepted
+as a known limitation rather than solved with a heuristic, on the same
+"don't guess" reasoning as the decision itself — but worth knowing this
+isn't a corner case that rarely bites; it's a routine, expected shape of
+real output.
 
 ### 6. This layer doesn't talk to the static analyzer — yet
 

@@ -11,9 +11,21 @@ import (
 	"github.com/KorhanOzturk90/obscost/internal/rule"
 )
 
-func def(tenant, namespace, group, name, expr string) rule.AnnotatedRule {
+// def builds a test rule.AnnotatedRule with AST populated by actually
+// parsing expr — matching what every real loader (internal/loader/dir)
+// guarantees. A hand-built fixture that skipped this would panic in
+// buildExprIndex, same as production code would if a loader ever produced
+// an AnnotatedRule with a nil AST: that's meant to be an impossible state,
+// not one this package defends against.
+func def(t *testing.T, tenant, namespace, group, name, expr string) rule.AnnotatedRule {
+	t.Helper()
+	ast, err := promqlParser.ParseExpr(expr)
+	if err != nil {
+		t.Fatalf("def: parse expr %q: %v", expr, err)
+	}
 	return rule.AnnotatedRule{
 		Rule:     rule.Rule{Kind: rule.KindRecording, Record: name, Expr: expr},
+		AST:      ast,
 		Tenant:   tenant,
 		Group:    rule.RuleGroupMeta{Name: group},
 		Location: rule.SourceLocation{File: namespace, Group: group, Rule: name},
@@ -45,7 +57,7 @@ const (
 
 func TestRead_LocalEvaluation_FullStats(t *testing.T) {
 	defs := []rule.AnnotatedRule{
-		def("analytics", "team-a/rules.yaml", "g", "customer_activity", "sum(rate(http_requests_total[5m]))"),
+		def(t, "analytics", "team-a/rules.yaml", "g", "customer_activity", "sum(rate(http_requests_total[5m]))"),
 	}
 	path := writeLog(t, localEvalLine)
 
@@ -88,7 +100,7 @@ func TestRead_LocalEvaluation_FullStats(t *testing.T) {
 
 func TestRead_RemoteEvaluation_NoStatsFields(t *testing.T) {
 	defs := []rule.AnnotatedRule{
-		def("payments", "team-b/rules.yaml", "g", "revenue", "sum(rate(payment_total[5m]))"),
+		def(t, "payments", "team-b/rules.yaml", "g", "revenue", "sum(rate(payment_total[5m]))"),
 	}
 	path := writeLog(t, remoteEvalLine)
 
@@ -114,7 +126,7 @@ func TestRead_RemoteEvaluation_NoStatsFields(t *testing.T) {
 
 func TestRead_NonRulerLine_SkippedSilently(t *testing.T) {
 	defs := []rule.AnnotatedRule{
-		def("analytics", "team-a/rules.yaml", "g", "customer_activity", "sum(rate(http_requests_total[5m]))"),
+		def(t, "analytics", "team-a/rules.yaml", "g", "customer_activity", "sum(rate(http_requests_total[5m]))"),
 	}
 	path := writeLog(t, unrelatedLine, localEvalLine)
 
@@ -154,8 +166,8 @@ func TestRead_AmbiguousDefinition(t *testing.T) {
 	// Two definitions in the same tenant with byte-identical Expr text —
 	// refuse to guess which one produced the execution.
 	defs := []rule.AnnotatedRule{
-		def("analytics", "team-a/rules.yaml", "g1", "rule_one", "sum(rate(http_requests_total[5m]))"),
-		def("analytics", "team-a/rules2.yaml", "g2", "rule_two", "sum(rate(http_requests_total[5m]))"),
+		def(t, "analytics", "team-a/rules.yaml", "g1", "rule_one", "sum(rate(http_requests_total[5m]))"),
+		def(t, "analytics", "team-a/rules2.yaml", "g2", "rule_two", "sum(rate(http_requests_total[5m]))"),
 	}
 	path := writeLog(t, localEvalLine)
 
@@ -184,7 +196,7 @@ func TestRead_MalformedApparentQueryStatsLine(t *testing.T) {
 	// number and keep parsing the valid line that follows.
 	malformed := `ts=2026-01-15T10:32:00.000000000Z level=info user=analytics msg="query stats" component=ruler ="badvalue"`
 	defs := []rule.AnnotatedRule{
-		def("analytics", "team-a/rules.yaml", "g", "customer_activity", "sum(rate(http_requests_total[5m]))"),
+		def(t, "analytics", "team-a/rules.yaml", "g", "customer_activity", "sum(rate(http_requests_total[5m]))"),
 	}
 	path := writeLog(t, malformed, localEvalLine)
 
@@ -207,5 +219,41 @@ func TestRead_NonexistentFile(t *testing.T) {
 	_, _, err := New(Config{Path: "/nonexistent/path/ruler.log"}).Read(context.Background())
 	if err == nil {
 		t.Fatal("expected a top-level error for a missing file")
+	}
+}
+
+// Regression test for a real bug found running this package against a live
+// Mimir instance (not a hypothetical): Prometheus's rule engine queries
+// using its parsed expression's own String() form, not the rule file's
+// original source text. A mixin author writing the aggregation modifier
+// after the expression (`sum(rate(m[1m])) by (cluster, job)`) shows up in
+// the ruler's actual query-stats log with the modifier reprinted before it
+// (`sum by (cluster, job) (rate(m[1m]))`) — semantically identical PromQL,
+// byte-for-byte different source text. Comparing raw text here matched
+// almost nothing against real ruler output; this asserts the fix (compare
+// each side's canonical AST string instead) actually holds.
+func TestRead_MatchesDespiteAggregationModifierReprinting(t *testing.T) {
+	defs := []rule.AnnotatedRule{
+		def(t, "analytics", "team-a/rules.yaml", "g", "avg_latency",
+			"sum(rate(request_duration_seconds_sum[1m])) by (cluster, job) / sum(rate(request_duration_seconds_count[1m])) by (cluster, job)"),
+	}
+	// This is exactly the reprinted form the real ruler logs for the
+	// AnnotatedRule.Expr above — confirmed by actually parsing both with
+	// promql/parser and comparing their String() output.
+	line := `ts=2026-01-15T10:33:00.000000000Z level=info user=analytics msg="query stats" component=ruler query="sum by (cluster, job) (rate(request_duration_seconds_sum[1m])) / sum by (cluster, job) (rate(request_duration_seconds_count[1m]))" query_wall_time_seconds=0.01 fetched_series_count=10 fetched_chunk_bytes=100 fetched_chunks_count=10 result_series_count=1`
+	path := writeLog(t, line)
+
+	execs, readErrs, err := New(Config{Path: path, Definitions: defs}).Read(context.Background())
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if len(readErrs) != 0 {
+		t.Fatalf("readErrs = %+v, want none — raw-text mismatch must not cause a no-match error here", readErrs)
+	}
+	if len(execs) != 1 {
+		t.Fatalf("len(execs) = %d, want 1", len(execs))
+	}
+	if execs[0].RuleName != "avg_latency" {
+		t.Errorf("RuleName = %q, want avg_latency (the reprinted query text should still resolve to the original rule)", execs[0].RuleName)
 	}
 }
