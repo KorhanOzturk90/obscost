@@ -25,7 +25,13 @@ import (
 // (rule definitions) -> ndjson.Source (rule executions) -> optional --since
 // filter -> attribution.Aggregate -> workload reporter. Unlike `check`, this
 // needs no live backend at all — internal/meter is not involved.
-func newReportCmd(stdout io.Writer) *cobra.Command {
+//
+// stdout carries only the rendered report body (md or json) — nothing
+// else is ever written there, specifically so `--format json | jq` (or any
+// other consumer expecting stdout to be exactly one parseable document)
+// keeps working even when warnings are printed. Load errors and telemetry
+// read-error warnings go to stderr instead.
+func newReportCmd(stdout, stderr io.Writer) *cobra.Command {
 	var (
 		dirPath       string
 		telemetryPath string
@@ -40,7 +46,7 @@ func newReportCmd(stdout io.Writer) *cobra.Command {
 		Use:   "report",
 		Short: "Report observed rule-execution workload by tenant, joined against rule definitions",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runReport(cmd.Context(), stdout, reportOptions{
+			return runReport(cmd.Context(), stdout, stderr, reportOptions{
 				dir:           dirPath,
 				telemetryPath: telemetryPath,
 				telemetryFmt:  telemetryFmt,
@@ -79,7 +85,7 @@ type reportOptions struct {
 	strict        bool
 }
 
-func runReport(ctx context.Context, stdout io.Writer, opts reportOptions) error {
+func runReport(ctx context.Context, stdout, stderr io.Writer, opts reportOptions) error {
 	var sinceDuration time.Duration
 	if opts.since != "" {
 		d, err := parseSinceDuration(opts.since)
@@ -111,7 +117,7 @@ func runReport(ctx context.Context, stdout io.Writer, opts reportOptions) error 
 	}
 	if len(loadErrs) > 0 {
 		for _, le := range loadErrs {
-			_, _ = fmt.Fprintln(stdout, "load error:", le.Error())
+			_, _ = fmt.Fprintln(stderr, "load error:", le.Error())
 		}
 		return fmt.Errorf("%d rule file(s) failed to load", len(loadErrs))
 	}
@@ -135,7 +141,7 @@ func runReport(ctx context.Context, stdout io.Writer, opts reportOptions) error 
 	// check-like "any read problem is fatal" behavior.
 	if len(readErrs) > 0 {
 		for _, re := range readErrs {
-			_, _ = fmt.Fprintln(stdout, "warning: telemetry record skipped:", re.Error())
+			_, _ = fmt.Fprintln(stderr, "warning: telemetry record skipped:", re.Error())
 		}
 		if opts.strict {
 			return fmt.Errorf("%d telemetry record(s) failed to read (--strict)", len(readErrs))

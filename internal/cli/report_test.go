@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -75,11 +76,43 @@ func TestReport_MalformedTelemetry_DefaultWarnsAndProceeds(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0. stdout=%s stderr=%s", code, stdout, stderr)
 	}
-	if !strings.Contains(stdout, "warning: telemetry record skipped") {
-		t.Errorf("expected a skip warning in stdout, got:\n%s", stdout)
+	// Warnings must go to stderr, never stdout — stdout carries only the
+	// rendered report body (see TestReport_JSONFormat_ValidDespiteWarnings
+	// for why this is a hard requirement, not a style preference).
+	if strings.Contains(stdout, "warning:") {
+		t.Errorf("warning text leaked into stdout, want it on stderr only. stdout:\n%s", stdout)
+	}
+	if !strings.Contains(stderr, "warning: telemetry record skipped") {
+		t.Errorf("expected a skip warning on stderr, got:\n%s", stderr)
 	}
 	if !strings.Contains(stdout, "Total executions: 1") {
 		t.Errorf("expected the one valid line to still be reported, got:\n%s", stdout)
+	}
+}
+
+// Regression test for a real bug: warnings used to print to stdout, which
+// silently corrupted --format json output (a plain-text warning line
+// followed by a JSON object is not valid JSON) whenever a telemetry
+// source had any read errors — exactly the routine case mimirlogs hits on
+// real Mimir output (see internal/telemetry/mimirlogs's package doc).
+// Found by actually piping real output through a JSON parser, not just
+// checking exit codes.
+func TestReport_JSONFormat_ValidDespiteWarnings(t *testing.T) {
+	stdout, stderr, code := run("report",
+		"--dir", "testdata/report/malformed-telemetry/rules",
+		"--telemetry", "testdata/report/malformed-telemetry/executions.ndjson",
+		"--config", "testdata/report/malformed-telemetry/promcost.yaml",
+		"--format", "json",
+	)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0. stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stderr, "warning:") {
+		t.Fatalf("test setup problem: expected this fixture to still produce a warning, got stderr:\n%s", stderr)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(stdout), &parsed); err != nil {
+		t.Fatalf("stdout is not valid JSON despite a warning being emitted: %v\nstdout:\n%s", err, stdout)
 	}
 }
 
