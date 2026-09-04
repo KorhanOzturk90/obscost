@@ -1,0 +1,11 @@
+# Fallback Alertmanager config, used for any tenant (here: "infra" and
+# "sandbox") that hasn't pushed its own config via the Alertmanager API.
+# Just enough for the ruler's alerting rules to reach a receiver and go
+# "firing" somewhere observable — no real notification integration.
+# Local dev only.
+route:
+  receiver: default
+  group_by: ["alertname"]
+
+receivers:
+  - name: default

@@ -33,3 +33,6 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# dev/mimir-local: fetched at setup time by fetch-mixin.sh, not vendored
+dev/mimir-local/mixin/

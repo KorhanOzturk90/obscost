@@ -1,0 +1,51 @@
+// Self-monitoring loop: scrape Mimir's own /metrics endpoint and
+// remote_write those samples right back into the same Mimir instance.
+// This is what makes the mixin's dashboards/rules have anything to show —
+// Mimir ends up ingesting timeseries about its own distributor, ingester,
+// querier, compactor, ruler, etc. components (all exposed on one process
+// in single-binary/monolithic mode).
+
+// The mixin dashboards assume Kubernetes-style label conventions: a
+// "cluster" label, a "namespace" label, and a "job" label namespace-prefixed
+// as "<namespace>/<component>" (e.g. their template variables and every
+// panel query filter on job=~"($namespace)/(component-regex)"). Alloy has no
+// Kubernetes SD here to supply those automatically, so they're set by hand —
+// without them the dashboards' $cluster/$namespace variables stay empty and
+// every panel's job regex fails to match, even though Mimir is ingesting
+// fine (see dev/mimir-local/README.md troubleshooting note).
+prometheus.scrape "mimir_self" {
+	targets = [
+		{"__address__" = "mimir:8080", "cluster" = "local", "namespace" = "mimir-local"},
+	]
+	metrics_path    = "/metrics"
+	scrape_interval = "15s"
+	job_name        = "mimir-local/mimir"
+	forward_to      = [prometheus.remote_write.mimir.receiver]
+}
+
+// Alloy monitoring itself too: its own HTTP server (the same port the UI
+// at :12345 is served from) exposes /metrics with the usual Go runtime +
+// component-health metrics (e.g. alloy_build_info,
+// prometheus_remote_write_wal_samples_appended_total). "localhost" here is
+// Alloy's own container, not the host machine.
+prometheus.scrape "alloy_self" {
+	targets = [
+		{"__address__" = "localhost:12345"},
+	]
+	metrics_path    = "/metrics"
+	scrape_interval = "15s"
+	job_name        = "alloy"
+	forward_to      = [prometheus.remote_write.mimir.receiver]
+}
+
+prometheus.remote_write "mimir" {
+	endpoint {
+		url = "http://mimir:8080/api/v1/push"
+		// Multitenancy is enabled — every write needs X-Scope-OrgID. Land
+		// self-monitoring data in the "infra" tenant, which also holds the
+		// mixin's rules (see fetch-mixin.sh).
+		headers = {
+			"X-Scope-OrgID" = "infra",
+		}
+	}
+}
