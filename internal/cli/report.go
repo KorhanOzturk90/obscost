@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -12,7 +13,9 @@ import (
 
 	"github.com/KorhanOzturk90/obscost/internal/attribution"
 	"github.com/KorhanOzturk90/obscost/internal/config"
+	"github.com/KorhanOzturk90/obscost/internal/loader"
 	"github.com/KorhanOzturk90/obscost/internal/loader/dir"
+	"github.com/KorhanOzturk90/obscost/internal/loader/rulerapi"
 	"github.com/KorhanOzturk90/obscost/internal/report"
 	"github.com/KorhanOzturk90/obscost/internal/rule"
 	"github.com/KorhanOzturk90/obscost/internal/telemetry"
@@ -21,10 +24,12 @@ import (
 	"github.com/KorhanOzturk90/obscost/internal/tenancy"
 )
 
-// newReportCmd wires `report`: config.Load -> tenancy resolver -> dir.Loader
-// (rule definitions) -> ndjson.Source (rule executions) -> optional --since
-// filter -> attribution.Aggregate -> workload reporter. Unlike `check`, this
-// needs no live backend at all — internal/meter is not involved.
+// newReportCmd wires `report`: config.Load -> rule-definitions source
+// (--dir, or the ruler API when --dir is omitted) -> telemetry source
+// (rule executions) -> optional --since filter -> attribution.Aggregate ->
+// workload reporter. Unlike `check`, this needs no live backend for
+// telemetry itself — internal/meter is not involved — but the ruler-API
+// definitions source does talk to Mimir's HTTP API (config's backend.url).
 //
 // stdout carries only the rendered report body (md or json) — nothing
 // else is ever written there, specifically so `--format json | jq` (or any
@@ -34,6 +39,7 @@ import (
 func newReportCmd(stdout, stderr io.Writer) *cobra.Command {
 	var (
 		dirPath       string
+		tenants       string
 		telemetryPath string
 		telemetryFmt  string
 		configPath    string
@@ -48,6 +54,7 @@ func newReportCmd(stdout, stderr io.Writer) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runReport(cmd.Context(), stdout, stderr, reportOptions{
 				dir:           dirPath,
+				tenants:       tenants,
 				telemetryPath: telemetryPath,
 				telemetryFmt:  telemetryFmt,
 				configPath:    configPath,
@@ -58,16 +65,14 @@ func newReportCmd(stdout, stderr io.Writer) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&dirPath, "dir", "", "directory of rule files providing rule definitions (required)")
+	cmd.Flags().StringVar(&dirPath, "dir", "", "directory of rule files providing rule definitions. If omitted, rule definitions are instead fetched live from Mimir's ruler API (config's backend.url) for --tenant's tenants — no local rule-file checkout needed")
+	cmd.Flags().StringVar(&tenants, "tenant", "", "comma-separated tenant IDs to fetch rule definitions for from the ruler API; required when --dir is omitted, ignored when --dir is given")
 	cmd.Flags().StringVar(&telemetryPath, "telemetry", "", "path to a rule-execution telemetry file (required)")
 	cmd.Flags().StringVar(&telemetryFmt, "telemetry-format", "ndjson", "format of --telemetry: ndjson|mimirlogs (Mimir's -ruler.query-stats-enabled log)")
 	cmd.Flags().StringVar(&configPath, "config", "", "path to promcost.yaml")
 	cmd.Flags().StringVar(&format, "format", "md", "output format: md|json")
 	cmd.Flags().StringVar(&since, "since", "", "only include executions at or after this long ago (e.g. 24h, 7d, 2w); empty means no filtering")
 	cmd.Flags().BoolVar(&strict, "strict", false, "fail instead of warning when telemetry records can't be read/matched (e.g. an unmatched or ambiguous mimirlogs line)")
-	if err := cmd.MarkFlagRequired("dir"); err != nil {
-		panic(err) // programmer error: flag name typo
-	}
 	if err := cmd.MarkFlagRequired("telemetry"); err != nil {
 		panic(err) // programmer error: flag name typo
 	}
@@ -77,6 +82,7 @@ func newReportCmd(stdout, stderr io.Writer) *cobra.Command {
 
 type reportOptions struct {
 	dir           string
+	tenants       string
 	telemetryPath string
 	telemetryFmt  string
 	configPath    string
@@ -100,18 +106,11 @@ func runReport(ctx context.Context, stdout, stderr io.Writer, opts reportOptions
 		return err
 	}
 
-	policy, err := tenancy.ParseUnmappedPolicy(cfg.Tenancy.Unmapped)
+	defsLoader, err := newDefinitionsSource(opts, cfg)
 	if err != nil {
 		return err
 	}
-	resolver := tenancy.NewResolver(cfg.Tenancy)
-
-	l := dir.New(dir.Config{
-		Dir:      opts.dir,
-		Resolver: resolver,
-		Policy:   policy,
-	})
-	definitions, loadErrs, err := l.Load(ctx)
+	definitions, loadErrs, err := defsLoader.Load(ctx)
 	if err != nil {
 		return err
 	}
@@ -174,6 +173,65 @@ func runReport(ctx context.Context, stdout, stderr io.Writer, opts reportOptions
 		RuleDefinitions: agg.RuleDefinitions,
 		GeneratedAt:     time.Now(),
 	})
+}
+
+// newDefinitionsSource selects where rule definitions come from: a local
+// directory (--dir, the original behavior — reads real files, resolves
+// tenants via config's tenancy block, exactly like `check` does), or, when
+// --dir is omitted, Mimir's own ruler API for an explicit --tenant list.
+// The ruler-API path exists because in a real deployment each tenant's
+// rules typically live in a separate repository promcost has no access
+// to; asking the ruler directly what it's currently evaluating needs no
+// local checkout at all, for any tenant. Tenants are given explicitly
+// (not auto-discovered) so a report run stays predictable and auditable —
+// see internal/loader/rulerapi's package doc for the exact API this
+// fetches from.
+func newDefinitionsSource(opts reportOptions, cfg config.Config) (loader.Loader, error) {
+	if opts.dir != "" {
+		policy, err := tenancy.ParseUnmappedPolicy(cfg.Tenancy.Unmapped)
+		if err != nil {
+			return nil, err
+		}
+		return dir.New(dir.Config{
+			Dir:      opts.dir,
+			Resolver: tenancy.NewResolver(cfg.Tenancy),
+			Policy:   policy,
+		}), nil
+	}
+
+	if opts.tenants == "" {
+		return nil, fmt.Errorf("either --dir or --tenant is required (rule definitions must come from somewhere)")
+	}
+	if cfg.Backend.URL == "" {
+		return nil, fmt.Errorf("--tenant given without --dir, but config's backend.url is empty — nowhere to fetch rule definitions from")
+	}
+
+	var tenants []string
+	for _, t := range strings.Split(opts.tenants, ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			tenants = append(tenants, t)
+		}
+	}
+	if len(tenants) == 0 {
+		return nil, fmt.Errorf("--tenant was given but contained no tenant IDs")
+	}
+
+	header := cfg.Tenancy.Header
+	if header == "" {
+		header = "X-Scope-OrgID"
+	}
+	var bearerToken string
+	if cfg.Backend.Auth.BearerTokenEnv != "" {
+		bearerToken = os.Getenv(cfg.Backend.Auth.BearerTokenEnv)
+	}
+
+	return rulerapi.New(rulerapi.Config{
+		BaseURL:     cfg.Backend.URL,
+		Header:      header,
+		Tenants:     tenants,
+		BearerToken: bearerToken,
+		Timeout:     cfg.Backend.Timeout.Duration(),
+	}), nil
 }
 
 // newTelemetrySource selects the telemetry.Source implementation for
