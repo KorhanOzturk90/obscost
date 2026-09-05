@@ -37,6 +37,13 @@ The implementation must explicitly distinguish:
 
 and must avoid double-counting these when calculating tenant/rule workload.
 
+[`docs/investigation-ruler-remote-query-frontend.md`](investigation-ruler-remote-query-frontend.md)
+has concrete, source- and live-rig-verified findings on this: the ruler's own
+`component=ruler` log line never carries `samples_processed` (local or
+remote), while the query-frontend's separate `component=query-frontend` line
+does — but consuming it means new parsing logic, not a config flip, plus a
+real Mimir-architecture tradeoff (an added network hop per rule evaluation).
+
 ## Data semantics
 
 Do not collapse all size-related fields into an invented `estimated_bytes` metric.
@@ -89,3 +96,4 @@ before attempting to translate workload into euros.
 - Mimir configuration/query stats: https://grafana.com/docs/mimir/latest/configure/configuration-parameters/
 - Mimir ruler architecture: https://grafana.com/docs/mimir/latest/references/architecture/components/ruler/
 - Mimir monitoring dashboard requirements / Loki slow-query logs: https://grafana.com/docs/mimir/latest/manage/monitor-grafana-mimir/requirements/
+- Mimir runbook, "How to investigate `msg=\"query stats\"`" logs: https://grafana.com/docs/mimir/latest/manage/mimir-runbooks/#how-to-investigate-3
