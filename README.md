@@ -51,9 +51,14 @@ go test ./...                              # or: make test
 # static analysis — no telemetry required
 ./bin/promcost check --dir path/to/rules [--config promcost.yaml] [--offline] [--fail-on warn|error]
 
-# observed workload attribution
+# observed workload attribution — rule definitions from a local checkout
 ./bin/promcost report --dir path/to/rules --telemetry ruler.log \
   --telemetry-format mimirlogs --config promcost.yaml [--since 7d] [--format md|json]
+
+# ...or, with no local checkout at all: fetch rule definitions live from
+# Mimir's own ruler API instead (needs backend.url in promcost.yaml)
+./bin/promcost report --tenant analytics,payments --telemetry ruler.log \
+  --telemetry-format mimirlogs --config promcost.yaml
 ```
 
 Want to see it running against a real Mimir instance rather than a fixture? [`dev/mimir-local`](dev/mimir-local) is a self-contained, self-monitoring Docker Compose Mimir rig with `-ruler.query-stats-enabled` already on — spin it up and point `report --telemetry-format mimirlogs` at its actual ruler logs.
