@@ -1,0 +1,87 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>promcost workload report — last 7d</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; margin: 2rem; color: #1a1a1a; background: #fff; }
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.15rem; margin-top: 2.5rem; border-bottom: 1px solid #ddd; padding-bottom: .25rem; }
+  h3 { font-size: 1rem; margin-top: 1.5rem; color: #333; }
+  .meta { color: #555; font-size: .9rem; margin-bottom: 1.5rem; }
+  table { border-collapse: collapse; width: 100%; margin: .5rem 0 1rem; font-size: .9rem; }
+  th, td { text-align: left; padding: .35rem .6rem; border-bottom: 1px solid #eee; }
+  th { color: #555; font-weight: 600; }
+  td.num, th.num { text-align: right; }
+  a.tenant-link { text-decoration: none; color: #205; }
+  .share { display: inline-flex; align-items: center; gap: .5rem; white-space: nowrap; }
+  .bar-track { width: 90px; height: 10px; background: #eee; border-radius: 3px; overflow: hidden; display: inline-block; }
+  .bar-fill { height: 100%; background: #4c78a8; }
+  .empty { color: #777; font-style: italic; }
+  .warn { color: #8a5a00; }
+</style>
+</head>
+<body>
+<h1>promcost workload report — last 7d (observed)</h1>
+<p class="meta">
+  Generated: 2026-01-02T15:04:05Z<br>
+  Total executions: 2463 &middot;
+  Total samples processed: 9800000 &middot;
+  Rule definitions loaded: 2521
+</p>
+
+<h2>Tenant summary</h2>
+<table>
+<tr><th>tenant</th><th class="num">rules</th><th class="num">executions</th><th>execution share</th><th class="num">samples</th><th>sample share</th></tr>
+<tr>
+  <td><a class="tenant-link" href="#tenant-analytics">analytics</a></td>
+  <td class="num">1842</td>
+  <td class="num">1842</td>
+  <td><span class="share">37.2%<span class="bar-track"><span class="bar-fill" style="width:37.2%"></span></span></span></td>
+  <td class="num">4096400</td>
+  <td><span class="share">41.8%<span class="bar-track"><span class="bar-fill" style="width:41.8%"></span></span></span></td>
+</tr>
+<tr>
+  <td><a class="tenant-link" href="#tenant-payments">payments</a></td>
+  <td class="num">621</td>
+  <td class="num">621</td>
+  <td><span class="share">18.4%<span class="bar-track"><span class="bar-fill" style="width:18.4%"></span></span></span></td>
+  <td class="num">2068000</td>
+  <td><span class="share">21.1%<span class="bar-track"><span class="bar-fill" style="width:21.1%"></span></span></span></td>
+</tr>
+</table>
+
+
+<h2 id="tenant-analytics">analytics</h2>
+
+<h3>g <span class="meta">— 1440 executions (<span class="share">78.2%<span class="bar-track"><span class="bar-fill" style="width:78.2%"></span></span></span>), 3200000 samples (<span class="share">78.1%<span class="bar-track"><span class="bar-fill" style="width:78.1%"></span></span></span>) of tenant</span></h3>
+<table>
+<tr><th>rule</th><th>kind</th><th class="num">executions</th><th>execution share</th><th class="num">samples</th><th>sample share</th></tr>
+<tr>
+  <td>analytics/analytics/rules.yaml/g/customer_activity:7d</td>
+  <td>recording</td>
+  <td class="num">1440</td>
+  <td><span class="share">100.0%<span class="bar-track"><span class="bar-fill" style="width:100.0%"></span></span></span></td>
+  <td class="num">3200000</td>
+  <td><span class="share">100.0%<span class="bar-track"><span class="bar-fill" style="width:100.0%"></span></span></span></td>
+</tr>
+</table>
+<p class="warn">1 unmatched execution(s) (500 samples) — see "Unmatched executions" below.</p>
+
+<h2 id="tenant-payments">payments</h2>
+
+<p class="empty">No matched rule executions.</p>
+
+
+
+<h2>Unmatched executions</h2>
+<p class="meta">Executions whose rule identity didn't match any loaded rule definition (deleted rule, drifted namespace, or a telemetry source that disagrees with --dir).</p>
+<table>
+<tr><th>rule id</th><th>timestamp</th><th class="num">samples</th></tr>
+<tr><td>analytics/analytics/rules.yaml/g/deleted_rule</td><td>2026-01-02T12:00:00Z</td><td class="num">500</td></tr>
+</table>
+
+
+</body>
+</html>
+

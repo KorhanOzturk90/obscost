@@ -16,7 +16,7 @@ type WorkloadResult struct {
 	// Window describes the --since filter applied before aggregation, e.g.
 	// "last 7d", or "all time" when no --since was given. Display-only —
 	// filtering itself already happened before Aggregate ran.
-	Window          string                         `json:"window"`
+	Window          string                        `json:"window"`
 	Tenants         []attribution.TenantAggregate `json:"tenants"`
 	Unmatched       []rule.RuleExecution          `json:"unmatched,omitempty"`
 	TotalExecutions int                           `json:"total_executions"`
@@ -35,6 +35,8 @@ func NewWorkload(format Format) (WorkloadReporter, error) {
 		return workloadMDReporter{}, nil
 	case FormatJSON:
 		return workloadJSONReporter{}, nil
+	case FormatHTML:
+		return workloadHTMLReporter{}, nil
 	default:
 		return nil, fmt.Errorf("unknown report format %q", format)
 	}

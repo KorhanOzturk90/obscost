@@ -16,6 +16,7 @@ type Format string
 const (
 	FormatMD   Format = "md"
 	FormatJSON Format = "json"
+	FormatHTML Format = "html"
 )
 
 // Result is everything a Reporter needs to render one check run.

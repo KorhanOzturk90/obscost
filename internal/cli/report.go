@@ -62,7 +62,7 @@ func newReportCmd(stdout, stderr io.Writer) *cobra.Command {
 	cmd.Flags().StringVar(&telemetryPath, "telemetry", "", "path to a rule-execution telemetry file (required)")
 	cmd.Flags().StringVar(&telemetryFmt, "telemetry-format", "ndjson", "format of --telemetry: ndjson|mimirlogs (Mimir's -ruler.query-stats-enabled log)")
 	cmd.Flags().StringVar(&configPath, "config", "", "path to promcost.yaml")
-	cmd.Flags().StringVar(&format, "format", "md", "output format: md|json")
+	cmd.Flags().StringVar(&format, "format", "md", "output format: md|json|html")
 	cmd.Flags().StringVar(&since, "since", "", "only include executions at or after this long ago (e.g. 24h, 7d, 2w); empty means no filtering")
 	cmd.Flags().BoolVar(&strict, "strict", false, "fail instead of warning when telemetry records can't be read/matched (e.g. an unmatched or ambiguous mimirlogs line)")
 	if err := cmd.MarkFlagRequired("dir"); err != nil {

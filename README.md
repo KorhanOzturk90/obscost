@@ -53,7 +53,7 @@ go test ./...                              # or: make test
 
 # observed workload attribution
 ./bin/promcost report --dir path/to/rules --telemetry ruler.log \
-  --telemetry-format mimirlogs --config promcost.yaml [--since 7d] [--format md|json]
+  --telemetry-format mimirlogs --config promcost.yaml [--since 7d] [--format md|json|html]
 ```
 
 Want to see it running against a real Mimir instance rather than a fixture? [`dev/mimir-local`](dev/mimir-local) is a self-contained, self-monitoring Docker Compose Mimir rig with `-ruler.query-stats-enabled` already on — spin it up and point `report --telemetry-format mimirlogs` at its actual ruler logs.
