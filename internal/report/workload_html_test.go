@@ -3,6 +3,7 @@ package report
 import (
 	"bytes"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -94,9 +95,9 @@ func TestWorkloadHTMLReport_EscapesUntrustedNames(t *testing.T) {
 // something more realistic than sampleWorkloadResult()'s single rule.
 func sampleMultiGroupTenant() attribution.TenantAggregate {
 	rules := []attribution.RuleAggregate{
-		{RuleID: rule.RuleID{Tenant: "infra", Namespace: "ns", Group: "mimir_alerts", Name: "r1"}, Executions: 100, SamplesProcessed: 1000},
-		{RuleID: rule.RuleID{Tenant: "infra", Namespace: "ns", Group: "mimir_alerts", Name: "r2"}, Executions: 50, SamplesProcessed: 500},
-		{RuleID: rule.RuleID{Tenant: "infra", Namespace: "ns", Group: "mimir_queries", Name: "r3"}, Executions: 200, SamplesProcessed: 2000},
+		{RuleID: rule.RuleID{Tenant: "infra", Namespace: "ns", Group: "mimir_alerts", Name: "r1"}, Executions: 100, SamplesProcessed: 1000, SamplesObserved: true, RankValue: 1000},
+		{RuleID: rule.RuleID{Tenant: "infra", Namespace: "ns", Group: "mimir_alerts", Name: "r2"}, Executions: 50, SamplesProcessed: 500, SamplesObserved: true, RankValue: 500},
+		{RuleID: rule.RuleID{Tenant: "infra", Namespace: "ns", Group: "mimir_queries", Name: "r3"}, Executions: 200, SamplesProcessed: 2000, SamplesObserved: true, RankValue: 2000},
 	}
 	var totalExec int
 	var totalSamples uint64
@@ -109,58 +110,64 @@ func sampleMultiGroupTenant() attribution.TenantAggregate {
 		RuleCount:        len(rules),
 		Executions:       totalExec,
 		SamplesProcessed: totalSamples,
+		SamplesObserved:  true,
+		RankValue:        float64(totalSamples),
 		Rules:            rules,
 	}
 }
 
 func TestGroupRules_SharesSumToTenantTotals(t *testing.T) {
 	ta := sampleMultiGroupTenant()
-	groups := groupRules(ta.Rules, ta.Executions, ta.SamplesProcessed)
+	groups := groupRules(ta.Rules, attribution.RankMetricSamplesProcessed, ta.RankValue)
 
 	if len(groups) != 2 {
 		t.Fatalf("got %d groups, want 2", len(groups))
 	}
 
 	var groupExecSum int
-	var groupSamplesSum uint64
 	for _, g := range groups {
-		groupExecSum += g.Executions
-		groupSamplesSum += g.Samples
+		execSum, err := strconv.Atoi(strings.ReplaceAll(g.Executions, ",", ""))
+		if err != nil {
+			t.Fatalf("group %s: Executions %q not a number: %v", g.Group, g.Executions, err)
+		}
+		groupExecSum += execSum
 
 		var ruleExecSum int
-		var ruleSamplesSum uint64
 		for _, r := range g.Rules {
-			ruleExecSum += r.Executions
-			ruleSamplesSum += r.Samples
+			n, err := strconv.Atoi(strings.ReplaceAll(r.Executions, ",", ""))
+			if err != nil {
+				t.Fatalf("rule %s: Executions %q not a number: %v", r.RuleName, r.Executions, err)
+			}
+			ruleExecSum += n
 		}
-		if ruleExecSum != g.Executions {
-			t.Errorf("group %s: rule executions sum to %d, want %d", g.Group, ruleExecSum, g.Executions)
-		}
-		if ruleSamplesSum != g.Samples {
-			t.Errorf("group %s: rule samples sum to %d, want %d", g.Group, ruleSamplesSum, g.Samples)
+		if ruleExecSum != execSum {
+			t.Errorf("group %s: rule executions sum to %d, want %d", g.Group, ruleExecSum, execSum)
 		}
 	}
 	if groupExecSum != ta.Executions {
 		t.Errorf("group executions sum to %d, want tenant total %d", groupExecSum, ta.Executions)
 	}
-	if groupSamplesSum != ta.SamplesProcessed {
-		t.Errorf("group samples sum to %d, want tenant total %d", groupSamplesSum, ta.SamplesProcessed)
-	}
 
-	// Groups sorted by samples desc: mimir_queries (2000) before mimir_alerts (1500).
+	// Groups sorted by rank value (samples) desc: mimir_queries (2000) before mimir_alerts (1500).
 	if groups[0].Group != "mimir_queries" {
-		t.Errorf("groups[0] = %q, want mimir_queries (sorted by samples desc)", groups[0].Group)
+		t.Errorf("groups[0] = %q, want mimir_queries (sorted by rank value desc)", groups[0].Group)
+	}
+	if groups[0].MetricShare.Width+groups[1].MetricShare.Width-100 > 1e-9 {
+		t.Errorf("group metric shares don't sum to ~100%%: %+v", groups)
 	}
 }
 
 func TestGroupRules_ZeroTotalDoesNotProduceNaN(t *testing.T) {
 	groups := groupRules([]attribution.RuleAggregate{
 		{RuleID: rule.RuleID{Group: "g"}, Executions: 0, SamplesProcessed: 0},
-	}, 0, 0)
+	}, attribution.RankMetricSamplesProcessed, 0)
 	if len(groups) != 1 {
 		t.Fatalf("got %d groups, want 1", len(groups))
 	}
-	if groups[0].ExecutionShare.Width != 0 || groups[0].SampleShare.Width != 0 {
+	if groups[0].MetricShare.Width != 0 {
 		t.Errorf("expected 0 share width on zero totals, got %+v", groups[0])
+	}
+	if groups[0].MetricMeasured {
+		t.Errorf("expected MetricMeasured=false (SamplesObserved was never set), got %+v", groups[0])
 	}
 }
