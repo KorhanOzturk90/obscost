@@ -2,6 +2,10 @@ package cli_test
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -209,9 +213,104 @@ func TestReport_JSONFormat_ZeroExecutions(t *testing.T) {
 
 func TestReport_MissingRequiredFlags(t *testing.T) {
 	if _, _, code := run("report", "--telemetry", "testdata/report/clean/executions.ndjson"); code != 1 {
-		t.Errorf("missing --dir: exit code = %d, want 1", code)
+		t.Errorf("missing both --dir and --tenant: exit code = %d, want 1", code)
 	}
 	if _, _, code := run("report", "--dir", "testdata/report/clean/rules"); code != 1 {
 		t.Errorf("missing --telemetry: exit code = %d, want 1", code)
+	}
+}
+
+// realRulerRulesFixture is the same byte-shape-accurate copy of a live
+// mimir-3.2.0 GET /prometheus/api/v1/rules response used by
+// internal/loader/rulerapi's own tests.
+const realRulerRulesFixture = `{
+  "status": "success",
+  "data": {
+    "groups": [
+      {
+        "name": "mimir_api_1",
+        "file": "recording-rules.yaml",
+        "interval": 60,
+        "rules": [
+          {
+            "name": "cluster_job_pod:cortex_alertmanager_alerts:sum",
+            "query": "sum by (cluster, job, pod) (cortex_alertmanager_alerts)",
+            "labels": {},
+            "health": "ok",
+            "type": "recording"
+          }
+        ]
+      }
+    ]
+  }
+}`
+
+// writeReportConfig writes a promcost.yaml pointing backend.url at a fake
+// ruler (an httptest.Server), for exercising --tenant without --dir.
+func writeReportConfig(t *testing.T, backendURL string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "promcost.yaml")
+	content := "backend:\n  url: " + backendURL + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	return path
+}
+
+func TestReport_RulerAPISource_NoDirNeeded(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Scope-OrgID") != "infra" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(realRulerRulesFixture))
+	}))
+	defer srv.Close()
+	configPath := writeReportConfig(t, srv.URL)
+
+	// Telemetry for the exact rule the fake ruler serves — no --dir at all.
+	stdout, stderr, code := run("report",
+		"--tenant", "infra",
+		"--telemetry", "testdata/report/clean/executions.ndjson",
+		"--config", configPath,
+		"--format", "json",
+	)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0. stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(stdout), &parsed); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v\nstdout:\n%s", err, stdout)
+	}
+	if !strings.Contains(stdout, `"rule_definitions": 1`) {
+		t.Errorf("expected exactly 1 rule definition fetched from the fake ruler API, got:\n%s", stdout)
+	}
+}
+
+func TestReport_NeitherDirNorTenant(t *testing.T) {
+	_, stderr, code := run("report",
+		"--telemetry", "testdata/report/clean/executions.ndjson",
+		"--config", writeReportConfig(t, "http://unused"),
+	)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1. stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stderr, "--dir") || !strings.Contains(stderr, "--tenant") {
+		t.Errorf("expected the error to mention both --dir and --tenant, got:\n%s", stderr)
+	}
+}
+
+func TestReport_TenantWithoutBackendURL(t *testing.T) {
+	_, stderr, code := run("report",
+		"--tenant", "infra",
+		"--telemetry", "testdata/report/clean/executions.ndjson",
+		// no --config at all -> config.Default() has an empty backend.url
+	)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1. stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stderr, "backend.url") {
+		t.Errorf("expected the error to mention the missing backend.url, got:\n%s", stderr)
 	}
 }
