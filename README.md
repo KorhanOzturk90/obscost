@@ -53,7 +53,7 @@ go test ./...                              # or: make test
 
 # observed workload attribution — rule definitions from a local checkout
 ./bin/promcost report --dir path/to/rules --telemetry ruler.log \
-  --telemetry-format mimirlogs --config promcost.yaml [--since 7d] [--format md|json]
+  --telemetry-format mimirlogs --config promcost.yaml [--since 7d] [--format md|json|html]
 
 # ...or, with no local checkout at all: fetch rule definitions live from
 # Mimir's own ruler API instead (needs backend.url in promcost.yaml)

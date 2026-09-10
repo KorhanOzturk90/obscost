@@ -70,7 +70,7 @@ func newReportCmd(stdout, stderr io.Writer) *cobra.Command {
 	cmd.Flags().StringVar(&telemetryPath, "telemetry", "", "path to a rule-execution telemetry file (required)")
 	cmd.Flags().StringVar(&telemetryFmt, "telemetry-format", "ndjson", "format of --telemetry: ndjson|mimirlogs (Mimir's -ruler.query-stats-enabled log)")
 	cmd.Flags().StringVar(&configPath, "config", "", "path to promcost.yaml")
-	cmd.Flags().StringVar(&format, "format", "md", "output format: md|json")
+	cmd.Flags().StringVar(&format, "format", "md", "output format: md|json|html")
 	cmd.Flags().StringVar(&since, "since", "", "only include executions at or after this long ago (e.g. 24h, 7d, 2w); empty means no filtering")
 	cmd.Flags().BoolVar(&strict, "strict", false, "fail instead of warning when telemetry records can't be read/matched (e.g. an unmatched or ambiguous mimirlogs line)")
 	if err := cmd.MarkFlagRequired("telemetry"); err != nil {
@@ -163,16 +163,46 @@ func runReport(ctx context.Context, stdout, stderr io.Writer, opts reportOptions
 		return err
 	}
 
+	var observedStart, observedEnd *time.Time
+	if start, end, ok := observedRange(executions); ok {
+		observedStart, observedEnd = &start, &end
+	}
+
 	agg := attribution.Aggregate(executions, definitions)
 	return rep.Render(stdout, report.WorkloadResult{
-		Window:          windowLabel(opts.since),
-		Tenants:         agg.Tenants,
-		Unmatched:       agg.Unmatched,
-		TotalExecutions: agg.TotalExecutions,
-		TotalSamples:    agg.TotalSamples,
-		RuleDefinitions: agg.RuleDefinitions,
-		GeneratedAt:     time.Now(),
+		Window:           windowLabel(opts.since),
+		Tenants:          agg.Tenants,
+		Unmatched:        agg.Unmatched,
+		TotalExecutions:  agg.TotalExecutions,
+		TotalSamples:     agg.TotalSamples,
+		RuleDefinitions:  agg.RuleDefinitions,
+		RankMetric:       agg.RankMetric,
+		ObservedStart:    observedStart,
+		ObservedEnd:      observedEnd,
+		SkippedTelemetry: len(readErrs),
+		GeneratedAt:      time.Now(),
 	})
+}
+
+// observedRange returns the earliest and latest Timestamp across
+// executions (after --since filtering), or ok=false if there are none —
+// the ground truth of what window a report actually covers, since
+// windowLabel only echoes the --since flag and says nothing when it was
+// omitted (see report.WorkloadResult.ObservedStart's doc comment).
+func observedRange(executions []rule.RuleExecution) (start, end time.Time, ok bool) {
+	if len(executions) == 0 {
+		return time.Time{}, time.Time{}, false
+	}
+	start, end = executions[0].Timestamp, executions[0].Timestamp
+	for _, e := range executions[1:] {
+		if e.Timestamp.Before(start) {
+			start = e.Timestamp
+		}
+		if e.Timestamp.After(end) {
+			end = e.Timestamp
+		}
+	}
+	return start, end, true
 }
 
 // newDefinitionsSource selects where rule definitions come from: a local

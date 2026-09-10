@@ -12,12 +12,18 @@ import (
 )
 
 func sampleWorkloadResult() WorkloadResult {
+	observedStart := time.Date(2026, 1, 1, 8, 0, 0, 0, time.UTC)
+	observedEnd := time.Date(2026, 1, 2, 14, 30, 0, 0, time.UTC)
 	return WorkloadResult{
-		Window:          "last 7d",
-		GeneratedAt:     time.Date(2026, 1, 2, 15, 4, 5, 0, time.UTC),
-		TotalExecutions: 2463,
-		TotalSamples:    9_800_000,
-		RuleDefinitions: 2521,
+		Window:           "last 7d",
+		GeneratedAt:      time.Date(2026, 1, 2, 15, 4, 5, 0, time.UTC),
+		TotalExecutions:  2463,
+		TotalSamples:     9_800_000,
+		RuleDefinitions:  2521,
+		RankMetric:       attribution.RankMetricSamplesProcessed,
+		ObservedStart:    &observedStart,
+		ObservedEnd:      &observedEnd,
+		SkippedTelemetry: 12,
 		Tenants: []attribution.TenantAggregate{
 			{
 				Tenant:            "analytics",
@@ -26,6 +32,9 @@ func sampleWorkloadResult() WorkloadResult {
 				ExecutionSharePct: 37.2,
 				SamplesProcessed:  4_096_400,
 				SampleSharePct:    41.8,
+				SamplesObserved:   true,
+				RankValue:         4_096_400,
+				RankSharePct:      41.8,
 				Rules: []attribution.RuleAggregate{
 					{
 						RuleID:            rule.RuleID{Tenant: "analytics", Namespace: "analytics/rules.yaml", Group: "g", Name: "customer_activity:7d"},
@@ -34,6 +43,9 @@ func sampleWorkloadResult() WorkloadResult {
 						ExecutionSharePct: 78.2,
 						SamplesProcessed:  3_200_000,
 						SampleSharePct:    78.1,
+						SamplesObserved:   true,
+						RankValue:         3_200_000,
+						RankSharePct:      78.1,
 					},
 				},
 				UnmatchedExecutions: 1,
@@ -46,6 +58,9 @@ func sampleWorkloadResult() WorkloadResult {
 				ExecutionSharePct: 18.4,
 				SamplesProcessed:  2_068_000,
 				SampleSharePct:    21.1,
+				SamplesObserved:   true,
+				RankValue:         2_068_000,
+				RankSharePct:      21.1,
 			},
 		},
 		Unmatched: []rule.RuleExecution{

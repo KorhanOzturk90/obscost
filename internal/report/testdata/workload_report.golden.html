@@ -1,0 +1,94 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>promcost workload report — last 7d</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; margin: 2rem; color: #1a1a1a; background: #fff; }
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.15rem; margin-top: 2.5rem; border-bottom: 1px solid #ddd; padding-bottom: .25rem; }
+  .meta { color: #555; font-size: .9rem; margin-bottom: .5rem; }
+  .coverage { color: #333; font-size: .9rem; margin-bottom: .5rem; }
+  .summary { font-size: 1rem; margin: 1rem 0 1.5rem; padding: .6rem .9rem; background: #f4f6fb; border-left: 3px solid #4c78a8; }
+  table { border-collapse: collapse; width: 100%; margin: .5rem 0 1rem; font-size: .9rem; }
+  th, td { text-align: left; padding: .35rem .6rem; border-bottom: 1px solid #eee; }
+  th { color: #555; font-weight: 600; }
+  td.num, th.num { text-align: right; }
+  a.tenant-link { text-decoration: none; color: #205; }
+  .share { display: inline-flex; align-items: center; gap: .5rem; white-space: nowrap; }
+  .bar-track { width: 90px; height: 10px; background: #eee; border-radius: 3px; overflow: hidden; display: inline-block; }
+  .bar-fill { height: 100%; background: #4c78a8; }
+  .metricval { color: #555; }
+  .empty, .unmeasured { color: #777; font-style: italic; }
+  .warn { color: #8a5a00; }
+  details { margin: .75rem 0; }
+  summary { cursor: pointer; font-size: 1rem; margin-top: 1.5rem; color: #333; padding: .25rem 0; }
+  summary .meta { display: inline; margin-bottom: 0; }
+</style>
+</head>
+<body>
+<h1>promcost workload report (observed)</h1>
+<p class="meta">
+  Generated: 2026-01-02 15:04:05 UTC<br>
+  Filter: last 7d<br>
+  Observed capture window: 2026-01-01 08:00 UTC – 2026-01-02 14:30 UTC<br>
+  Ranked by: samples processed &middot;
+  Total executions: 2,463 &middot;
+  Rule definitions loaded: 2,521
+</p>
+<p class="coverage">
+  Attribution coverage: 2462 matched / 2475 captured (99.5%) &middot; 1 unmatched (no known rule definition) &middot; 12 skipped before matching (see command output/logs)
+</p>
+<p class="summary">Top tenants by samples processed: analytics (66.5%), payments (33.5%).</p>
+
+<h2>Tenant summary</h2>
+<table>
+<tr><th>tenant</th><th class="num">rules</th><th class="num">executions</th><th>samples processed share</th></tr>
+<tr>
+  <td><a class="tenant-link" href="#tenant-analytics">analytics</a></td>
+  <td class="num">1,842</td>
+  <td class="num">1,842</td>
+  <td><span class="share">66.5%<span class="bar-track"><span class="bar-fill" style="width:66.5%"></span></span></span> <span class="metricval">(4,096,400)</span></td>
+</tr>
+<tr>
+  <td><a class="tenant-link" href="#tenant-payments">payments</a></td>
+  <td class="num">621</td>
+  <td class="num">621</td>
+  <td><span class="share">33.5%<span class="bar-track"><span class="bar-fill" style="width:33.5%"></span></span></span> <span class="metricval">(2,068,000)</span></td>
+</tr>
+</table>
+
+
+<h2 id="tenant-analytics">analytics</h2>
+
+<details open>
+<summary>g <span class="meta">— 1,440 executions, <span class="share">78.1%<span class="bar-track"><span class="bar-fill" style="width:78.1%"></span></span></span> (3,200,000) of tenant</span></summary>
+<table>
+<tr><th>rule</th><th>kind</th><th class="num">executions</th><th>samples processed share</th></tr>
+<tr>
+  <td><span title="analytics/analytics/rules.yaml/g/customer_activity:7d">customer_activity:7d</span></td>
+  <td>recording</td>
+  <td class="num">1,440</td>
+  <td><span class="share">100.0%<span class="bar-track"><span class="bar-fill" style="width:100.0%"></span></span></span> <span class="metricval">(3,200,000)</span></td>
+</tr>
+</table>
+</details>
+<p class="warn">1 unmatched execution(s) (500 samples) — see "Unmatched executions" below.</p>
+
+<h2 id="tenant-payments">payments</h2>
+
+<p class="empty">No matched rule executions.</p>
+
+
+
+<h2>Unmatched executions</h2>
+<p class="meta">Executions whose rule identity didn't match any loaded rule definition (deleted rule, drifted namespace, or a telemetry source that disagrees with --dir).</p>
+<table>
+<tr><th>rule id</th><th>timestamp</th><th class="num">samples</th></tr>
+<tr><td>analytics/analytics/rules.yaml/g/deleted_rule</td><td>2026-01-02T12:00:00Z</td><td class="num">500</td></tr>
+</table>
+
+
+</body>
+</html>
+

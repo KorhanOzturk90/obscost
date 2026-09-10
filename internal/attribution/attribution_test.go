@@ -220,6 +220,99 @@ func TestAggregate_TieBreakDeterminism(t *testing.T) {
 	}
 }
 
+// Issue #18 / PR #23 review point #5: ranking must adapt to whichever
+// resource-cost proxy the telemetry source actually measured, preferring
+// query wall time over the cadence-only Executions/SamplesProcessed
+// fallback whenever it's available.
+func TestAggregate_RankMetric_PrefersDurationOverSamples(t *testing.T) {
+	definitions := []rule.AnnotatedRule{
+		def("analytics", "a/rules.yaml", "g", "cheap", rule.KindRecording),
+		def("analytics", "a/rules.yaml", "g", "slow", rule.KindRecording),
+	}
+	executions := []rule.RuleExecution{
+		// cheap: huge sample count, tiny wall time.
+		{
+			Tenant: "analytics", Namespace: "a/rules.yaml", Group: "g", RuleName: "cheap",
+			Timestamp:        time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+			SamplesProcessed: rule.Ptr(uint64(1_000_000)), DurationSeconds: rule.Ptr(0.001),
+		},
+		// slow: tiny sample count, huge wall time.
+		{
+			Tenant: "analytics", Namespace: "a/rules.yaml", Group: "g", RuleName: "slow",
+			Timestamp:        time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+			SamplesProcessed: rule.Ptr(uint64(10)), DurationSeconds: rule.Ptr(9.0),
+		},
+	}
+
+	report := Aggregate(executions, definitions)
+
+	if report.RankMetric != RankMetricDurationSeconds {
+		t.Fatalf("RankMetric = %v, want duration_seconds (should prefer wall time when measured)", report.RankMetric)
+	}
+	if len(report.Tenants) != 1 || len(report.Tenants[0].Rules) != 2 {
+		t.Fatalf("unexpected shape: %+v", report.Tenants)
+	}
+	// "slow" has 9s of wall time vs "cheap"'s 0.001s -> ranked first despite
+	// having 100,000x fewer samples processed.
+	if report.Tenants[0].Rules[0].RuleID.Name != "slow" {
+		t.Errorf("Rules[0] = %s, want slow (ranked by wall time, not sample count)", report.Tenants[0].Rules[0].RuleID.Name)
+	}
+}
+
+// When nothing but execution counts was ever measured, Aggregate must still
+// produce a usable ranking rather than defaulting to alphabetical order.
+func TestAggregate_RankMetric_FallsBackToExecutionsWhenNothingMeasured(t *testing.T) {
+	definitions := []rule.AnnotatedRule{
+		def("analytics", "a/rules.yaml", "g", "r1", rule.KindRecording),
+	}
+	executions := []rule.RuleExecution{
+		execNoSamples("analytics", "a/rules.yaml", "g", "r1"),
+		execNoSamples("analytics", "a/rules.yaml", "g", "r1"),
+		execNoSamples("analytics", "a/rules.yaml", "g", "r1"),
+	}
+
+	report := Aggregate(executions, definitions)
+
+	if report.RankMetric != RankMetricExecutions {
+		t.Fatalf("RankMetric = %v, want executions (nothing else was ever measured)", report.RankMetric)
+	}
+	if report.Tenants[0].RankValue != 3 {
+		t.Errorf("Tenants[0].RankValue = %v, want 3", report.Tenants[0].RankValue)
+	}
+}
+
+// The missing-vs-zero principle (see valueOr's doc comment) must also hold
+// for the *Observed flags: a stat that's never measured must be
+// distinguishable from one measured as a genuine zero, at both tenant and
+// rule level.
+func TestAggregate_Observed_DistinguishesUnmeasuredFromZero(t *testing.T) {
+	definitions := []rule.AnnotatedRule{
+		def("analytics", "a/rules.yaml", "g", "r1", rule.KindRecording),
+	}
+	executions := []rule.RuleExecution{
+		execNoSamples("analytics", "a/rules.yaml", "g", "r1"),
+	}
+
+	report := Aggregate(executions, definitions)
+	ta := report.Tenants[0]
+
+	if ta.Observed(RankMetricSamplesProcessed) {
+		t.Errorf("tenant SamplesObserved = true, want false (source never measured it)")
+	}
+	if ta.Observed(RankMetricDurationSeconds) {
+		t.Errorf("tenant DurationObserved = true, want false")
+	}
+	if !ta.Observed(RankMetricExecutions) {
+		t.Errorf("tenant Observed(executions) = false, want true (executions are always observed)")
+	}
+	if len(ta.Rules) != 1 {
+		t.Fatalf("len(Rules) = %d, want 1", len(ta.Rules))
+	}
+	if ta.Rules[0].Observed(RankMetricSamplesProcessed) {
+		t.Errorf("rule SamplesObserved = true, want false")
+	}
+}
+
 // An execution whose source didn't measure SamplesProcessed (nil, not 0)
 // must not be counted as "0 samples processed" — it should contribute
 // nothing to any sum, distinct from a source that genuinely measured 0.
@@ -228,8 +321,8 @@ func TestAggregate_MissingStatIsExcludedNotZero(t *testing.T) {
 		def("analytics", "a/rules.yaml", "g", "r1", rule.KindRecording),
 	}
 	executions := []rule.RuleExecution{
-		exec("analytics", "a/rules.yaml", "g", "r1", 100),      // measured: 100 samples
-		execNoSamples("analytics", "a/rules.yaml", "g", "r1"),  // unmeasured: unknown, not 0
+		exec("analytics", "a/rules.yaml", "g", "r1", 100),     // measured: 100 samples
+		execNoSamples("analytics", "a/rules.yaml", "g", "r1"), // unmeasured: unknown, not 0
 	}
 
 	report := Aggregate(executions, definitions)

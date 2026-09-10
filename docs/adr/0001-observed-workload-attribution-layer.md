@@ -241,6 +241,53 @@ calibrated model to convert with. Shipping made-up currency figures before
 that model exists would create a false sense of precision the product
 explicitly wants to avoid.
 
+### 8. Ranking adapts to whichever resource metric was actually measured
+
+The report ranks tenants and rules by "workload share" — but which raw
+stat should that be? The first version hardcoded `SamplesProcessed`
+everywhere. That broke silently against real Mimir logs: `mimirlogs` never
+reports samples processed at all (decision 5), so every share collapsed to
+0/alphabetical order, hiding which rule group actually dominated. Real
+testing against the `dev/mimir-local` rig surfaced this directly — a group
+that was genuinely the largest contributor by query wall time ranked 7th,
+sorted alphabetically, because the report was silently ranking by a stat
+that source never measures.
+
+**Decision:** `attribution.Aggregate` picks one `RankMetric` for the whole
+report, from a fixed priority order — query wall time, then fetched bytes,
+then fetched series, then fetched chunks, then samples processed, falling
+back to raw execution count only if nothing else was ever measured — and
+sorts every tenant/rule table by that. Wall time and fetched-byte volume
+sit above samples processed because they're closer to actual resource
+cost; execution count is last because it's a cadence/scheduling measure,
+not a cost one. Every raw stat is still carried on `TenantAggregate`/
+`RuleAggregate` regardless of which one wins, and each carries its own
+`*Observed` flag (extending decision 3's missing-vs-zero principle) so a
+tenant/rule that never measured the chosen metric renders as "not
+measured", not a fabricated 0.
+
+```mermaid
+flowchart LR
+    T["Report-wide totals\n(duration, bytes, series,\nchunks, samples, executions)"] --> P{"First nonzero,\nin priority order"}
+    P -->|"duration > 0"| M1["RankMetric = duration_seconds"]
+    P -->|"else bytes > 0"| M2["RankMetric = fetched_bytes"]
+    P -->|"..."| M3["... series, chunks, samples"]
+    P -->|"nothing else measured"| M4["RankMetric = executions"]
+```
+
+**Why:** a fixed ranking key silently degrades whenever a telemetry source
+doesn't happen to measure that one stat — exactly the kind of gap the
+`report` layer exists to be honest about, not hide behind a stale sort
+order. Picking dynamically means the report always ranks by the best
+available proxy for real resource cost, and degrades predictably (never to
+alphabetical) when nothing better was measured.
+
+**Trade-off:** the "workload share" column means something different
+depending on which telemetry source produced the report (query wall time
+for a real Mimir ruler log, samples processed for the portable ndjson
+fixture format used in tests). The report's header always names the active
+metric explicitly so this is never ambiguous to a reader.
+
 ## Consequences
 
 - The report is currently only as complete as the telemetry it's given —
