@@ -24,4 +24,4 @@ that's just "the obvious way to do it."
 | # | Title | Status |
 |---|---|---|
 | [0001](0001-observed-workload-attribution-layer.md) | Observed workload attribution layer | Accepted |
-| [0002](0002-where-workload-evidence-comes-from.md) | Where workload evidence comes from — three sources, and what each can actually answer | Proposed |
+| [0002](0002-where-workload-evidence-comes-from.md) | Where workload evidence comes from — three sources, and what each can actually answer | Accepted |

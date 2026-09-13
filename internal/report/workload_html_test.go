@@ -90,77 +90,78 @@ func TestWorkloadHTMLReport_EscapesUntrustedNames(t *testing.T) {
 	}
 }
 
-// sampleMultiGroupTenant exercises groupRules with multiple groups, each
-// with multiple rules, so the grouping math below is checked against
-// something more realistic than sampleWorkloadResult()'s single rule.
+// sampleMultiGroupTenant builds an already-grouped tenant the way
+// attribution.Aggregate now hands one over — the bucketing itself is tested
+// in internal/attribution, so these tests cover rendering only.
 func sampleMultiGroupTenant() attribution.TenantAggregate {
-	rules := []attribution.RuleAggregate{
-		{RuleID: rule.RuleID{Tenant: "infra", Namespace: "ns", Group: "mimir_alerts", Name: "r1"}, Executions: 100, SamplesProcessed: 1000, SamplesObserved: true, RankValue: 1000},
-		{RuleID: rule.RuleID{Tenant: "infra", Namespace: "ns", Group: "mimir_alerts", Name: "r2"}, Executions: 50, SamplesProcessed: 500, SamplesObserved: true, RankValue: 500},
-		{RuleID: rule.RuleID{Tenant: "infra", Namespace: "ns", Group: "mimir_queries", Name: "r3"}, Executions: 200, SamplesProcessed: 2000, SamplesObserved: true, RankValue: 2000},
-	}
-	var totalExec int
-	var totalSamples uint64
-	for _, r := range rules {
-		totalExec += r.Executions
-		totalSamples += r.SamplesProcessed
-	}
 	return attribution.TenantAggregate{
 		Tenant:           "infra",
-		RuleCount:        len(rules),
-		Executions:       totalExec,
-		SamplesProcessed: totalSamples,
+		RuleCount:        3,
+		Executions:       350,
+		SamplesProcessed: 3500,
 		SamplesObserved:  true,
-		RankValue:        float64(totalSamples),
-		Rules:            rules,
+		RankValue:        3500,
+		Groups: []attribution.GroupAggregate{
+			{
+				Namespace: "ns", Group: "mimir_queries", Executions: 200,
+				RankValue: 2000, RankSharePct: 57.1, RankObserved: true,
+				Rules: []attribution.RuleAggregate{
+					{RuleID: rule.RuleID{Tenant: "infra", Namespace: "ns", Group: "mimir_queries", Name: "r3"}, Executions: 200, RankValue: 2000, RankObserved: true},
+				},
+			},
+			{
+				Namespace: "ns", Group: "mimir_alerts", Executions: 150,
+				RankValue: 1500, RankSharePct: 42.9, RankObserved: true,
+				Rules: []attribution.RuleAggregate{
+					{RuleID: rule.RuleID{Tenant: "infra", Namespace: "ns", Group: "mimir_alerts", Name: "r1"}, Executions: 100, RankValue: 1000, RankObserved: true},
+					{RuleID: rule.RuleID{Tenant: "infra", Namespace: "ns", Group: "mimir_alerts", Name: "r2"}, Executions: 50, RankValue: 500, RankObserved: true},
+				},
+			},
+		},
 	}
 }
 
-func TestGroupRules_SharesSumToTenantTotals(t *testing.T) {
+func TestBuildGroups_RendersPrecomputedTierInOrder(t *testing.T) {
 	ta := sampleMultiGroupTenant()
-	groups := groupRules(ta.Rules, attribution.RankMetricSamplesProcessed, ta.RankValue)
+	groups := buildGroups(ta.Groups, attribution.RankMetricSamplesProcessed)
 
 	if len(groups) != 2 {
 		t.Fatalf("got %d groups, want 2", len(groups))
 	}
+	// Order is attribution's, preserved verbatim — not re-derived here.
+	if groups[0].Group != "mimir_queries" {
+		t.Errorf("groups[0] = %q, want mimir_queries", groups[0].Group)
+	}
 
 	var groupExecSum int
 	for _, g := range groups {
-		execSum, err := strconv.Atoi(strings.ReplaceAll(g.Executions, ",", ""))
+		n, err := strconv.Atoi(strings.ReplaceAll(g.Executions, ",", ""))
 		if err != nil {
 			t.Fatalf("group %s: Executions %q not a number: %v", g.Group, g.Executions, err)
 		}
-		groupExecSum += execSum
+		groupExecSum += n
 
 		var ruleExecSum int
 		for _, r := range g.Rules {
-			n, err := strconv.Atoi(strings.ReplaceAll(r.Executions, ",", ""))
+			rn, err := strconv.Atoi(strings.ReplaceAll(r.Executions, ",", ""))
 			if err != nil {
 				t.Fatalf("rule %s: Executions %q not a number: %v", r.RuleName, r.Executions, err)
 			}
-			ruleExecSum += n
+			ruleExecSum += rn
 		}
-		if ruleExecSum != execSum {
-			t.Errorf("group %s: rule executions sum to %d, want %d", g.Group, ruleExecSum, execSum)
+		if ruleExecSum != n {
+			t.Errorf("group %s: rule executions sum to %d, want %d", g.Group, ruleExecSum, n)
 		}
 	}
 	if groupExecSum != ta.Executions {
 		t.Errorf("group executions sum to %d, want tenant total %d", groupExecSum, ta.Executions)
 	}
-
-	// Groups sorted by rank value (samples) desc: mimir_queries (2000) before mimir_alerts (1500).
-	if groups[0].Group != "mimir_queries" {
-		t.Errorf("groups[0] = %q, want mimir_queries (sorted by rank value desc)", groups[0].Group)
-	}
-	if groups[0].MetricShare.Width+groups[1].MetricShare.Width-100 > 1e-9 {
-		t.Errorf("group metric shares don't sum to ~100%%: %+v", groups)
-	}
 }
 
-func TestGroupRules_ZeroTotalDoesNotProduceNaN(t *testing.T) {
-	groups := groupRules([]attribution.RuleAggregate{
-		{RuleID: rule.RuleID{Group: "g"}, Executions: 0, SamplesProcessed: 0},
-	}, attribution.RankMetricSamplesProcessed, 0)
+func TestBuildGroups_ZeroTotalDoesNotProduceNaN(t *testing.T) {
+	groups := buildGroups([]attribution.GroupAggregate{
+		{Group: "g", Executions: 0, RankValue: 0, RankObserved: false},
+	}, attribution.RankMetricSamplesProcessed)
 	if len(groups) != 1 {
 		t.Fatalf("got %d groups, want 1", len(groups))
 	}
@@ -168,6 +169,54 @@ func TestGroupRules_ZeroTotalDoesNotProduceNaN(t *testing.T) {
 		t.Errorf("expected 0 share width on zero totals, got %+v", groups[0])
 	}
 	if groups[0].MetricMeasured {
-		t.Errorf("expected MetricMeasured=false (SamplesObserved was never set), got %+v", groups[0])
+		t.Errorf("expected MetricMeasured=false (never observed), got %+v", groups[0])
+	}
+}
+
+// A group-granularity report must never describe its missing rule tier as
+// "no matched rule executions" — that reports a limit of the source as if it
+// were a fact about the workload (ADR 0002).
+func TestWorkloadHTMLReport_GroupGranularityExplainsMissingRuleTier(t *testing.T) {
+	result := WorkloadResult{
+		GeneratedAt:     time.Now(),
+		Granularity:     attribution.GranularityGroup,
+		RankMetric:      attribution.RankMetricDurationSeconds,
+		GroupRankMetric: attribution.RankMetricExecutions,
+		SourceLabel:     "Mimir rule metrics",
+		TotalExecutions: 305,
+		Tenants: []attribution.TenantAggregate{
+			{
+				Tenant: "infra", Executions: 305, DurationSecondsSum: 10.5,
+				DurationObserved: true, RankValue: 10.5, RankSharePct: 100,
+				Groups: []attribution.GroupAggregate{
+					{Namespace: "alerts.yaml", Group: "mimir_alerts", Executions: 305, RankValue: 305, RankSharePct: 100, RankObserved: true},
+				},
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := (workloadHTMLReporter{}).Render(&buf, result); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	out := buf.String()
+
+	if strings.Contains(out, "No matched rule executions") {
+		t.Errorf("group-granularity report claims no rule executions matched:\n%s", out)
+	}
+	if !strings.Contains(out, "rule-group granularity") {
+		t.Errorf("expected an explanation of the missing rule tier, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Mimir rule metrics") {
+		t.Errorf("expected the source to be named in the header, got:\n%s", out)
+	}
+	// Tenants rank by wall time but groups can only rank by count, so each
+	// tier must be labelled with its own metric rather than inheriting the
+	// tenant's and implying the group figure means something it doesn't.
+	if !strings.Contains(out, "query wall time share") {
+		t.Errorf("expected the tenant tier labelled with wall time, got:\n%s", out)
+	}
+	if !strings.Contains(out, "of tenant by executions") {
+		t.Errorf("expected the group tier labelled with executions, got:\n%s", out)
 	}
 }

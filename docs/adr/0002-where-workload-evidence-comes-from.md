@@ -1,6 +1,8 @@
 # 0002: Where workload evidence comes from — three sources, and what each can actually answer
 
-**Status:** Proposed
+**Status:** Accepted — decisions 1, 2 and 4 implemented alongside this ADR
+(`internal/telemetry/mimirmetrics`, `attribution.AggregateObservations`, the
+`pickRankMetric` reorder). Decision 3's persistence work is not yet built.
 
 ## Context
 
