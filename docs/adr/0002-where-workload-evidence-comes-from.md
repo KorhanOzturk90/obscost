@@ -93,8 +93,15 @@ sharded_queries=0 result_series_count=0
 This is the only source carrying `fetched_series_count`,
 `fetched_chunk_bytes`, `fetched_chunks_count` and `sharded_queries`. It has
 no rule name — ADR 0001 decision 5 recovers that by matching query text,
-which works for ~97% of lines and deliberately refuses the ambiguous ~3%.
-And it only exists if somebody was capturing it at the time.
+and deliberately refuses the cases where two rules share an expression
+rather than guessing between them.
+
+That refusal rate is not a constant; it depends on how much a tenant's rule
+corpus repeats itself. ADR 0001 measured ~4% refused on a 290-line sample.
+The larger captures taken for this ADR both landed at ~3% (120 of 4,014
+lines, and 64 of 2,142 in a second run) — so ~97% matched is what the
+figures below refer to, measured here rather than inherited from ADR 0001.
+And all of it only exists if somebody was capturing the log at the time.
 
 ### Side by side
 
@@ -269,16 +276,23 @@ files say, but nothing records when a rule definition actually reached
 Mimir.** Any "this change made it worse" claim needs that timeline.
 
 **Decision:** persist only those two. And publish the first back **into
-Mimir as recording rules**, rather than into a private store — so
-promcost's own output is queryable in Grafana, alertable, and retained by
-whatever policy the team already runs.
+Mimir as new series via remote-write**, rather than into a private store —
+so promcost's own output is queryable in Grafana, alertable, and retained
+by whatever policy the team already runs.
+
+Remote-write specifically, and this distinction matters: a *recording rule*
+cannot do this job. A recording rule only evaluates PromQL over series
+Mimir already holds, and the whole point of this data is that it does not
+exist in Mimir at all — it is parsed out of a log the ruler emits and then
+discards. There is no expression that can conjure it. Getting externally
+computed values in means remote-write, or an exporter that Alloy scrapes.
 
 ### 4. No collector service yet
 
-Deliberately deferred, consistent with `PRODUCT-DIRECTION.md`'s "no
-daemon/SaaS control plane" non-goal for v0. Historical attribution and
-regression detection are buildable *today* against metrics already in Mimir,
-with no new infrastructure. Build those first; revisit a collector only if
+Deliberately deferred, consistent with the v0 non-goal "no UI, no
+daemon/SaaS control plane" (`promcost-v0-spec_updated.md`, restated in
+`AGENTS.md`). Historical attribution and regression detection are buildable
+*today* against metrics already in Mimir, with no new infrastructure. Build those first; revisit a collector only if
 someone needs a retention window Mimir can't give them.
 
 ---
@@ -353,7 +367,7 @@ constant, and getting that wrong produces confidently wrong numbers).
   decision 5 (recovering rule identity) both carry forward unchanged
 - [`docs/investigation-ruler-remote-query-frontend.md`](../investigation-ruler-remote-query-frontend.md)
   — why `samples_processed` is unavailable on the ruler's log line
-- `PRODUCT-DIRECTION.md` — the "no daemon/SaaS control plane" v0 non-goal
-  that decision 4 respects
+- `promcost-v0-spec_updated.md` — the "no daemon/SaaS control plane" v0
+  non-goal that decision 4 respects (restated in `AGENTS.md`)
 - Measurements: `dev/mimir-local`, Mimir 3.2.0, 2026-09-13, tenant `infra`
   (240 distinct rules, 1,227 executions over a 5-minute window)
