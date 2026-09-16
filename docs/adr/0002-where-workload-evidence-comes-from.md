@@ -308,7 +308,15 @@ history, by querying:
 
 - `cortex_prometheus_rule_evaluation_duration_seconds_sum` → per-tenant time
 - `cortex_prometheus_rule_evaluations_total` → per-group counts
-- `cortex_prometheus_rule_group_last_duration_seconds` → per-group duration
+
+**Deviation from this list, found during implementation:** a fourth query,
+`cortex_prometheus_rule_group_last_duration_seconds` for per-group
+duration, was planned here but deliberately dropped. That metric is a gauge
+of the *last* run only, which can't be summed over a window, so pairing it
+with the windowed counts above would juxtapose two incomparable numbers in
+the same row (see `mimirmetrics.GroupWorkload`'s doc comment). Group-level
+cost stays executions-only until there's a sound way to make duration
+comparable across groups.
 
 Why this first:
 

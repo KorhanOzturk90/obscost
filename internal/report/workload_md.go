@@ -121,7 +121,7 @@ Attribution coverage: {{ .CoverageMatched }} matched / {{ .CoverageCaptured }} c
 {{- range .Groups }}
 ### {{ .Group }}{{ if .Namespace }} ({{ .Namespace }}){{ end }}
 
-{{ .Executions }} executions{{ if not $.GroupMetricIsExecutions }}, {{ .MetricValue }}{{ end }} ({{ .MetricPct }} of tenant by {{ $.GroupMetricLabel }})
+{{ .Executions }} executions{{ if not $.GroupMetricIsExecutions }}, {{ .MetricValue }}{{ end }} ({{ .MetricPct }} of tenant's reported groups by {{ $.GroupMetricLabel }})
 {{ if .Rules }}
 | rule | kind | executions | {{ $.GroupMetricLabel }} | share |
 |---|---|---|---|---|

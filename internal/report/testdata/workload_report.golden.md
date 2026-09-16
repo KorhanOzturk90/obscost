@@ -17,7 +17,13 @@ Attribution coverage: 2462 matched / 2475 captured (99.5%), 1 unmatched, 12 skip
 
 ## analytics
 
-No matched rule executions.
+### g (analytics/rules.yaml)
+
+1,440 executions, 3,200,000 (78.1% of tenant's reported groups by samples processed)
+
+| rule | kind | executions | samples processed | share |
+|---|---|---|---|---|
+| customer_activity:7d | recording | 1,440 | not measured | — |
 
 1 unmatched execution(s) (500 samples) — see "Unmatched executions" below.
 

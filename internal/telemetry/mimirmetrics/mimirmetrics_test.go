@@ -164,11 +164,45 @@ func TestRead_TenantMissingFromCountQueryStillAppears(t *testing.T) {
 	if payments.DurationSeconds != 0.431 {
 		t.Errorf("payments.DurationSeconds = %v, want 0.431", payments.DurationSeconds)
 	}
+	if !payments.DurationObserved {
+		t.Error("payments.DurationObserved = false, want true: it was present in the duration query")
+	}
 	if payments.Evaluations != 0 {
 		t.Errorf("payments.Evaluations = %v, want 0 for the query it was missing from", payments.Evaluations)
 	}
 	if payments.Groups != nil {
 		t.Errorf("payments.Groups = %+v, want nil", payments.Groups)
+	}
+}
+
+// The union-not-intersection merge (see Read's doc comment) means a tenant
+// can appear with DurationSeconds at its zero value for two different
+// reasons: genuinely measured at zero, or simply absent from the duration
+// query. DurationObserved is what lets a caller tell those apart instead of
+// stamping a fabricated 0 as a measured value.
+func TestRead_DurationObservedFalseWhenTenantMissingFromDurationQuery(t *testing.T) {
+	srv := newMockQueryServer(t, "infra", map[string]string{
+		"cortex_prometheus_rule_evaluation_duration_seconds_sum": `{"status":"success","data":{"resultType":"vector","result":[]}}`,
+		"cortex_prometheus_rule_evaluation_duration_seconds_count": `{"status":"success","data":{"resultType":"vector","result":[
+			{"metric":{"user":"analytics"},"value":[1757800000.123,"12"]}]}}`,
+		"cortex_prometheus_rule_evaluations_total": `{"status":"success","data":{"resultType":"vector","result":[]}}`,
+	})
+	defer srv.Close()
+
+	s := New(Config{BaseURL: srv.URL, MetricsTenant: "infra"})
+	got, err := s.Read(context.Background(), 15*time.Minute)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if len(got.Tenants) != 1 {
+		t.Fatalf("got %d tenants, want 1", len(got.Tenants))
+	}
+	analytics := got.Tenants[0]
+	if analytics.DurationSeconds != 0 {
+		t.Errorf("analytics.DurationSeconds = %v, want 0", analytics.DurationSeconds)
+	}
+	if analytics.DurationObserved {
+		t.Error("analytics.DurationObserved = true, want false: it never appeared in the duration query")
 	}
 }
 

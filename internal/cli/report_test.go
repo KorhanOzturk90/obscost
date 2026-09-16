@@ -423,3 +423,47 @@ func TestReport_MetricsSource_RequiresBackendURL(t *testing.T) {
 		t.Errorf("expected the error to mention backend.url, got:\n%s", stderr)
 	}
 }
+
+// --metrics-tenant only does anything on the metrics path (no --telemetry),
+// where --dir/--tenant are never consulted. Combining it with any of those
+// three flags used to silently run one path and drop the other's flags.
+func TestReport_MetricsTenant_MutuallyExclusiveWithTelemetryFlags(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{"telemetry", []string{"--telemetry", "testdata/report/clean/executions.ndjson", "--metrics-tenant", "monitoring"}},
+		{"dir", []string{"--dir", "testdata/report/clean/rules", "--metrics-tenant", "monitoring"}},
+		{"tenant", []string{"--tenant", "a,b", "--metrics-tenant", "monitoring"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			args := append([]string{"report"}, tc.args...)
+			_, stderr, code := run(args...)
+			if code != 1 {
+				t.Fatalf("exit code = %d, want 1. stderr=%s", code, stderr)
+			}
+			if !strings.Contains(stderr, "metrics-tenant") || !strings.Contains(stderr, "none of the others can be") {
+				t.Errorf("expected a mutually-exclusive-flags error naming metrics-tenant, got:\n%s", stderr)
+			}
+		})
+	}
+}
+
+// When --since is omitted on the metrics path, defaultMetricsWindow (1h) is
+// applied to the query but must also be STATED — otherwise the report
+// silently narrows to an hour while claiming no filter was set.
+func TestReport_MetricsSource_DefaultWindowIsLabelled(t *testing.T) {
+	srv := metricsFixture(t)
+	defer srv.Close()
+
+	stdout, stderr, code := run("report",
+		"--metrics-tenant", "monitoring",
+		"--config", writeReportConfig(t, srv.URL),
+	)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0. stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "last 1h") {
+		t.Errorf("expected the default 1h window to be labelled in the report, got:\n%s", stdout)
+	}
+}

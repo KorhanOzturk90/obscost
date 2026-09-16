@@ -78,6 +78,15 @@ func newReportCmd(stdout, stderr io.Writer) *cobra.Command {
 	cmd.Flags().StringVar(&since, "since", "", "window to report over (e.g. 24h, 7d, 2w). With --telemetry it filters executions; with the metrics source it is the query window and defaults to 1h")
 	cmd.Flags().BoolVar(&strict, "strict", false, "fail instead of warning when telemetry records can't be read/matched (e.g. an unmatched or ambiguous mimirlogs line)")
 
+	// --metrics-tenant only has an effect when --telemetry is omitted (the
+	// metrics path), which in turn means --dir/--tenant are never consulted
+	// (rule definitions aren't loaded at all in that path — see runReport).
+	// Without these, each flag combination below silently ignores half of
+	// what was passed instead of erroring.
+	cmd.MarkFlagsMutuallyExclusive("telemetry", "metrics-tenant")
+	cmd.MarkFlagsMutuallyExclusive("dir", "metrics-tenant")
+	cmd.MarkFlagsMutuallyExclusive("tenant", "metrics-tenant")
+
 	return cmd
 }
 
@@ -99,6 +108,12 @@ type reportOptions struct {
 // one gets chosen here rather than silently implying the report covers all
 // of history.
 const defaultMetricsWindow = time.Hour
+
+// defaultMetricsWindowLabel is defaultMetricsWindow's --since spelling, used
+// to label the report header when --since was omitted — otherwise the
+// default window is silently applied to the query but never stated, and the
+// report just says "observed window" (see runMetricsReport).
+const defaultMetricsWindowLabel = "1h"
 
 func runReport(ctx context.Context, stdout, stderr io.Writer, opts reportOptions) error {
 	var sinceDuration time.Duration
@@ -269,12 +284,10 @@ func runMetricsReport(ctx context.Context, stdout io.Writer, opts reportOptions,
 	var groupObs []attribution.GroupObservation
 	for _, t := range workload.Tenants {
 		tenantObs = append(tenantObs, attribution.TenantObservation{
-			Tenant:          t.Tenant,
-			Executions:      t.Evaluations,
-			DurationSeconds: t.DurationSeconds,
-			// Mimir always publishes this histogram for a ruler that ran at
-			// all, so reaching here means it was genuinely measured.
-			DurationObserved: true,
+			Tenant:           t.Tenant,
+			Executions:       t.Evaluations,
+			DurationSeconds:  t.DurationSeconds,
+			DurationObserved: t.DurationObserved,
 		})
 		for _, g := range t.Groups {
 			groupObs = append(groupObs, attribution.GroupObservation{
@@ -292,9 +305,13 @@ func runMetricsReport(ctx context.Context, stdout io.Writer, opts reportOptions,
 	if err != nil {
 		return err
 	}
+	windowStr := opts.since
+	if windowStr == "" {
+		windowStr = defaultMetricsWindowLabel
+	}
 	start, end := workload.Start, workload.End
 	return rep.Render(stdout, report.WorkloadResult{
-		Window:          windowLabel(opts.since),
+		Window:          windowLabel(windowStr),
 		Tenants:         agg.Tenants,
 		TotalExecutions: agg.TotalExecutions,
 		RankMetric:      agg.RankMetric,

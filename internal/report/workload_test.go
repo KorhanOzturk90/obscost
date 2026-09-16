@@ -48,6 +48,33 @@ func sampleWorkloadResult() WorkloadResult {
 						RankSharePct:      78.1,
 					},
 				},
+				// Both renderers read Groups exclusively (see
+				// attribution.groupRules), so this mirrors Rules above —
+				// a fixture with Rules but no Groups renders "No matched
+				// rule executions" beneath a non-empty summary row.
+				Groups: []attribution.GroupAggregate{
+					{
+						Namespace:    "analytics/rules.yaml",
+						Group:        "g",
+						Executions:   1440,
+						RankValue:    3_200_000,
+						RankSharePct: 78.1,
+						RankObserved: true,
+						Rules: []attribution.RuleAggregate{
+							{
+								RuleID:            rule.RuleID{Tenant: "analytics", Namespace: "analytics/rules.yaml", Group: "g", Name: "customer_activity:7d"},
+								Kind:              rule.KindRecording,
+								Executions:        1440,
+								ExecutionSharePct: 78.2,
+								SamplesProcessed:  3_200_000,
+								SampleSharePct:    78.1,
+								SamplesObserved:   true,
+								RankValue:         3_200_000,
+								RankSharePct:      78.1,
+							},
+						},
+					},
+				},
 				UnmatchedExecutions: 1,
 				UnmatchedSamples:    500,
 			},

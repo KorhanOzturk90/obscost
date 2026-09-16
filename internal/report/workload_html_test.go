@@ -216,7 +216,7 @@ func TestWorkloadHTMLReport_GroupGranularityExplainsMissingRuleTier(t *testing.T
 	if !strings.Contains(out, "query wall time share") {
 		t.Errorf("expected the tenant tier labelled with wall time, got:\n%s", out)
 	}
-	if !strings.Contains(out, "of tenant by executions") {
+	if !strings.Contains(out, "of tenant's reported groups by executions") {
 		t.Errorf("expected the group tier labelled with executions, got:\n%s", out)
 	}
 }

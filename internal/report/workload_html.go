@@ -193,7 +193,7 @@ const workloadHTMLTemplateSrc = `<!doctype html>
 {{ if .Groups }}
 {{- range .Groups }}
 <details{{ if .DefaultOpen }} open{{ end }}>
-<summary>{{ .Group }} <span class="meta">{{ if .Namespace }}({{ .Namespace }}) {{ end }}— {{ .Executions }} executions, {{ if .MetricMeasured }}{{ template "share" .MetricShare }}{{ if not $.GroupMetricIsExecutions }} ({{ .MetricValue }}){{ end }}{{ else }}<span class="unmeasured">not measured</span>{{ end }} of tenant by {{ $.GroupMetricLabel }}</span></summary>
+<summary>{{ .Group }} <span class="meta">{{ if .Namespace }}({{ .Namespace }}) {{ end }}— {{ .Executions }} executions, {{ if .MetricMeasured }}{{ template "share" .MetricShare }}{{ if not $.GroupMetricIsExecutions }} ({{ .MetricValue }}){{ end }}{{ else }}<span class="unmeasured">not measured</span>{{ end }} of tenant's reported groups by {{ $.GroupMetricLabel }}</span></summary>
 {{- if .Rules }}
 <table>
 <tr><th>rule</th><th>kind</th><th class="num">executions</th><th>{{ $.GroupMetricLabel }} share</th></tr>

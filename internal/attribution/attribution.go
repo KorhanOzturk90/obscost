@@ -252,9 +252,16 @@ type GroupAggregate struct {
 	// Executions is the number of rule evaluations attributed to this
 	// group. Sourced from metrics this is a PromQL increase() figure, which
 	// extrapolates at window edges — see AggregateObservations.
-	Executions   int     `json:"executions"`
-	RankValue    float64 `json:"rank_value"`
-	RankSharePct float64 `json:"rank_share_pct"` // share of THIS TENANT's total for Report.GroupRankMetric
+	Executions int     `json:"executions"`
+	RankValue  float64 `json:"rank_value"`
+	// RankSharePct is this group's share of the sum of Report.GroupRankMetric
+	// across this tenant's *reported* groups — not of the tenant's own
+	// total (TenantAggregate.RankValue), which on the metrics path comes
+	// from a different PromQL counter and is not guaranteed to agree with
+	// the sum of groups. Rendered as "of tenant's reported groups", not
+	// "of tenant", so the report doesn't claim a reconciliation nothing
+	// computes.
+	RankSharePct float64 `json:"rank_share_pct"`
 	// RankObserved is false when this group never measured the report's
 	// group rank metric, so a 0 RankValue must render as "not measured"
 	// rather than as an observed zero.

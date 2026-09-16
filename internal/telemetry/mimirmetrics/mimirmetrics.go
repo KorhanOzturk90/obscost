@@ -92,8 +92,15 @@ type GroupWorkload struct {
 type TenantWorkload struct {
 	Tenant          string
 	DurationSeconds float64
-	Evaluations     float64
-	Groups          []GroupWorkload
+	// DurationObserved is true only if the duration query returned a
+	// sample for this tenant. Since the three queries merge by union (see
+	// Read's doc comment), a tenant first seen via the count or group
+	// query still gets a TenantWorkload with DurationSeconds at its zero
+	// value — this flag is what lets a caller tell that apart from a
+	// tenant genuinely measured at zero.
+	DurationObserved bool
+	Evaluations      float64
+	Groups           []GroupWorkload
 }
 
 // Workload is one Read's worth of observations. Start/End describe the
@@ -199,7 +206,9 @@ func (s *Source) Read(ctx context.Context, window time.Duration) (Workload, erro
 		if !ok {
 			continue
 		}
-		accum(tenant).durationSeconds += value
+		a := accum(tenant)
+		a.durationSeconds += value
+		a.durationObserved = true
 	}
 
 	counts, err := s.vector(ctx, "per-tenant evaluation count", fmt.Sprintf(tenantCountQuery, rangeStr))
@@ -241,9 +250,10 @@ func (s *Source) Read(ctx context.Context, window time.Duration) (Workload, erro
 }
 
 type tenantAccum struct {
-	durationSeconds float64
-	evaluations     float64
-	groups          map[string]*GroupWorkload
+	durationSeconds  float64
+	durationObserved bool
+	evaluations      float64
+	groups           map[string]*GroupWorkload
 }
 
 func (a *tenantAccum) group(namespace, group string) *GroupWorkload {
@@ -264,9 +274,10 @@ func (a *tenantAccum) group(namespace, group string) *GroupWorkload {
 
 func (a *tenantAccum) workload(tenant string) TenantWorkload {
 	tw := TenantWorkload{
-		Tenant:          tenant,
-		DurationSeconds: a.durationSeconds,
-		Evaluations:     a.evaluations,
+		Tenant:           tenant,
+		DurationSeconds:  a.durationSeconds,
+		DurationObserved: a.durationObserved,
+		Evaluations:      a.evaluations,
 	}
 	if len(a.groups) == 0 {
 		return tw
