@@ -345,3 +345,166 @@ func TestAggregate_MissingStatIsExcludedNotZero(t *testing.T) {
 		t.Fatalf("Rules = %+v, want one rule with SamplesProcessed=100", ta.Rules)
 	}
 }
+
+// ADR 0002 decision 2: data volume outranks wall time. The measured reason
+// is that wall time is a poor proxy for what a rule actually costs — a rule
+// can be slow while fetching nothing, or fast while pulling a large share
+// of all data read. This guards the ordering against a well-meaning revert.
+func TestAggregate_RankMetric_VolumeOutranksWallTime(t *testing.T) {
+	definitions := []rule.AnnotatedRule{
+		def("infra", "a/rules.yaml", "g", "slow_but_fetches_nothing", rule.KindRecording),
+		def("infra", "a/rules.yaml", "g", "fast_but_fetches_lots", rule.KindRecording),
+	}
+	executions := []rule.RuleExecution{
+		{
+			Tenant: "infra", Namespace: "a/rules.yaml", Group: "g", RuleName: "slow_but_fetches_nothing",
+			Timestamp:       time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+			DurationSeconds: rule.Ptr(9.0), FetchedBytes: rule.Ptr(uint64(0)),
+		},
+		{
+			Tenant: "infra", Namespace: "a/rules.yaml", Group: "g", RuleName: "fast_but_fetches_lots",
+			Timestamp:       time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+			DurationSeconds: rule.Ptr(0.01), FetchedBytes: rule.Ptr(uint64(5_000_000)),
+		},
+	}
+
+	report := Aggregate(executions, definitions)
+
+	if report.RankMetric != RankMetricFetchedBytes {
+		t.Fatalf("RankMetric = %v, want fetched_bytes (volume must outrank wall time)", report.RankMetric)
+	}
+	if got := report.Tenants[0].Rules[0].RuleID.Name; got != "fast_but_fetches_lots" {
+		t.Errorf("Rules[0] = %s, want fast_but_fetches_lots — the 900x slower rule fetched nothing", got)
+	}
+}
+
+func TestAggregate_GroupTier_ReconcilesToTenantTotal(t *testing.T) {
+	definitions := []rule.AnnotatedRule{
+		def("infra", "a/rules.yaml", "alerts", "r1", rule.KindAlerting),
+		def("infra", "a/rules.yaml", "alerts", "r2", rule.KindAlerting),
+		def("infra", "a/rules.yaml", "records", "r3", rule.KindRecording),
+	}
+	executions := []rule.RuleExecution{
+		exec("infra", "a/rules.yaml", "alerts", "r1", 100),
+		exec("infra", "a/rules.yaml", "alerts", "r2", 50),
+		exec("infra", "a/rules.yaml", "records", "r3", 900),
+	}
+
+	report := Aggregate(executions, definitions)
+	if report.Granularity != GranularityRule {
+		t.Errorf("Granularity = %v, want rule", report.Granularity)
+	}
+	ta := report.Tenants[0]
+	if len(ta.Groups) != 2 {
+		t.Fatalf("len(Groups) = %d, want 2", len(ta.Groups))
+	}
+	// records (900 samples) outranks alerts (150), so it sorts first.
+	if ta.Groups[0].Group != "records" {
+		t.Errorf("Groups[0] = %q, want records (higher rank value first)", ta.Groups[0].Group)
+	}
+
+	var groupExec int
+	var groupRank, groupShare float64
+	var nested int
+	for _, g := range ta.Groups {
+		groupExec += g.Executions
+		groupRank += g.RankValue
+		groupShare += g.RankSharePct
+		nested += len(g.Rules)
+	}
+	if groupExec != ta.Executions {
+		t.Errorf("group executions sum to %d, want tenant total %d", groupExec, ta.Executions)
+	}
+	if nested != len(ta.Rules) {
+		t.Errorf("groups nest %d rules, want all %d", nested, len(ta.Rules))
+	}
+	if math.Abs(groupShare-100) > 1e-9 {
+		t.Errorf("group shares sum to %v, want 100", groupShare)
+	}
+}
+
+// Two files defining a same-named group must not be merged into one row —
+// that would silently combine the workload of unrelated groups.
+func TestAggregate_GroupTier_SameGroupNameDifferentFilesStaySeparate(t *testing.T) {
+	definitions := []rule.AnnotatedRule{
+		def("infra", "a.yaml", "shared", "r1", rule.KindRecording),
+		def("infra", "b.yaml", "shared", "r2", rule.KindRecording),
+	}
+	executions := []rule.RuleExecution{
+		exec("infra", "a.yaml", "shared", "r1", 10),
+		exec("infra", "b.yaml", "shared", "r2", 20),
+	}
+
+	report := Aggregate(executions, definitions)
+	if got := len(report.Tenants[0].Groups); got != 2 {
+		t.Fatalf("len(Groups) = %d, want 2 (same name, different namespaces)", got)
+	}
+}
+
+func TestAggregateObservations_GroupGranularityReport(t *testing.T) {
+	report := AggregateObservations(
+		[]TenantObservation{
+			{Tenant: "infra", Executions: 3540.4, DurationSeconds: 10.5, DurationObserved: true},
+			{Tenant: "analytics", Executions: 270, DurationSeconds: 1.04, DurationObserved: true},
+		},
+		[]GroupObservation{
+			{Tenant: "infra", Namespace: "alerts.yaml", Group: "mimir_alerts", Executions: 305},
+			{Tenant: "infra", Namespace: "alerts.yaml", Group: "gossip_alerts", Executions: 90},
+			{Tenant: "analytics", Namespace: "workload.yaml", Group: "analytics_alerts", Executions: 270},
+		},
+	)
+
+	if report.Granularity != GranularityGroup {
+		t.Errorf("Granularity = %v, want group", report.Granularity)
+	}
+	// Tenants rank by measured wall time; groups can only rank by count.
+	if report.RankMetric != RankMetricDurationSeconds {
+		t.Errorf("RankMetric = %v, want duration_seconds", report.RankMetric)
+	}
+	if report.GroupRankMetric != RankMetricExecutions {
+		t.Errorf("GroupRankMetric = %v, want executions", report.GroupRankMetric)
+	}
+	if report.Tenants[0].Tenant != "infra" {
+		t.Errorf("Tenants[0] = %s, want infra", report.Tenants[0].Tenant)
+	}
+	// increase() figures are fractional; rounding happens once, centrally.
+	if report.Tenants[0].Executions != 3540 {
+		t.Errorf("Executions = %d, want 3540 (rounded from 3540.4)", report.Tenants[0].Executions)
+	}
+	// No rule tier exists at this granularity — and that must not be
+	// confused with "no rules ran".
+	if len(report.Tenants[0].Rules) != 0 {
+		t.Errorf("expected no rule tier, got %+v", report.Tenants[0].Rules)
+	}
+	if report.Tenants[0].Groups[0].Group != "mimir_alerts" {
+		t.Errorf("Groups[0] = %q, want mimir_alerts", report.Tenants[0].Groups[0].Group)
+	}
+}
+
+// A tenant that appears only in the per-group query (not the per-tenant one)
+// must still get a row, or the fleet total is understated.
+func TestAggregateObservations_TenantOnlyInGroupQueryStillAppears(t *testing.T) {
+	report := AggregateObservations(
+		[]TenantObservation{{Tenant: "infra", Executions: 10, DurationSeconds: 1, DurationObserved: true}},
+		[]GroupObservation{{Tenant: "ghost", Namespace: "n.yaml", Group: "g", Executions: 5}},
+	)
+	var found bool
+	for _, ta := range report.Tenants {
+		if ta.Tenant == "ghost" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("tenant present only in the group query was dropped: %+v", report.Tenants)
+	}
+}
+
+func TestAggregateObservations_EmptyInputMarshalsCleanly(t *testing.T) {
+	report := AggregateObservations(nil, nil)
+	if len(report.Tenants) != 0 || report.TotalExecutions != 0 {
+		t.Fatalf("expected an empty report, got %+v", report)
+	}
+	if _, err := json.Marshal(report); err != nil {
+		t.Fatalf("json.Marshal(empty observations report): %v", err)
+	}
+}

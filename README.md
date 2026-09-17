@@ -51,15 +51,23 @@ go test ./...                              # or: make test
 # static analysis — no telemetry required
 ./bin/promcost check --dir path/to/rules [--config promcost.yaml] [--offline] [--fail-on warn|error]
 
-# observed workload attribution — rule definitions from a local checkout
+# workload attribution with NO log capture at all — reads Mimir's own rule
+# metrics (needs backend.url in promcost.yaml). Fastest way to see something
+# real: per tenant and per rule group, with history.
+./bin/promcost report --metrics-tenant monitoring --since 7d --config promcost.yaml
+
+# per-RULE attribution, plus the resource dimensions only the ruler log has
+# (fetched bytes/chunks/series) — needs captured ruler query-stats telemetry
 ./bin/promcost report --dir path/to/rules --telemetry ruler.log \
   --telemetry-format mimirlogs --config promcost.yaml [--since 7d] [--format md|json|html]
 
-# ...or, with no local checkout at all: fetch rule definitions live from
-# Mimir's own ruler API instead (needs backend.url in promcost.yaml)
+# ...same, but with no local rule checkout: fetch definitions live from
+# Mimir's own ruler API instead
 ./bin/promcost report --tenant analytics,payments --telemetry ruler.log \
   --telemetry-format mimirlogs --config promcost.yaml
 ```
+
+Those first two answer different questions, deliberately — see [`docs/adr/0002`](docs/adr/0002-where-workload-evidence-comes-from.md). Mimir's own metrics give you tenant and rule-group totals exactly, cheaply, and with history, but they carry no rule name and no measure of data volume. The ruler log is the only source that reaches individual rules and reports what they actually pulled off the ingesters — which routinely disagrees with wall time about which tenant is expensive.
 
 Want to see it running against a real Mimir instance rather than a fixture? [`dev/mimir-local`](dev/mimir-local) is a self-contained, self-monitoring Docker Compose Mimir rig with `-ruler.query-stats-enabled` already on — spin it up and point `report --telemetry-format mimirlogs` at its actual ruler logs.
 

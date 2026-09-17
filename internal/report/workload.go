@@ -27,6 +27,23 @@ type WorkloadResult struct {
 	// RankMetric is the metric Tenants (and each tenant's Rules) are
 	// sorted by — see attribution.RankMetric's doc comment.
 	RankMetric attribution.RankMetric `json:"rank_metric"`
+	// GroupRankMetric is the metric the rule-group tier is ranked by. It
+	// can differ from RankMetric when a source measures the two tiers
+	// differently — see attribution.Report.GroupRankMetric.
+	GroupRankMetric attribution.RankMetric `json:"group_rank_metric,omitempty"`
+	// Granularity is how deep this report's figures reach. A renderer must
+	// consult it before describing an absent rule tier: at
+	// GranularityGroup, no rules is a property of the source, not a
+	// finding about the workload.
+	Granularity attribution.Granularity `json:"granularity,omitempty"`
+	// SourceLabel names where these figures came from, for the report
+	// header (e.g. "Mimir rule metrics" vs "ruler query-stats log"). Purely
+	// descriptive; the CLI sets it since only it knows which source ran.
+	SourceLabel string `json:"source_label,omitempty"`
+	// SourceNote is an optional caveat shown alongside SourceLabel — used
+	// to state, for instance, that metric-derived counts are PromQL
+	// increase() figures and therefore extrapolated at window edges.
+	SourceNote string `json:"source_note,omitempty"`
 	// ObservedStart/ObservedEnd are the earliest and latest Timestamp
 	// across every execution that fed this report (after --since
 	// filtering), nil when there were none. This is the ground truth of

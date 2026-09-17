@@ -314,3 +314,156 @@ func TestReport_TenantWithoutBackendURL(t *testing.T) {
 		t.Errorf("expected the error to mention the missing backend.url, got:\n%s", stderr)
 	}
 }
+
+// metricsFixture is the real instant-query response shape Mimir returns for
+// the three cortex_prometheus_rule_* queries the metrics source issues.
+func metricsFixture(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Scope-OrgID") != "monitoring" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		q := r.URL.Query().Get("query")
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.Contains(q, "rule_evaluation_duration_seconds_sum"):
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[
+				{"metric":{"user":"infra"},"value":[1757800000,"10.5"]},
+				{"metric":{"user":"analytics"},"value":[1757800000,"1.04"]}]}}`))
+		case strings.Contains(q, "rule_evaluation_duration_seconds_count"):
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[
+				{"metric":{"user":"infra"},"value":[1757800000,"3540"]},
+				{"metric":{"user":"analytics"},"value":[1757800000,"270"]}]}}`))
+		default:
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[
+				{"metric":{"user":"infra","rule_group":"/data/ruler/infra/alerts.yaml;mimir_alerts"},"value":[1757800000,"305"]},
+				{"metric":{"user":"analytics","rule_group":"/data/ruler/analytics/workload.yaml;analytics_alerts"},"value":[1757800000,"270"]}]}}`))
+		}
+	}))
+}
+
+// The headline of ADR 0002's first step: a useful report with no --telemetry,
+// no --dir, and no log capture anywhere — just a Mimir URL.
+func TestReport_MetricsSource_NoTelemetryNeeded(t *testing.T) {
+	srv := metricsFixture(t)
+	defer srv.Close()
+
+	stdout, stderr, code := run("report",
+		"--metrics-tenant", "monitoring",
+		"--config", writeReportConfig(t, srv.URL),
+		"--since", "1h",
+	)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0. stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{"infra", "analytics", "mimir_alerts", "Mimir rule metrics"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("expected %q in report, got:\n%s", want, stdout)
+		}
+	}
+	// The rule tier is absent because the source cannot see it — saying
+	// "no matched rule executions" here would report a limit of the source
+	// as a finding about the workload (ADR 0002).
+	if strings.Contains(stdout, "No matched rule executions") {
+		t.Errorf("group-granularity report claimed no rule executions matched:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "rule-group granularity") {
+		t.Errorf("expected the granularity limit to be stated, got:\n%s", stdout)
+	}
+	// Tenants rank by measured wall time, not by evaluation count.
+	if !strings.Contains(stdout, "query wall time") {
+		t.Errorf("expected ranking by wall time, got:\n%s", stdout)
+	}
+}
+
+func TestReport_MetricsSource_JSONIsValid(t *testing.T) {
+	srv := metricsFixture(t)
+	defer srv.Close()
+
+	stdout, stderr, code := run("report",
+		"--metrics-tenant", "monitoring",
+		"--config", writeReportConfig(t, srv.URL),
+		"--format", "json",
+	)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0. stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(stdout), &parsed); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v\nstdout:\n%s", err, stdout)
+	}
+	if parsed["granularity"] != "group" {
+		t.Errorf("granularity = %v, want group", parsed["granularity"])
+	}
+}
+
+// --metrics-tenant names the tenant that SCRAPED Mimir, which is usually not
+// a tenant being reported on. Defaulting it would silently query the wrong
+// TSDB and produce an empty report that looks like a real finding.
+func TestReport_MetricsSource_RequiresMetricsTenant(t *testing.T) {
+	srv := metricsFixture(t)
+	defer srv.Close()
+
+	_, stderr, code := run("report", "--config", writeReportConfig(t, srv.URL))
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1. stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stderr, "--metrics-tenant") {
+		t.Errorf("expected the error to name --metrics-tenant, got:\n%s", stderr)
+	}
+}
+
+func TestReport_MetricsSource_RequiresBackendURL(t *testing.T) {
+	_, stderr, code := run("report", "--metrics-tenant", "monitoring")
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1. stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stderr, "backend.url") {
+		t.Errorf("expected the error to mention backend.url, got:\n%s", stderr)
+	}
+}
+
+// --metrics-tenant only does anything on the metrics path (no --telemetry),
+// where --dir/--tenant are never consulted. Combining it with any of those
+// three flags used to silently run one path and drop the other's flags.
+func TestReport_MetricsTenant_MutuallyExclusiveWithTelemetryFlags(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{"telemetry", []string{"--telemetry", "testdata/report/clean/executions.ndjson", "--metrics-tenant", "monitoring"}},
+		{"dir", []string{"--dir", "testdata/report/clean/rules", "--metrics-tenant", "monitoring"}},
+		{"tenant", []string{"--tenant", "a,b", "--metrics-tenant", "monitoring"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			args := append([]string{"report"}, tc.args...)
+			_, stderr, code := run(args...)
+			if code != 1 {
+				t.Fatalf("exit code = %d, want 1. stderr=%s", code, stderr)
+			}
+			if !strings.Contains(stderr, "metrics-tenant") || !strings.Contains(stderr, "none of the others can be") {
+				t.Errorf("expected a mutually-exclusive-flags error naming metrics-tenant, got:\n%s", stderr)
+			}
+		})
+	}
+}
+
+// When --since is omitted on the metrics path, defaultMetricsWindow (1h) is
+// applied to the query but must also be STATED — otherwise the report
+// silently narrows to an hour while claiming no filter was set.
+func TestReport_MetricsSource_DefaultWindowIsLabelled(t *testing.T) {
+	srv := metricsFixture(t)
+	defer srv.Close()
+
+	stdout, stderr, code := run("report",
+		"--metrics-tenant", "monitoring",
+		"--config", writeReportConfig(t, srv.URL),
+	)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0. stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "last 1h") {
+		t.Errorf("expected the default 1h window to be labelled in the report, got:\n%s", stdout)
+	}
+}

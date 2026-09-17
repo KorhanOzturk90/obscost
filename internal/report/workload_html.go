@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"html/template"
 	"io"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -33,13 +32,13 @@ type htmlRuleAggregate struct {
 	MetricShare    htmlShare // this rule's share of its GROUP's rank-metric total
 }
 
-// htmlGroupAggregate is a display-only rollup of a tenant's rules by
-// RuleID.Group — attribution.Aggregate has no group-level aggregation tier
-// of its own (Group is just a field on RuleID), so this reporter buckets
-// the already-sorted, already-computed RuleAggregate slice itself rather
-// than adding a new core domain type for a presentation concern.
+// htmlGroupAggregate renders one entry of attribution's group tier. The
+// bucketing and ranking happen there, not here — see buildGroups.
 type htmlGroupAggregate struct {
-	Group          string
+	Group string
+	// Namespace disambiguates two groups that share a name across files;
+	// shown as secondary text rather than in the heading.
+	Namespace      string
 	Executions     string
 	MetricMeasured bool
 	MetricValue    string
@@ -77,6 +76,20 @@ type workloadHTMLData struct {
 	GeneratedAt   string
 
 	MetricLabel string // e.g. "query wall time" — what Tenants/Rules are ranked by
+	// GroupMetricLabel is what the GROUP tier is ranked by, which can
+	// differ from MetricLabel (Mimir reports per-tenant time but only
+	// per-group counts), so the two columns must be labelled separately.
+	GroupMetricLabel string
+	// GroupMetricIsExecutions suppresses repeating the execution count as
+	// the group's rank figure when the two are the same number.
+	GroupMetricIsExecutions bool
+
+	SourceLabel string // where these figures came from
+	SourceNote  string // caveat about how they were derived, if any
+	// GroupGranularity is true when the source cannot see individual rules,
+	// so an absent rule tier is a property of the source rather than a
+	// finding about the workload.
+	GroupGranularity bool
 
 	TotalExecutions string
 	RuleDefinitions string
@@ -140,26 +153,35 @@ const workloadHTMLTemplateSrc = `<!doctype html>
 <h1>promcost workload report (observed)</h1>
 <p class="meta">
   Generated: {{ .GeneratedAt }}<br>
+  {{ if .SourceLabel }}Source: {{ .SourceLabel }}{{ if .SourceNote }} <span class="unmeasured">({{ .SourceNote }})</span>{{ end }}<br>{{ end }}
   {{ if .Window }}Filter: {{ .Window }}<br>{{ end }}
   Observed capture window: {{ if .ObservedRange }}{{ .ObservedRange }}{{ else }}n/a (no executions in range){{ end }}<br>
   Ranked by: {{ .MetricLabel }} &middot;
-  Total executions: {{ .TotalExecutions }} &middot;
-  Rule definitions loaded: {{ .RuleDefinitions }}
+  Total executions: {{ .TotalExecutions }}
+  {{- if not .GroupGranularity }} &middot; Rule definitions loaded: {{ .RuleDefinitions }}{{ end }}
 </p>
+{{- if .GroupGranularity }}
+<p class="coverage">
+  This source reports at rule-group granularity — it carries no rule names, so
+  individual rules are not shown. Per-rule attribution needs execution telemetry
+  (<code>--telemetry</code>).
+</p>
+{{- else }}
 <p class="coverage">
   Attribution coverage: {{ .CoverageMatched }} matched / {{ .CoverageCaptured }} captured ({{ .CoverageMatchPct }})
   {{- if .CoverageUnmatched }} &middot; {{ .CoverageUnmatched }} unmatched (no known rule definition){{ end }}
   {{- if .CoverageSkipped }} &middot; {{ .CoverageSkipped }} skipped before matching (see command output/logs){{ end }}
 </p>
+{{- end }}
 <p class="summary">{{ .TopSummary }}</p>
 
 <h2>Tenant summary</h2>
 <table>
-<tr><th>tenant</th><th class="num">rules</th><th class="num">executions</th><th>{{ .MetricLabel }} share</th></tr>
+<tr><th>tenant</th>{{ if not .GroupGranularity }}<th class="num">rules</th>{{ end }}<th class="num">executions</th><th>{{ .MetricLabel }} share</th></tr>
 {{- range .Tenants }}
 <tr>
   <td><a class="tenant-link" href="#tenant-{{ .Tenant }}">{{ .Tenant }}</a></td>
-  <td class="num">{{ .RuleCount }}</td>
+  {{ if not $.GroupGranularity }}<td class="num">{{ .RuleCount }}</td>{{ end }}
   <td class="num">{{ .Executions }}</td>
   <td>{{ if .MetricMeasured }}{{ template "share" .MetricShare }} <span class="metricval">({{ .MetricValue }})</span>{{ else }}<span class="unmeasured">not measured</span>{{ end }}</td>
 </tr>
@@ -171,9 +193,10 @@ const workloadHTMLTemplateSrc = `<!doctype html>
 {{ if .Groups }}
 {{- range .Groups }}
 <details{{ if .DefaultOpen }} open{{ end }}>
-<summary>{{ .Group }} <span class="meta">— {{ .Executions }} executions, {{ if .MetricMeasured }}{{ template "share" .MetricShare }} ({{ .MetricValue }}){{ else }}<span class="unmeasured">not measured</span>{{ end }} of tenant</span></summary>
+<summary>{{ .Group }} <span class="meta">{{ if .Namespace }}({{ .Namespace }}) {{ end }}— {{ .Executions }} executions, {{ if .MetricMeasured }}{{ template "share" .MetricShare }}{{ if not $.GroupMetricIsExecutions }} ({{ .MetricValue }}){{ end }}{{ else }}<span class="unmeasured">not measured</span>{{ end }} of tenant's reported groups by {{ $.GroupMetricLabel }}</span></summary>
+{{- if .Rules }}
 <table>
-<tr><th>rule</th><th>kind</th><th class="num">executions</th><th>{{ $.MetricLabel }} share</th></tr>
+<tr><th>rule</th><th>kind</th><th class="num">executions</th><th>{{ $.GroupMetricLabel }} share</th></tr>
 {{- range .Rules }}
 <tr>
   <td><span title="{{ .RuleIDFull }}">{{ .RuleName }}</span></td>
@@ -183,8 +206,15 @@ const workloadHTMLTemplateSrc = `<!doctype html>
 </tr>
 {{- end }}
 </table>
+{{- else if $.GroupGranularity }}
+<p class="empty">Rule-level detail not available from this source.</p>
+{{- else }}
+<p class="empty">No matched rule executions in this group.</p>
+{{- end }}
 </details>
 {{- end }}
+{{- else if $.GroupGranularity }}
+<p class="empty">No rule groups reported for this tenant in this window.</p>
 {{- else }}
 <p class="empty">No matched rule executions.</p>
 {{- end }}
@@ -219,13 +249,27 @@ func (workloadHTMLReporter) Render(w io.Writer, result WorkloadResult) error {
 		metric = attribution.RankMetricExecutions
 	}
 
+	groupMetric := result.GroupRankMetric
+	if groupMetric == "" {
+		groupMetric = metric
+	}
+
 	data := workloadHTMLData{
-		Window:          result.Window,
-		ObservedRange:   formatObservedRange(result.ObservedStart, result.ObservedEnd),
-		GeneratedAt:     result.GeneratedAt.UTC().Format("2006-01-02 15:04:05 UTC"),
-		MetricLabel:     metric.Label(),
-		TotalExecutions: formatInt(result.TotalExecutions),
-		RuleDefinitions: formatInt(result.RuleDefinitions),
+		Window:                  result.Window,
+		ObservedRange:           formatObservedRange(result.ObservedStart, result.ObservedEnd),
+		GeneratedAt:             result.GeneratedAt.UTC().Format("2006-01-02 15:04:05 UTC"),
+		MetricLabel:             metric.Label(),
+		GroupMetricLabel:        groupMetric.Label(),
+		GroupMetricIsExecutions: groupMetric == attribution.RankMetricExecutions,
+		SourceLabel:             result.SourceLabel,
+		SourceNote:              result.SourceNote,
+		// At group granularity the source cannot see rules at all, so the
+		// renderer must not describe their absence as "no matched rule
+		// executions" — that reports a limitation of the source as if it
+		// were a finding about the workload (ADR 0002).
+		GroupGranularity: result.Granularity == attribution.GranularityGroup,
+		TotalExecutions:  formatInt(result.TotalExecutions),
+		RuleDefinitions:  formatInt(result.RuleDefinitions),
 
 		CoverageCaptured:  result.TotalExecutions + result.SkippedTelemetry,
 		CoverageMatched:   result.TotalExecutions - len(result.Unmatched),
@@ -249,7 +293,7 @@ func (workloadHTMLReporter) Render(w io.Writer, result WorkloadResult) error {
 			RuleCount:           formatInt(ta.RuleCount),
 			Executions:          formatInt(ta.Executions),
 			MetricMeasured:      ta.Observed(metric),
-			Groups:              groupRules(ta.Rules, metric, ta.RankValue),
+			Groups:              buildGroups(ta.Groups, groupMetric),
 			UnmatchedExecutions: ta.UnmatchedExecutions,
 			UnmatchedSamples:    ta.UnmatchedSamples,
 			DefaultOpen:         i < 3,
@@ -276,81 +320,54 @@ func (workloadHTMLReporter) Render(w io.Writer, result WorkloadResult) error {
 	return workloadHTMLTmpl.Execute(w, data)
 }
 
-// groupRules buckets one tenant's already-sorted RuleAggregate slice by
-// RuleID.Group, purely for display (see htmlGroupAggregate's doc comment —
-// no new attribution-package aggregation tier). Groups and the rules within
-// them are ranked by metric's RankValue, the same figure attribution.
-// Aggregate itself already sorted the input Rules slice by — see PR #23's
-// review point #5: this used to be hardcoded to SamplesProcessed, which
-// silently fell back to alphabetical order for any telemetry source (like
-// mimirlogs) that never measures samples, hiding the actual largest group.
-func groupRules(rules []attribution.RuleAggregate, metric attribution.RankMetric, tenantRankValue float64) []htmlGroupAggregate {
-	type accum struct {
-		group      string
-		executions int
-		rankValue  float64
-		measured   bool
-		rules      []attribution.RuleAggregate
-	}
-
-	byGroup := make(map[string]*accum)
-	var accums []*accum
-	for _, r := range rules {
-		g := r.RuleID.Group
-		a, ok := byGroup[g]
-		if !ok {
-			a = &accum{group: g}
-			byGroup[g] = a
-			accums = append(accums, a)
-		}
-		a.executions += r.Executions
-		a.rankValue += r.RankValue
-		if r.Observed(metric) {
-			a.measured = true
-		}
-		a.rules = append(a.rules, r)
-	}
-
-	sort.Slice(accums, func(i, j int) bool {
-		if accums[i].rankValue != accums[j].rankValue {
-			return accums[i].rankValue > accums[j].rankValue
-		}
-		return accums[i].group < accums[j].group
-	})
-
-	groups := make([]htmlGroupAggregate, 0, len(accums))
-	for idx, a := range accums {
+// buildGroups renders the group tier attribution already computed and
+// ranked (attribution.groupRules for a rule-granularity report, or directly
+// from measured figures for a metrics-derived one). This used to do the
+// bucketing itself; ADR 0002 moved that into internal/attribution, because a
+// metrics-derived report has a group tier with no rules underneath it at
+// all, so the tier can no longer be a presentation-time derivation of
+// something deeper.
+//
+// groupMetric is the metric the GROUP tier is ranked by, which is not always
+// the tenant's — Mimir publishes per-tenant wall time but only per-group
+// evaluation counts.
+func buildGroups(groups []attribution.GroupAggregate, groupMetric attribution.RankMetric) []htmlGroupAggregate {
+	out := make([]htmlGroupAggregate, 0, len(groups))
+	for idx, g := range groups {
 		hg := htmlGroupAggregate{
-			Group:          a.group,
-			Executions:     formatInt(a.executions),
-			MetricMeasured: a.measured,
-			DefaultOpen:    idx < 3,
+			Group:          g.Group,
+			Namespace:      g.Namespace,
+			Executions:     formatInt(g.Executions),
+			MetricMeasured: g.RankObserved,
+			// Expanding the top few by default keeps a 40-group tenant from
+			// opening as a wall of tables, without hiding the ones that matter.
+			DefaultOpen: idx < 3,
 		}
-		if a.measured {
-			hg.MetricValue = formatMetricValue(metric, a.rankValue)
-			hg.MetricShare = newShare(pctf(a.rankValue, tenantRankValue))
+		if g.RankObserved {
+			hg.MetricValue = formatMetricValue(groupMetric, g.RankValue)
+			hg.MetricShare = newShare(g.RankSharePct)
 		} else {
 			hg.MetricShare = htmlShare{Width: 0}
 		}
-		for _, r := range a.rules {
+		for _, r := range g.Rules {
 			hr := htmlRuleAggregate{
 				RuleName:       r.RuleID.Name,
 				RuleIDFull:     r.RuleID.String(),
 				Kind:           r.Kind.String(),
 				Executions:     formatInt(r.Executions),
-				MetricMeasured: r.Observed(metric),
+				MetricMeasured: r.RankObserved,
 			}
 			if hr.MetricMeasured {
-				hr.MetricValue = formatMetricValue(metric, r.RankValue)
-				hr.MetricShare = newShare(pctf(r.RankValue, a.rankValue))
+				hr.MetricValue = formatMetricValue(groupMetric, r.RankValue)
+				hr.MetricShare = newShare(pctf(r.RankValue, g.RankValue))
 			} else {
 				hr.MetricShare = htmlShare{Width: 0}
 			}
 			hg.Rules = append(hg.Rules, hr)
 		}
-		groups = append(groups, hg)
+		out = append(out, hg)
 	}
-	return groups
+	return out
 }
 
 // topSummary answers PR #23 review's "what is driving observed rule

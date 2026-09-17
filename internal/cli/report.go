@@ -20,6 +20,7 @@ import (
 	"github.com/KorhanOzturk90/obscost/internal/rule"
 	"github.com/KorhanOzturk90/obscost/internal/telemetry"
 	"github.com/KorhanOzturk90/obscost/internal/telemetry/mimirlogs"
+	"github.com/KorhanOzturk90/obscost/internal/telemetry/mimirmetrics"
 	"github.com/KorhanOzturk90/obscost/internal/telemetry/ndjson"
 	"github.com/KorhanOzturk90/obscost/internal/tenancy"
 )
@@ -42,6 +43,7 @@ func newReportCmd(stdout, stderr io.Writer) *cobra.Command {
 		tenants       string
 		telemetryPath string
 		telemetryFmt  string
+		metricsTenant string
 		configPath    string
 		format        string
 		since         string
@@ -57,6 +59,7 @@ func newReportCmd(stdout, stderr io.Writer) *cobra.Command {
 				tenants:       tenants,
 				telemetryPath: telemetryPath,
 				telemetryFmt:  telemetryFmt,
+				metricsTenant: metricsTenant,
 				configPath:    configPath,
 				format:        format,
 				since:         since,
@@ -67,15 +70,22 @@ func newReportCmd(stdout, stderr io.Writer) *cobra.Command {
 
 	cmd.Flags().StringVar(&dirPath, "dir", "", "directory of rule files providing rule definitions. If omitted, rule definitions are instead fetched live from Mimir's ruler API (config's backend.url) for --tenant's tenants — no local rule-file checkout needed")
 	cmd.Flags().StringVar(&tenants, "tenant", "", "comma-separated tenant IDs to fetch rule definitions for from the ruler API; required when --dir is omitted, ignored when --dir is given")
-	cmd.Flags().StringVar(&telemetryPath, "telemetry", "", "path to a rule-execution telemetry file (required)")
+	cmd.Flags().StringVar(&telemetryPath, "telemetry", "", "path to a rule-execution telemetry file. If omitted, workload is read from Mimir's own rule metrics instead (config's backend.url) — no log capture needed, but figures then stop at rule-group granularity")
 	cmd.Flags().StringVar(&telemetryFmt, "telemetry-format", "ndjson", "format of --telemetry: ndjson|mimirlogs (Mimir's -ruler.query-stats-enabled log)")
+	cmd.Flags().StringVar(&metricsTenant, "metrics-tenant", "", "tenant whose TSDB holds Mimir's own scraped metrics, for the metrics workload source. NOT a tenant being reported on — see internal/telemetry/mimirmetrics")
 	cmd.Flags().StringVar(&configPath, "config", "", "path to promcost.yaml")
 	cmd.Flags().StringVar(&format, "format", "md", "output format: md|json|html")
-	cmd.Flags().StringVar(&since, "since", "", "only include executions at or after this long ago (e.g. 24h, 7d, 2w); empty means no filtering")
+	cmd.Flags().StringVar(&since, "since", "", "window to report over (e.g. 24h, 7d, 2w). With --telemetry it filters executions; with the metrics source it is the query window and defaults to 1h")
 	cmd.Flags().BoolVar(&strict, "strict", false, "fail instead of warning when telemetry records can't be read/matched (e.g. an unmatched or ambiguous mimirlogs line)")
-	if err := cmd.MarkFlagRequired("telemetry"); err != nil {
-		panic(err) // programmer error: flag name typo
-	}
+
+	// --metrics-tenant only has an effect when --telemetry is omitted (the
+	// metrics path), which in turn means --dir/--tenant are never consulted
+	// (rule definitions aren't loaded at all in that path — see runReport).
+	// Without these, each flag combination below silently ignores half of
+	// what was passed instead of erroring.
+	cmd.MarkFlagsMutuallyExclusive("telemetry", "metrics-tenant")
+	cmd.MarkFlagsMutuallyExclusive("dir", "metrics-tenant")
+	cmd.MarkFlagsMutuallyExclusive("tenant", "metrics-tenant")
 
 	return cmd
 }
@@ -85,11 +95,25 @@ type reportOptions struct {
 	tenants       string
 	telemetryPath string
 	telemetryFmt  string
+	metricsTenant string
 	configPath    string
 	format        string
 	since         string
 	strict        bool
 }
+
+// defaultMetricsWindow is the window the metrics source queries when --since
+// is omitted. Unlike the telemetry path — where "no --since" honestly means
+// "everything in the file" — a PromQL range query must name some window, so
+// one gets chosen here rather than silently implying the report covers all
+// of history.
+const defaultMetricsWindow = time.Hour
+
+// defaultMetricsWindowLabel is defaultMetricsWindow's --since spelling, used
+// to label the report header when --since was omitted — otherwise the
+// default window is silently applied to the query but never stated, and the
+// report just says "observed window" (see runMetricsReport).
+const defaultMetricsWindowLabel = "1h"
 
 func runReport(ctx context.Context, stdout, stderr io.Writer, opts reportOptions) error {
 	var sinceDuration time.Duration
@@ -104,6 +128,15 @@ func runReport(ctx context.Context, stdout, stderr io.Writer, opts reportOptions
 	cfg, err := config.Load(opts.configPath)
 	if err != nil {
 		return err
+	}
+
+	// No --telemetry means no execution-level data exists to join against
+	// rule definitions, so the whole definitions/matching pipeline below is
+	// skipped: Mimir's own metrics already carry tenant and rule-group
+	// identity, and they cannot be drilled past that no matter what
+	// definitions we load (ADR 0002).
+	if opts.telemetryPath == "" {
+		return runMetricsReport(ctx, stdout, opts, cfg, sinceDuration)
 	}
 
 	defsLoader, err := newDefinitionsSource(opts, cfg)
@@ -203,6 +236,93 @@ func observedRange(executions []rule.RuleExecution) (start, end time.Time, ok bo
 		}
 	}
 	return start, end, true
+}
+
+// runMetricsReport renders a workload report from Mimir's own rule metrics,
+// with no log capture and no rule definitions involved at all. This is the
+// metrics path of ADR 0002: per-tenant evaluation time and per-group
+// evaluation counts are already published by the ruler, exactly and with
+// history, so deriving them by parsing logs would be more work for a worse
+// answer. The trade is granularity — these metrics carry no rule name, so
+// the report stops at the rule group and says so rather than presenting an
+// empty rule tier as "nothing ran".
+func runMetricsReport(ctx context.Context, stdout io.Writer, opts reportOptions, cfg config.Config, since time.Duration) error {
+	if cfg.Backend.URL == "" {
+		return fmt.Errorf("--telemetry was omitted, so workload comes from Mimir's rule metrics — but config's backend.url is empty, so there is nowhere to query")
+	}
+	if opts.metricsTenant == "" {
+		return fmt.Errorf("--metrics-tenant is required when --telemetry is omitted: Mimir's own metrics live in whichever tenant scrapes them, which is usually not a tenant you are reporting on")
+	}
+
+	window := since
+	if window == 0 {
+		window = defaultMetricsWindow
+	}
+
+	header := cfg.Tenancy.Header
+	if header == "" {
+		header = "X-Scope-OrgID"
+	}
+	var bearerToken string
+	if cfg.Backend.Auth.BearerTokenEnv != "" {
+		bearerToken = os.Getenv(cfg.Backend.Auth.BearerTokenEnv)
+	}
+
+	src := mimirmetrics.New(mimirmetrics.Config{
+		BaseURL:       cfg.Backend.URL,
+		Header:        header,
+		MetricsTenant: opts.metricsTenant,
+		BearerToken:   bearerToken,
+		Timeout:       cfg.Backend.Timeout.Duration(),
+	})
+	workload, err := src.Read(ctx, window)
+	if err != nil {
+		return err
+	}
+
+	tenantObs := make([]attribution.TenantObservation, 0, len(workload.Tenants))
+	var groupObs []attribution.GroupObservation
+	for _, t := range workload.Tenants {
+		tenantObs = append(tenantObs, attribution.TenantObservation{
+			Tenant:           t.Tenant,
+			Executions:       t.Evaluations,
+			DurationSeconds:  t.DurationSeconds,
+			DurationObserved: t.DurationObserved,
+		})
+		for _, g := range t.Groups {
+			groupObs = append(groupObs, attribution.GroupObservation{
+				Tenant:     t.Tenant,
+				Namespace:  g.Namespace,
+				Group:      g.Group,
+				Executions: g.Evaluations,
+			})
+		}
+	}
+
+	agg := attribution.AggregateObservations(tenantObs, groupObs)
+
+	rep, err := report.NewWorkload(report.Format(opts.format))
+	if err != nil {
+		return err
+	}
+	windowStr := opts.since
+	if windowStr == "" {
+		windowStr = defaultMetricsWindowLabel
+	}
+	start, end := workload.Start, workload.End
+	return rep.Render(stdout, report.WorkloadResult{
+		Window:          windowLabel(windowStr),
+		Tenants:         agg.Tenants,
+		TotalExecutions: agg.TotalExecutions,
+		RankMetric:      agg.RankMetric,
+		GroupRankMetric: agg.GroupRankMetric,
+		Granularity:     agg.Granularity,
+		SourceLabel:     "Mimir rule metrics (cortex_prometheus_rule_*)",
+		SourceNote:      "counts are PromQL increase() figures, extrapolated at window edges",
+		ObservedStart:   &start,
+		ObservedEnd:     &end,
+		GeneratedAt:     time.Now(),
+	})
 }
 
 // newDefinitionsSource selects where rule definitions come from: a local

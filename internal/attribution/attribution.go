@@ -7,6 +7,7 @@
 package attribution
 
 import (
+	"math"
 	"sort"
 
 	"github.com/KorhanOzturk90/obscost/internal/rule"
@@ -14,15 +15,16 @@ import (
 
 // RankMetric identifies which observed stat a Report ranks its tenants and
 // rules by. Aggregate picks exactly one, report-wide, via pickRankMetric's
-// priority order: a real resource-cost proxy (query wall time, then
-// fetched-byte/series/chunk volume) is preferred whenever the telemetry
-// source actually measured it, falling back to samples processed and
-// finally to raw execution counts — a cadence/scheduling measure, not a
-// resource-cost one, but the only thing every telemetry source can always
-// provide. Every TenantAggregate/RuleAggregate still carries all of its raw
-// sums regardless of which metric wins, so nothing observed is hidden by
-// the choice; RankMetric only controls sort order and which figure callers
-// should treat as "the" workload share.
+// priority order: data volume actually moved (fetched bytes, then chunks,
+// then series) is preferred whenever the telemetry source measured it,
+// falling back to query wall time, then samples processed, and finally to
+// raw execution counts — a cadence/scheduling measure, not a resource-cost
+// one, but the only thing every telemetry source can always provide. See
+// pickRankMetric for why volume outranks time. Every TenantAggregate/
+// RuleAggregate still carries all of its raw sums regardless of which
+// metric wins, so nothing observed is hidden by the choice; RankMetric only
+// controls sort order and which figure callers should treat as "the"
+// workload share.
 type RankMetric string
 
 const (
@@ -58,16 +60,33 @@ func (m RankMetric) Label() string {
 // available, but only a cadence measure". The first metric with a nonzero
 // total wins; RankMetricExecutions is the final fallback since Executions
 // is never nil (an execution either happened or it didn't).
+//
+// Data volume outranks wall time deliberately (ADR 0002 decision 2). Two
+// reasons, both measured against dev/mimir-local rather than assumed:
+//
+//   - Wall time is the one dimension Mimir already publishes as an ordinary
+//     metric (cortex_prometheus_rule_evaluation_duration_seconds_sum), so
+//     ranking by it spends the ruler log's only differentiated signal on a
+//     number that was already available for free.
+//   - It measures the wrong pressure. In a real 240-rule sample, 186 rules
+//     fetched zero series yet accounted for 68.4% of total wall time, while
+//     the rule pulling the largest share of fetched series (14.9%) ranked
+//     22nd by time. Time is felt by the ruler's own CPU; fetched volume is
+//     felt by ingesters and store-gateways, which is usually where capacity
+//     actually binds.
+//
+// Wall time stays in the chain — it is still real, and still the right
+// answer when no volume stat was measured at all.
 func pickRankMetric(totalDuration float64, totalSamples, totalFetchedSeries, totalFetchedChunks, totalFetchedBytes uint64) RankMetric {
 	switch {
-	case totalDuration > 0:
-		return RankMetricDurationSeconds
 	case totalFetchedBytes > 0:
 		return RankMetricFetchedBytes
-	case totalFetchedSeries > 0:
-		return RankMetricFetchedSeries
 	case totalFetchedChunks > 0:
 		return RankMetricFetchedChunks
+	case totalFetchedSeries > 0:
+		return RankMetricFetchedSeries
+	case totalDuration > 0:
+		return RankMetricDurationSeconds
 	case totalSamples > 0:
 		return RankMetricSamplesProcessed
 	default:
@@ -95,14 +114,45 @@ func metricValue(m RankMetric, executions int, samples uint64, duration float64,
 	}
 }
 
+// Granularity describes how deep a Report's figures reach. It exists so a
+// renderer can tell two very different situations apart: "we looked for
+// rule-level detail and there wasn't any" versus "this source structurally
+// cannot see rules".
+type Granularity string
+
+const (
+	// GranularityRule means every figure is attributed to an individual
+	// rule — what a per-execution telemetry source (internal/telemetry)
+	// produces. An empty TenantAggregate.Rules here genuinely means no
+	// matched rule executions.
+	GranularityRule Granularity = "rule"
+	// GranularityGroup means figures stop at the rule-group tier because
+	// the source itself stops there. Mimir's own rule metrics carry a
+	// rule_group label but no rule name, so no amount of post-processing
+	// reaches deeper (ADR 0002). An empty TenantAggregate.Rules here means
+	// "this source cannot see rules", NOT "no rules ran" — reporting it as
+	// the latter would be the same class of lie as treating an unmeasured
+	// stat as zero.
+	GranularityGroup Granularity = "group"
+)
+
 // Report is the full ranked-workload result of one Aggregate call.
 type Report struct {
 	TotalExecutions int
 	TotalSamples    uint64
 	RuleDefinitions int
+	// Granularity is how deep these figures reach — see Granularity.
+	Granularity Granularity
 	// RankMetric is the single metric Tenants and each TenantAggregate's
 	// Rules are sorted by — see RankMetric's doc comment.
 	RankMetric RankMetric
+	// GroupRankMetric is the metric the group tier is ranked by. Usually
+	// identical to RankMetric, but a source can measure the two tiers
+	// differently: Mimir's rule metrics report per-tenant wall time but
+	// only per-group evaluation counts, so tenants rank by time while
+	// groups beneath them rank by count. Naming it separately keeps the
+	// renderer from labelling a group column with the tenant's metric.
+	GroupRankMetric RankMetric
 	// Tenants is sorted by RankValue desc, tie-break Tenant asc.
 	Tenants []TenantAggregate
 	// Unmatched is a flattened, report-level view of every execution that
@@ -151,8 +201,15 @@ type TenantAggregate struct {
 	FetchedChunksObserved bool            `json:"fetched_chunks_observed"`
 	FetchedBytesObserved  bool            `json:"fetched_bytes_observed"`
 	Rules                 []RuleAggregate `json:"rules,omitempty"`
-	UnmatchedExecutions   int             `json:"unmatched_executions,omitempty"`
-	UnmatchedSamples      uint64          `json:"unmatched_samples,omitempty"`
+	// Groups is the rule-group tier, sorted by RankValue desc, tie-break
+	// Group asc. For a rule-granularity report it is derived by bucketing
+	// Rules (every rule appears under exactly one group, so group sums
+	// reconcile to the tenant total by construction). For a
+	// group-granularity report it is the deepest tier there is, and each
+	// GroupAggregate.Rules is empty.
+	Groups              []GroupAggregate `json:"groups,omitempty"`
+	UnmatchedExecutions int              `json:"unmatched_executions,omitempty"`
+	UnmatchedSamples    uint64           `json:"unmatched_samples,omitempty"`
 }
 
 // Observed reports whether this tenant's telemetry ever measured the given
@@ -177,6 +234,43 @@ func (t TenantAggregate) Observed(m RankMetric) bool {
 	}
 }
 
+// GroupAggregate is one rule group's observed workload, nested under its
+// tenant. Deliberately leaner than TenantAggregate/RuleAggregate: it carries
+// the ranking figure and the rules beneath it, not a full re-sum of every
+// stat. For a rule-granularity report the per-stat detail already lives on
+// Rules; for a group-granularity report that detail does not exist at all,
+// and inventing zero-valued stat fields to fill the struct would misrepresent
+// unmeasured data as measured (the same principle as RuleExecution's pointer
+// stat fields).
+type GroupAggregate struct {
+	// Namespace is the rule file the group came from. Mimir's own metrics
+	// report this as a ruler storage path; internal/telemetry sources
+	// report it as the loaded rule file. Either way it disambiguates two
+	// groups that share a name across different files.
+	Namespace string `json:"namespace,omitempty"`
+	Group     string `json:"group"`
+	// Executions is the number of rule evaluations attributed to this
+	// group. Sourced from metrics this is a PromQL increase() figure, which
+	// extrapolates at window edges — see AggregateObservations.
+	Executions int     `json:"executions"`
+	RankValue  float64 `json:"rank_value"`
+	// RankSharePct is this group's share of the sum of Report.GroupRankMetric
+	// across this tenant's *reported* groups — not of the tenant's own
+	// total (TenantAggregate.RankValue), which on the metrics path comes
+	// from a different PromQL counter and is not guaranteed to agree with
+	// the sum of groups. Rendered as "of tenant's reported groups", not
+	// "of tenant", so the report doesn't claim a reconciliation nothing
+	// computes.
+	RankSharePct float64 `json:"rank_share_pct"`
+	// RankObserved is false when this group never measured the report's
+	// group rank metric, so a 0 RankValue must render as "not measured"
+	// rather than as an observed zero.
+	RankObserved bool `json:"rank_observed"`
+	// Rules is empty for a GranularityGroup report — meaning "not visible
+	// to this source", never "none ran".
+	Rules []RuleAggregate `json:"rules,omitempty"`
+}
+
 // RuleAggregate is one rule's observed workload, nested under its tenant.
 // Carries RuleID + Kind, never the whole AnnotatedRule/AST — parser.Expr
 // has no safe JSON encoding and RuleID is already sufficient to look up
@@ -197,6 +291,10 @@ type RuleAggregate struct {
 	// are sorted by (see TenantAggregate.RankValue's doc comment).
 	RankValue    float64 `json:"rank_value"`
 	RankSharePct float64 `json:"rank_share_pct"`
+	// RankObserved is Observed(Report.RankMetric) resolved at aggregation
+	// time, so consumers that roll rules up (the group tier) don't have to
+	// re-thread the report's chosen metric to ask the question again.
+	RankObserved bool `json:"rank_observed"`
 	// See TenantAggregate's identically-named fields for what these mean.
 	SamplesObserved       bool `json:"samples_observed"`
 	DurationObserved      bool `json:"duration_observed"`
@@ -348,6 +446,7 @@ func Aggregate(executions []rule.RuleExecution, definitions []rule.AnnotatedRule
 			ra.SampleSharePct = pct(ra.SamplesProcessed, tenantSamples)
 			ra.RankValue = metricValue(rankMetric, ra.Executions, ra.SamplesProcessed, ra.DurationSecondsSum, ra.FetchedSeries, ra.FetchedChunks, ra.FetchedBytes)
 			ra.RankSharePct = pctf(ra.RankValue, tenantRankTotal)
+			ra.RankObserved = ra.Observed(rankMetric)
 			ruleAggs = append(ruleAggs, *ra)
 		}
 		sort.Slice(ruleAggs, func(i, j int) bool {
@@ -374,6 +473,7 @@ func Aggregate(executions []rule.RuleExecution, definitions []rule.AnnotatedRule
 			FetchedChunksObserved: tenantChunksObserved,
 			FetchedBytesObserved:  tenantBytesObserved,
 			Rules:                 ruleAggs,
+			Groups:                groupRules(ruleAggs, tenantRankTotal),
 			UnmatchedExecutions:   unmatchedExecutions,
 			UnmatchedSamples:      unmatchedSamples,
 		})
@@ -404,10 +504,212 @@ func Aggregate(executions []rule.RuleExecution, definitions []rule.AnnotatedRule
 		TotalExecutions: totalExecutions,
 		TotalSamples:    totalSamples,
 		RuleDefinitions: len(definitions),
+		Granularity:     GranularityRule,
 		RankMetric:      rankMetric,
+		GroupRankMetric: rankMetric,
 		Tenants:         tenants,
 		Unmatched:       unmatched,
 	}
+}
+
+// TenantObservation is one tenant's workload as reported by a source that
+// measures tenants directly rather than by summing individual executions —
+// Mimir's own cortex_prometheus_rule_* metrics, in practice. See
+// AggregateObservations.
+type TenantObservation struct {
+	Tenant string
+	// Executions and DurationSeconds are totals over the observation
+	// window. DurationObserved distinguishes "measured as zero" from "this
+	// source didn't report it", exactly as the pointer stat fields on
+	// rule.RuleExecution do for per-execution telemetry.
+	Executions       float64
+	DurationSeconds  float64
+	DurationObserved bool
+}
+
+// GroupObservation is one rule group's workload from the same kind of
+// source. There is deliberately no rule tier: a source reporting at this
+// granularity cannot see individual rules at all (see GranularityGroup).
+type GroupObservation struct {
+	Tenant     string
+	Namespace  string
+	Group      string
+	Executions float64
+}
+
+// AggregateObservations builds a group-granularity Report from figures a
+// source measured directly, instead of from individual rule executions.
+// This is the metrics path of ADR 0002: Mimir already publishes per-tenant
+// rule evaluation time and per-group evaluation counts, exactly and with
+// history, so deriving them by parsing and matching log lines would be
+// strictly more work for a strictly worse answer.
+//
+// Two honesty constraints shape the signature:
+//
+//   - Tenants rank by wall time where it was measured, but groups can only
+//     rank by evaluation count, because Mimir publishes no per-group
+//     duration. Report.GroupRankMetric carries that difference rather than
+//     letting the renderer imply the group column means what the tenant
+//     column means.
+//   - Executions arrive as float64 because they originate from PromQL
+//     increase(), which extrapolates at window boundaries and so is very
+//     slightly approximate. Rounding happens here, once, rather than each
+//     caller silently deciding — and callers should present these as
+//     evaluation counts over a window, not as an exact ledger.
+func AggregateObservations(tenantObs []TenantObservation, groupObs []GroupObservation) Report {
+	groupsByTenant := make(map[string][]GroupObservation)
+	for _, g := range groupObs {
+		groupsByTenant[g.Tenant] = append(groupsByTenant[g.Tenant], g)
+	}
+
+	// A tenant seen only in the group query still deserves a row; dropping
+	// it would understate the fleet.
+	seen := make(map[string]struct{}, len(tenantObs))
+	for _, t := range tenantObs {
+		seen[t.Tenant] = struct{}{}
+	}
+	for tenant := range groupsByTenant {
+		if _, ok := seen[tenant]; !ok {
+			tenantObs = append(tenantObs, TenantObservation{Tenant: tenant})
+		}
+	}
+
+	var anyDuration bool
+	for _, t := range tenantObs {
+		if t.DurationObserved && t.DurationSeconds > 0 {
+			anyDuration = true
+			break
+		}
+	}
+	rankMetric := RankMetricExecutions
+	if anyDuration {
+		rankMetric = RankMetricDurationSeconds
+	}
+
+	var totalExecutions int
+	var reportRankTotal float64
+	for _, t := range tenantObs {
+		totalExecutions += int(math.Round(t.Executions))
+		if anyDuration {
+			reportRankTotal += t.DurationSeconds
+		} else {
+			reportRankTotal += t.Executions
+		}
+	}
+
+	tenants := make([]TenantAggregate, 0, len(tenantObs))
+	for _, t := range tenantObs {
+		executions := int(math.Round(t.Executions))
+
+		var tenantGroupTotal float64
+		for _, g := range groupsByTenant[t.Tenant] {
+			tenantGroupTotal += g.Executions
+		}
+		groups := make([]GroupAggregate, 0, len(groupsByTenant[t.Tenant]))
+		for _, g := range groupsByTenant[t.Tenant] {
+			groups = append(groups, GroupAggregate{
+				Namespace:    g.Namespace,
+				Group:        g.Group,
+				Executions:   int(math.Round(g.Executions)),
+				RankValue:    g.Executions,
+				RankSharePct: pctf(g.Executions, tenantGroupTotal),
+				RankObserved: true,
+			})
+		}
+		sort.Slice(groups, func(i, j int) bool {
+			if groups[i].RankValue != groups[j].RankValue {
+				return groups[i].RankValue > groups[j].RankValue
+			}
+			if groups[i].Group != groups[j].Group {
+				return groups[i].Group < groups[j].Group
+			}
+			return groups[i].Namespace < groups[j].Namespace
+		})
+
+		rankValue := t.Executions
+		if anyDuration {
+			rankValue = t.DurationSeconds
+		}
+		tenants = append(tenants, TenantAggregate{
+			Tenant:             t.Tenant,
+			Executions:         executions,
+			ExecutionSharePct:  pct(uint64(executions), uint64(totalExecutions)),
+			DurationSecondsSum: t.DurationSeconds,
+			DurationObserved:   t.DurationObserved,
+			RankValue:          rankValue,
+			RankSharePct:       pctf(rankValue, reportRankTotal),
+			Groups:             groups,
+		})
+	}
+
+	sort.Slice(tenants, func(i, j int) bool {
+		if tenants[i].RankValue != tenants[j].RankValue {
+			return tenants[i].RankValue > tenants[j].RankValue
+		}
+		return tenants[i].Tenant < tenants[j].Tenant
+	})
+
+	return Report{
+		TotalExecutions: totalExecutions,
+		Granularity:     GranularityGroup,
+		RankMetric:      rankMetric,
+		GroupRankMetric: RankMetricExecutions,
+		Tenants:         tenants,
+	}
+}
+
+// groupRules buckets one tenant's already-ranked rules into the group tier.
+// Rules arrive sorted by RankValue desc, and bucketing preserves relative
+// order within a bucket, so each group's Rules stay correctly ranked without
+// re-sorting. Group RankValue is the sum of its rules' — which means group
+// shares reconcile to the tenant total by construction rather than by a
+// second, independently-computed pass that could drift from it.
+//
+// This lived in internal/report's HTML renderer until ADR 0002 made the
+// group tier first-class: a metrics-derived report has groups but no rules
+// at all, so the tier can no longer be a presentation-time derivation of
+// something deeper.
+func groupRules(rules []RuleAggregate, tenantRankTotal float64) []GroupAggregate {
+	if len(rules) == 0 {
+		return nil
+	}
+
+	byGroup := make(map[string]*GroupAggregate)
+	var order []*GroupAggregate
+	for _, r := range rules {
+		// Namespace is part of the key: two files can define groups with
+		// the same name, and collapsing them would silently merge the
+		// workload of unrelated groups.
+		key := r.RuleID.Namespace + "\x00" + r.RuleID.Group
+		g, ok := byGroup[key]
+		if !ok {
+			g = &GroupAggregate{Namespace: r.RuleID.Namespace, Group: r.RuleID.Group}
+			byGroup[key] = g
+			order = append(order, g)
+		}
+		g.Executions += r.Executions
+		g.RankValue += r.RankValue
+		if r.RankObserved {
+			g.RankObserved = true
+		}
+		g.Rules = append(g.Rules, r)
+	}
+
+	groups := make([]GroupAggregate, 0, len(order))
+	for _, g := range order {
+		g.RankSharePct = pctf(g.RankValue, tenantRankTotal)
+		groups = append(groups, *g)
+	}
+	sort.Slice(groups, func(i, j int) bool {
+		if groups[i].RankValue != groups[j].RankValue {
+			return groups[i].RankValue > groups[j].RankValue
+		}
+		if groups[i].Group != groups[j].Group {
+			return groups[i].Group < groups[j].Group
+		}
+		return groups[i].Namespace < groups[j].Namespace
+	})
+	return groups
 }
 
 // pct returns 100*part/total, or 0 (never NaN) when total is 0.
