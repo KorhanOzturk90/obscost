@@ -1,5 +1,19 @@
 # Obscost Product Direction
 
+> **Status note — 2026-09-18.** This document still describes the right
+> destination, but its *ordering* has been superseded by
+> [ADR 0004](docs/adr/0004-finops-pivot-scope-and-sequencing.md). The
+> product is now framed as **cost allocation for self-hosted Mimir**:
+> Milestones F–H (ownership, ingestion/storage attribution, unified
+> economics) are pulled forward, and Milestone A's rule-level attribution
+> becomes the drill-down beneath a tenant-level cost model rather than the
+> headline. The cost model itself is ADR 0003 (in review, PR #26): each
+> component pool's cost split by the driver that makes it grow, never a
+> weight fitted by regression.
+>
+> Where this document and the ADRs disagree, **the ADRs win** — they are
+> dated, numbered and reviewed. Read `docs/adr/` first.
+
 ## Thesis
 
 Obscost should not become a PromQL linter with a cost score attached.
@@ -608,6 +622,12 @@ Recommendations should initially be conservative, reviewable and measurable.
 
 Infrastructure cost attribution is the eventual economic layer, not the first problem to solve.
 
+**Amended 2026-09-18 (ADR 0004):** cost allocation *is* now the first problem to solve — but allocation, not billing. The distinction that survives: promcost produces engineering-grade shares of resource pools for capacity and chargeback conversations, denominated in resources by default. It does not produce invoices, does not ship a pricing database, and does not price an individual query. Currency appears only by multiplying a measured share by a price the operator supplied.
+
+### Not a daemon (amended)
+
+The v0 spec forbade a daemon or control plane outright. ADR 0004 replaces that with a sequencing rule: a per-cluster collection agent is accepted in principle, deferred until a real user needs history beyond Mimir's own retention, and constrained so that anything it reports must first be producible by a single `promcost report` run. There is still no hosted control plane — data stays in the customer's own store.
+
 ## Trust / credibility principle
 
 The product must be:
@@ -642,6 +662,12 @@ The strongest signal is a customer discovering something like:
 > **"We did not realize this tenant was consuming that much of our Mimir capacity."**
 
 ## 12-week practical path for a solo developer
+
+> **Superseded by ADR 0004's build order** (validate the buyer → tenant
+> showback in the CLI → rollups behind a sink → change timeline → budgets).
+> Weeks 1–6 below are largely done: telemetry ingestion, attribution, daily
+> aggregation and the `report` command all exist. Kept for the reasoning,
+> not as a plan.
 
 ### Weeks 1–2
 
