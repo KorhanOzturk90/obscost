@@ -23,15 +23,27 @@ Both can run at once: this one is on `localhost:8090`, the compose rig on
   Resources). The classic stack measured ~2.3 GB for the k3d node on
   first run; ingest storage adds Kafka.
 - `brew install k3d helm` (kubectl is assumed).
+- CPU is capped separately: `make up` limits the k3d node to 4 cores with
+  `docker update` (`make up CPUS=6` to change it). Docker Desktop usually
+  allows every core, and uncapped the stack makes a laptop lag.
 
 ## Use
 
 ```bash
-make up                 # cluster + Mimir + Alloy + tenants + rules (~5–10 min first time)
+make up                 # cluster + Mimir + Alloy + Grafana + tenants + rules (~5–10 min first time)
 make status             # pods, and per-tenant active series as Mimir sees them
 make cost               # promcost cost against the rig (build ../../bin/promcost first)
 make down               # delete the whole cluster
+k3d cluster stop obscost   # pause cleanly (frees CPU/memory, keeps data); `k3d cluster start obscost` resumes
 ```
+
+**Grafana: <http://localhost:3090>** (no login). Start with
+*obscost → obscost — tenant cost drivers*: each ADR 0003 pool's driver per
+tenant, next to what the Mimir components actually use (cAdvisor). The
+*Mimir Dashboards* folder has the full mimir-mixin set from the same chart
+version — *Tenants* and *Top tenants* are the useful ones here — and its
+recording rules run in the `monitoring` tenant. There is one datasource per
+tenant (`Mimir (analytics)`, …) for Explore.
 
 `make up ARCH=ingest` deploys Mimir 3.x's default **ingest-storage**
 architecture instead (distributors → Kafka → ingesters). Switching an
@@ -78,6 +90,9 @@ CPU, not memory), `platform` has almost nothing.
 
 ## Scenarios
 
+`./scripts/scenarios.py <path/to/promcost>` runs all three in order and
+logs prediction vs measurement (~45 min).
+
 Each changes one thing, so its effect on a promcost report can be predicted
 before it is measured. That prediction is the test.
 
@@ -113,6 +128,20 @@ First runs, 2026-09-18, Mimir 3.2.0 / chart 6.2.0:
   ~99k in-memory series (33k per pod, replicas included) — the first
   data point for calibrating memory-per-series (#34); a laptop is not where
   that number should be finalized.
+
+- **A scenario runner's own baseline can wreck it.** The first run used
+  avalanche's hourly `series_id` churn; one churn landed mid-scenario and
+  every tenant read ~1.7× for 20 minutes (Mimir's active-series idle
+  timeout). The baseline now has no churn.
+- **Rolling the ingesters** (first run, ingest storage): promcost's
+  sum-then-average read 5% low over a window spanning the 4-minute rollout
+  (the sum dips to ~2/3 while an ingester is down), while averaging each
+  series first read 58% high. Worth re-running before trusting the second
+  number.
+- **`/distributor/all_user_stats` under ingest storage** reported 39,014
+  series for analytics, 3× the real 13,010, with no replication at all.
+  Unexplained; one suspect is `ingester.ring.replication_factor: 3` left
+  set by values/mimir.yaml, which the ingest overlay does not reset.
 
 ## Laptop vs VM
 

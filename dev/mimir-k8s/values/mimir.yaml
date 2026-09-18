@@ -126,3 +126,10 @@ gateway:
   service:
     type: NodePort
     nodePort: 30090
+
+# Render the mimir-mixin dashboards as ConfigMaps (labelled
+# grafana_dashboard=1) for the Grafana sidecar to pick up. Their recording
+# rules go into the `monitoring` tenant via `make mixin-rules`.
+metaMonitoring:
+  dashboards:
+    enabled: true

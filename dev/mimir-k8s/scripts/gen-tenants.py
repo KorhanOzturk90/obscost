@@ -45,9 +45,12 @@ spec:
             - --series-count={series}
             - --label-count=5
             - --value-interval=15
-            # Hourly series_id churn: enough to exercise idle-series
-            # expiry without making active series a moving target.
-            - --series-interval=3600
+            # Effectively no series churn. avalanche replaces every
+            # series_id each --series-interval, and Mimir keeps the old
+            # ones active for 20m — an hourly setting doubled every
+            # tenant for 20m of each hour and wrecked the first scenario
+            # run. Churn belongs in a scenario, not the baseline.
+            - --series-interval=315360000
             - --metric-interval=0
             - --port=9001
           ports:
