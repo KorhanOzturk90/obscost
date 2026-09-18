@@ -137,3 +137,38 @@ func TestDurationRejectsInvalid(t *testing.T) {
 		t.Fatal("Load with invalid duration: expected error, got nil")
 	}
 }
+
+func TestLoadInventory_PartialIsNotZero(t *testing.T) {
+	path := writeTemp(t, `inventory:
+  currency: EUR
+  pools:
+    ingester_memory:
+      replicas: 8
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	pool, ok := cfg.Inventory.Pools["ingester_memory"]
+	if !ok {
+		t.Fatal("ingester_memory pool missing from inventory")
+	}
+	if pool.Replicas == nil || *pool.Replicas != 8 {
+		t.Errorf("Replicas = %v, want 8", pool.Replicas)
+	}
+	// An omitted price must stay distinguishable from a price of 0: the
+	// former means "not costed", the latter would claim the pool is free.
+	if pool.CostPerReplicaMonth != nil {
+		t.Errorf("CostPerReplicaMonth = %v, want nil (not supplied)", *pool.CostPerReplicaMonth)
+	}
+	if cfg.Inventory.ReplicationFactor != nil {
+		t.Errorf("ReplicationFactor = %v, want nil (not supplied)", *cfg.Inventory.ReplicationFactor)
+	}
+}
+
+func TestLoadInventory_RejectsUnknownPoolField(t *testing.T) {
+	path := writeTemp(t, "inventory:\n  pools:\n    ingester_memory:\n      replica: 8\n")
+	if _, err := Load(path); err == nil {
+		t.Fatal("Load with misspelt pool field: expected error, got nil")
+	}
+}

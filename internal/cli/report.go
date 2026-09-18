@@ -259,14 +259,7 @@ func runMetricsReport(ctx context.Context, stdout io.Writer, opts reportOptions,
 		window = defaultMetricsWindow
 	}
 
-	header := cfg.Tenancy.Header
-	if header == "" {
-		header = "X-Scope-OrgID"
-	}
-	var bearerToken string
-	if cfg.Backend.Auth.BearerTokenEnv != "" {
-		bearerToken = os.Getenv(cfg.Backend.Auth.BearerTokenEnv)
-	}
+	header, bearerToken := backendAuth(cfg)
 
 	src := mimirmetrics.New(mimirmetrics.Config{
 		BaseURL:       cfg.Backend.URL,
@@ -356,24 +349,12 @@ func newDefinitionsSource(opts reportOptions, cfg config.Config) (loader.Loader,
 		return nil, fmt.Errorf("--tenant given without --dir, but config's backend.url is empty — nowhere to fetch rule definitions from")
 	}
 
-	var tenants []string
-	for _, t := range strings.Split(opts.tenants, ",") {
-		if t = strings.TrimSpace(t); t != "" {
-			tenants = append(tenants, t)
-		}
-	}
+	tenants := splitTenants(opts.tenants)
 	if len(tenants) == 0 {
 		return nil, fmt.Errorf("--tenant was given but contained no tenant IDs")
 	}
 
-	header := cfg.Tenancy.Header
-	if header == "" {
-		header = "X-Scope-OrgID"
-	}
-	var bearerToken string
-	if cfg.Backend.Auth.BearerTokenEnv != "" {
-		bearerToken = os.Getenv(cfg.Backend.Auth.BearerTokenEnv)
-	}
+	header, bearerToken := backendAuth(cfg)
 
 	return rulerapi.New(rulerapi.Config{
 		BaseURL:     cfg.Backend.URL,
@@ -430,4 +411,28 @@ func windowLabel(since string) string {
 		return ""
 	}
 	return "last " + since
+}
+
+// backendAuth resolves the tenancy header name and bearer token every
+// Mimir HTTP API client needs, from config's tenancy and backend blocks.
+func backendAuth(cfg config.Config) (header, bearerToken string) {
+	header = cfg.Tenancy.Header
+	if header == "" {
+		header = "X-Scope-OrgID"
+	}
+	if cfg.Backend.Auth.BearerTokenEnv != "" {
+		bearerToken = os.Getenv(cfg.Backend.Auth.BearerTokenEnv)
+	}
+	return header, bearerToken
+}
+
+// splitTenants parses a comma-separated --tenant value, dropping blanks.
+func splitTenants(s string) []string {
+	var tenants []string
+	for _, t := range strings.Split(s, ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			tenants = append(tenants, t)
+		}
+	}
+	return tenants
 }
