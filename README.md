@@ -36,9 +36,6 @@ This is real, tested output (`internal/report/testdata/workload_report.golden.md
 | command | does | telemetry source |
 |---|---|---|
 | `promcost report` | **The main event.** Joins observed rule-execution telemetry against loaded rule definitions and produces the ranked tenant/rule workload report above. | a portable NDJSON format, or a real parser for Mimir's own `-ruler.query-stats-enabled` ruler log (`--telemetry-format mimirlogs`) |
-| `promcost check` | Static PromQL analysis — flags rules that *look* structurally expensive (wide subqueries, heavy evaluation frequency, high-cardinality output labels, limit-related issues) before anything runs. No telemetry needed. | n/a |
-
-`check` and `report` are intentionally independent right now — `check` never sees observed data, `report` never reads static findings. Joining the two ("this rule is expensive in production, and these PromQL characteristics explain why") is explicit future work, tracked in [issue #9](https://github.com/KorhanOzturk90/obscost/issues/9).
 
 ### Quick start
 
@@ -48,9 +45,6 @@ go test ./...                              # or: make test
 ```
 
 ```sh
-# static analysis — no telemetry required
-./bin/promcost check --dir path/to/rules [--config promcost.yaml] [--offline] [--fail-on warn|error]
-
 # workload attribution with NO log capture at all — reads Mimir's own rule
 # metrics (needs backend.url in promcost.yaml). Fastest way to see something
 # real: per tenant and per rule group, with history.
@@ -73,7 +67,7 @@ Want to see it running against a real Mimir instance rather than a fixture? [`de
 
 ### Status and roadmap
 
-Two things are real and tested today: static analysis (`check`, spec §8.1's parser + static-tier checks `PC-S01`–`PC-S06`) and observed workload attribution (`report`, closing issues #4–#8). Everything past that — joining the two, validating attribution against real infrastructure metrics, deterministic recommendations, PR workload forecasting, before/after verification, team ownership — is open and tracked on the [issues board](https://github.com/KorhanOzturk90/obscost/issues). `PRODUCT-DIRECTION.md` has the full 8-milestone map.
+Observed workload attribution (`report`, closing issues #4–#8) is real and tested today. Next is tenant cost showback, in [ADR 0004](docs/adr/0004-finops-pivot-scope-and-sequencing.md)'s build order. Everything past that, including validating attribution against real infrastructure metrics, deterministic recommendations, before/after verification and team ownership, is open and tracked on the [issues board](https://github.com/KorhanOzturk90/obscost/issues). `PRODUCT-DIRECTION.md` has the full 8-milestone map.
 
 ### Docs
 

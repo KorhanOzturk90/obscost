@@ -1,12 +1,15 @@
-// Package config loads and represents promcost.yaml (spec §3). This
-// milestone parses the full schema (so a spec-example config always loads
-// without error) but only the static-tier-relevant subset is consumed:
-// checks.disable, checks.thresholds, tenancy, and limits.sources (file type
-// only). backend, cost_model, and pint are parsed and carried for later
-// milestones.
+// Package config loads and represents promcost.yaml: the backend `report`
+// talks to (the ruler API) and the tenancy block that maps rule files to
+// tenants.
+//
+// Sections the v0 static analyzer used (checks, pint, limits, cost_model)
+// were removed with it (docs/adr/0006-remove-static-analysis.md). A config
+// that still contains one fails to load with an error naming it, rather
+// than yaml's generic unknown-field message.
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 
@@ -18,11 +21,9 @@ type BackendAuth struct {
 }
 
 type BackendConfig struct {
-	Type                 string      `yaml:"type,omitempty"`
-	URL                  string      `yaml:"url,omitempty"`
-	Auth                 BackendAuth `yaml:"auth,omitempty"`
-	Timeout              Duration    `yaml:"timeout,omitempty"`
-	MaxConcurrentQueries int         `yaml:"max_concurrent_queries,omitempty"`
+	URL     string      `yaml:"url,omitempty"`
+	Auth    BackendAuth `yaml:"auth,omitempty"`
+	Timeout Duration    `yaml:"timeout,omitempty"`
 }
 
 // DiscoverySource is one entry in tenancy.discovery. Only Source=="static"
@@ -42,66 +43,18 @@ type TenancyConfig struct {
 	Unmapped string `yaml:"unmapped,omitempty"`
 }
 
-// LimitsSource is one entry in limits.sources. Only Type=="file" is
-// implemented this milestone (internal/limits); other types parse cleanly
-// but return limits.ErrUnsupportedSource if selected.
-type LimitsSource struct {
-	Type string `yaml:"type"`
-	URL  string `yaml:"url,omitempty"`
-	Name string `yaml:"name,omitempty"`
-	Key  string `yaml:"key,omitempty"`
-	Path string `yaml:"path,omitempty"`
-}
-
-type LimitsConfig struct {
-	Sources []LimitsSource `yaml:"sources,omitempty"`
-}
-
-type CostModelConfig struct {
-	Currency                         string   `yaml:"currency,omitempty"`
-	EURPerMillionActiveSeriesMonth   float64  `yaml:"eur_per_million_active_series_month,omitempty"`
-	EURPerBillionProcessedSamples    float64  `yaml:"eur_per_billion_processed_samples,omitempty"`
-	EURPerBillionFetchedStoreSamples float64  `yaml:"eur_per_billion_fetched_store_samples,omitempty"`
-	StoreAfter                       Duration `yaml:"store_after,omitempty"`
-	BytesPerSample                   float64  `yaml:"bytes_per_sample,omitempty"`
-}
-
-// ThresholdsConfig covers checks.thresholds. Only the static-relevant
-// fields (SubquerySteps*, RecordingRangeWarn) and HighCardinalityLabels
-// (PC-S04's wordlist — an addition beyond spec §3's shown example, since
-// S04's own prose calls the wordlist "configurable") are consumed this
-// milestone; the rest are parsed for forward compatibility with the live
-// tier.
-type ThresholdsConfig struct {
-	SubqueryStepsWarn     int      `yaml:"subquery_steps_warn,omitempty"`
-	SubqueryStepsError    int      `yaml:"subquery_steps_error,omitempty"`
-	RecordingRangeWarn    Duration `yaml:"recording_range_warn,omitempty"`
-	LimitHeadroomWarnPct  float64  `yaml:"limit_headroom_warn_pct,omitempty"`
-	LimitHeadroomErrorPct float64  `yaml:"limit_headroom_error_pct,omitempty"`
-	OutputCardinalityWarn int      `yaml:"output_cardinality_warn,omitempty"`
-	PresenceWindow        Duration `yaml:"presence_window,omitempty"`
-	HighCardinalityLabels []string `yaml:"high_cardinality_labels,omitempty"`
-}
-
-type ChecksConfig struct {
-	Disable    []string         `yaml:"disable,omitempty"`
-	Thresholds ThresholdsConfig `yaml:"thresholds,omitempty"`
-}
-
-type PintConfig struct {
-	Enabled        bool   `yaml:"enabled,omitempty"`
-	Binary         string `yaml:"binary,omitempty"`
-	ConfigTemplate string `yaml:"config_template,omitempty"`
-}
-
 type Config struct {
-	Backend   BackendConfig   `yaml:"backend,omitempty"`
-	Tenancy   TenancyConfig   `yaml:"tenancy,omitempty"`
-	Limits    LimitsConfig    `yaml:"limits,omitempty"`
-	CostModel CostModelConfig `yaml:"cost_model,omitempty"`
-	Checks    ChecksConfig    `yaml:"checks,omitempty"`
-	Pint      PintConfig      `yaml:"pint,omitempty"`
+	Backend BackendConfig `yaml:"backend,omitempty"`
+	Tenancy TenancyConfig `yaml:"tenancy,omitempty"`
 }
+
+// removedSections are top-level keys that belonged to the static analyzer,
+// and removedBackendKeys are backend fields only it read. Load rejects
+// them by name so an old config gets an actionable error.
+var (
+	removedSections    = []string{"checks", "pint", "limits", "cost_model"}
+	removedBackendKeys = []string{"type", "max_concurrent_queries"}
+)
 
 // Load reads promcost.yaml from path, starting from Default() so any
 // section or field the file omits keeps its default value. An empty path
@@ -112,16 +65,46 @@ func Load(path string) (Config, error) {
 		return cfg, nil
 	}
 
-	f, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return Config{}, fmt.Errorf("open config %s: %w", path, err)
 	}
-	defer func() { _ = f.Close() }()
+	if err := checkRemoved(data); err != nil {
+		return Config{}, fmt.Errorf("config %s: %w", path, err)
+	}
 
-	dec := yaml.NewDecoder(f)
+	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&cfg); err != nil {
 		return Config{}, fmt.Errorf("parse config %s: %w", path, err)
 	}
 	return cfg, nil
+}
+
+// checkRemoved reports the first removed section or backend field present
+// in data. Malformed YAML is left for the strict decode to report.
+func checkRemoved(data []byte) error {
+	var top map[string]yaml.Node
+	if err := yaml.Unmarshal(data, &top); err != nil {
+		return nil
+	}
+	for _, key := range removedSections {
+		if _, ok := top[key]; ok {
+			return fmt.Errorf("section %q was removed along with the static analyzer (promcost check); delete it", key)
+		}
+	}
+	backend, ok := top["backend"]
+	if !ok {
+		return nil
+	}
+	var fields map[string]yaml.Node
+	if err := backend.Decode(&fields); err != nil {
+		return nil
+	}
+	for _, key := range removedBackendKeys {
+		if _, ok := fields[key]; ok {
+			return fmt.Errorf("field \"backend.%s\" was removed along with the static analyzer (promcost check); delete it", key)
+		}
+	}
+	return nil
 }

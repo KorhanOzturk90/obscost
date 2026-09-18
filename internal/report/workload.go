@@ -10,8 +10,7 @@ import (
 )
 
 // WorkloadResult is everything a WorkloadReporter needs to render one
-// `promcost report` run. Parallel to Result/Reporter — the check command's
-// existing Finding-oriented types are untouched.
+// `promcost report` run.
 type WorkloadResult struct {
 	// Window describes the --since filter applied before aggregation, e.g.
 	// "last 7d", or "" when no --since was given. Display-only — filtering

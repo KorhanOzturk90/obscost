@@ -3,18 +3,17 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
 
 const fullExampleYAML = `
 backend:
-  type: mimir
   url: https://mimir.internal/prometheus
   auth:
     bearer_token_env: PROMCOST_TOKEN
   timeout: 10s
-  max_concurrent_queries: 4
 
 tenancy:
   header: X-Scope-OrgID
@@ -28,41 +27,6 @@ tenancy:
         monitoring: platform
         kube-system: platform
   unmapped: error
-
-limits:
-  sources:
-    - type: user_limits_endpoint
-    - type: runtime_config_endpoint
-      url: https://mimir.internal/runtime_config
-    - type: configmap
-      name: mimir-runtime
-      key: runtime.yaml
-    - type: file
-      path: ./runtime-overrides.yaml
-
-cost_model:
-  currency: EUR
-  eur_per_million_active_series_month: 85
-  eur_per_billion_processed_samples: 0.40
-  eur_per_billion_fetched_store_samples: 0.15
-  store_after: 12h
-  bytes_per_sample: 1.5
-
-checks:
-  disable: []
-  thresholds:
-    subquery_steps_warn: 500
-    subquery_steps_error: 2000
-    recording_range_warn: 24h
-    limit_headroom_warn_pct: 60
-    limit_headroom_error_pct: 90
-    output_cardinality_warn: 10000
-    presence_window: 1h
-
-pint:
-  enabled: true
-  binary: pint
-  config_template: ./pint.tpl.hcl
 `
 
 func writeTemp(t *testing.T, contents string) string {
@@ -74,17 +38,14 @@ func writeTemp(t *testing.T, contents string) string {
 	return path
 }
 
-func TestLoadFullSpecExample(t *testing.T) {
+func TestLoadFullExample(t *testing.T) {
 	path := writeTemp(t, fullExampleYAML)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Backend.Type != "mimir" {
-		t.Errorf("Backend.Type = %q, want mimir", cfg.Backend.Type)
-	}
-	if got, want := cfg.Checks.Thresholds.RecordingRangeWarn.Duration(), 24*time.Hour; got != want {
-		t.Errorf("RecordingRangeWarn = %v, want %v", got, want)
+	if cfg.Backend.URL != "https://mimir.internal/prometheus" {
+		t.Errorf("Backend.URL = %q", cfg.Backend.URL)
 	}
 	if got, want := cfg.Backend.Timeout.Duration(), 10*time.Second; got != want {
 		t.Errorf("Backend.Timeout = %v, want %v", got, want)
@@ -92,32 +53,43 @@ func TestLoadFullSpecExample(t *testing.T) {
 	if len(cfg.Tenancy.Discovery) != 3 {
 		t.Errorf("len(Tenancy.Discovery) = %d, want 3", len(cfg.Tenancy.Discovery))
 	}
-	if len(cfg.Limits.Sources) != 4 {
-		t.Errorf("len(Limits.Sources) = %d, want 4", len(cfg.Limits.Sources))
-	}
 }
 
 func TestLoadRejectsUnknownField(t *testing.T) {
-	path := writeTemp(t, "checks:\n  disable: []\n  bogus_field: true\n")
+	path := writeTemp(t, "tenancy:\n  bogus_field: true\n")
 	if _, err := Load(path); err == nil {
 		t.Fatal("Load with unknown field: expected error, got nil")
 	}
 }
 
+func TestLoadRejectsRemovedSectionsByName(t *testing.T) {
+	cases := map[string]string{
+		"checks":                         "checks:\n  disable: [PC-S04]\n",
+		"pint":                           "pint:\n  enabled: true\n",
+		"limits":                         "limits:\n  sources: []\n",
+		"cost_model":                     "cost_model:\n  currency: EUR\n",
+		"backend.type":                   "backend:\n  type: mimir\n",
+		"backend.max_concurrent_queries": "backend:\n  url: http://x\n  max_concurrent_queries: 4\n",
+	}
+	for name, yml := range cases {
+		_, err := Load(writeTemp(t, yml))
+		if err == nil || !strings.Contains(err.Error(), `"`+name+`"`) {
+			t.Errorf("%s: err = %v, want an error naming %q", name, err, name)
+		}
+	}
+}
+
 func TestLoadAppliesDefaultsOnOmission(t *testing.T) {
-	path := writeTemp(t, "checks:\n  disable: [PC-S04]\n")
+	path := writeTemp(t, "backend:\n  url: http://x\n")
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got, want := cfg.Checks.Thresholds.SubqueryStepsWarn, 500; got != want {
-		t.Errorf("SubqueryStepsWarn = %d, want default %d", got, want)
+	if got, want := cfg.Tenancy.Header, "X-Scope-OrgID"; got != want {
+		t.Errorf("Tenancy.Header = %q, want default %q", got, want)
 	}
-	if got, want := cfg.Checks.Thresholds.RecordingRangeWarn.Duration(), 24*time.Hour; got != want {
-		t.Errorf("RecordingRangeWarn = %v, want default %v", got, want)
-	}
-	if len(cfg.Checks.Disable) != 1 || cfg.Checks.Disable[0] != "PC-S04" {
-		t.Errorf("Checks.Disable = %v, want [PC-S04]", cfg.Checks.Disable)
+	if got, want := cfg.Tenancy.Unmapped, "error"; got != want {
+		t.Errorf("Tenancy.Unmapped = %q, want default %q", got, want)
 	}
 }
 
@@ -132,7 +104,7 @@ func TestLoadEmptyPathReturnsDefaults(t *testing.T) {
 }
 
 func TestDurationRejectsInvalid(t *testing.T) {
-	path := writeTemp(t, "checks:\n  thresholds:\n    recording_range_warn: not-a-duration\n")
+	path := writeTemp(t, "backend:\n  timeout: not-a-duration\n")
 	if _, err := Load(path); err == nil {
 		t.Fatal("Load with invalid duration: expected error, got nil")
 	}

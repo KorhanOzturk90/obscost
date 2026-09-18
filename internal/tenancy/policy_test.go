@@ -1,13 +1,16 @@
 package tenancy
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestParseUnmappedPolicy(t *testing.T) {
 	cases := []struct {
-		raw            string
-		wantMode       string
-		wantFallback   string
-		wantErr        bool
+		raw          string
+		wantMode     string
+		wantFallback string
+		wantErr      bool
 	}{
 		{raw: "", wantMode: "error"},
 		{raw: "error", wantMode: "error"},
@@ -36,22 +39,22 @@ func TestParseUnmappedPolicy(t *testing.T) {
 
 func TestUnmappedPolicyApply(t *testing.T) {
 	errPolicy, _ := ParseUnmappedPolicy("error")
-	if tenant, keep := errPolicy.Apply("", false); keep != true || tenant != "" {
-		t.Errorf("error policy on unresolved: tenant=%q keep=%v, want \"\", true", tenant, keep)
+	if _, keep, err := errPolicy.Apply("", false); keep || !errors.Is(err, ErrUnmapped) {
+		t.Errorf("error policy on unresolved: keep=%v err=%v, want false, ErrUnmapped", keep, err)
 	}
 
 	skipPolicy, _ := ParseUnmappedPolicy("skip")
-	if _, keep := skipPolicy.Apply("", false); keep != false {
-		t.Errorf("skip policy on unresolved: keep=%v, want false", keep)
+	if _, keep, err := skipPolicy.Apply("", false); keep || err != nil {
+		t.Errorf("skip policy on unresolved: keep=%v err=%v, want false, nil", keep, err)
 	}
 
 	tenantPolicy, _ := ParseUnmappedPolicy("tenant:fallback")
-	if tenant, keep := tenantPolicy.Apply("", false); keep != true || tenant != "fallback" {
-		t.Errorf("tenant policy on unresolved: tenant=%q keep=%v, want \"fallback\", true", tenant, keep)
+	if tenant, keep, err := tenantPolicy.Apply("", false); !keep || tenant != "fallback" || err != nil {
+		t.Errorf("tenant policy on unresolved: tenant=%q keep=%v err=%v, want \"fallback\", true, nil", tenant, keep, err)
 	}
 
 	// A resolved fact always keeps its resolved tenant regardless of policy.
-	if tenant, keep := skipPolicy.Apply("platform", true); keep != true || tenant != "platform" {
-		t.Errorf("resolved fact under skip policy: tenant=%q keep=%v, want \"platform\", true", tenant, keep)
+	if tenant, keep, err := errPolicy.Apply("platform", true); !keep || tenant != "platform" || err != nil {
+		t.Errorf("resolved fact under error policy: tenant=%q keep=%v err=%v, want \"platform\", true, nil", tenant, keep, err)
 	}
 }

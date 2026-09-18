@@ -28,9 +28,9 @@ import (
 // newReportCmd wires `report`: config.Load -> rule-definitions source
 // (--dir, or the ruler API when --dir is omitted) -> telemetry source
 // (rule executions) -> optional --since filter -> attribution.Aggregate ->
-// workload reporter. Unlike `check`, this needs no live backend for
-// telemetry itself — internal/meter is not involved — but the ruler-API
-// definitions source does talk to Mimir's HTTP API (config's backend.url).
+// workload reporter. File-based telemetry needs no live backend, but the
+// ruler-API definitions source does talk to Mimir's HTTP API (config's
+// backend.url).
 //
 // stdout carries only the rendered report body (md or json) — nothing
 // else is ever written there, specifically so `--format json | jq` (or any
@@ -167,10 +167,9 @@ func runReport(ctx context.Context, stdout, stderr io.Writer, opts reportOptions
 	// output: an unmatched or ambiguous mimirlogs line (see that package's
 	// doc comment) is a normal thing for real ruler logs to contain, not a
 	// sign something is broken. report is an informational command, not a
-	// pass/fail gate the way check is — by default it warns and renders
-	// whatever did parse, rather than discarding a mostly-good report over
-	// a handful of expected skips. --strict opts back into the stricter,
-	// check-like "any read problem is fatal" behavior.
+	// pass/fail gate — by default it warns and renders whatever did parse,
+	// rather than discarding a mostly-good report over a handful of
+	// expected skips. --strict opts into "any read problem is fatal".
 	if len(readErrs) > 0 {
 		for _, re := range readErrs {
 			_, _ = fmt.Fprintln(stderr, "warning: telemetry record skipped:", re.Error())
@@ -327,7 +326,7 @@ func runMetricsReport(ctx context.Context, stdout io.Writer, opts reportOptions,
 
 // newDefinitionsSource selects where rule definitions come from: a local
 // directory (--dir, the original behavior — reads real files, resolves
-// tenants via config's tenancy block, exactly like `check` does), or, when
+// tenants via config's tenancy block), or, when
 // --dir is omitted, Mimir's own ruler API for an explicit --tenant list.
 // The ruler-API path exists because in a real deployment each tenant's
 // rules typically live in a separate repository promcost has no access
