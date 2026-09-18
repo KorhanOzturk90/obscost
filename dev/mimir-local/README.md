@@ -81,6 +81,9 @@ until [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/ready)" 
 - Mimir HTTP API: <http://localhost:8080> (Prometheus-compatible query API under `/prometheus`, ruler under `/prometheus/api/v1/rules`, alertmanager under `/alertmanager`) — **every request needs an `X-Scope-OrgID: infra` or `X-Scope-OrgID: sandbox` header**, multi-tenancy is enforced (a request with no header gets `401`).
 - MinIO console: <http://localhost:9001> (`mimir` / `supersecret123`)
 - Alloy UI (scrape/remote_write debugging): <http://localhost:12345>
+- Cost-attribution metrics: <http://localhost:8080/usage-metrics> — a
+  **separate registry**, not part of `/metrics`, and empty unless
+  `-cost-attribution.registry-path` is set (see below).
 
 All credentials above are dev-only defaults, hardcoded in
 `docker-compose.yml` — never reuse them anywhere internet-facing.
@@ -116,7 +119,53 @@ curl -s -H 'X-Scope-OrgID: infra' http://localhost:8080/alertmanager/api/v2/stat
 # real telemetry format internal/telemetry/mimirlogs parses. Expect one
 # line per rule per eval cycle, tagged user=infra, none for sandbox.
 docker compose logs mimir --since 2m | grep 'component=ruler' | grep 'msg="query stats"' | head -3
+
+# cost attribution: per-label breakdown *inside* a tenant, on its own
+# registry (NOT /metrics). Tracked label here is `job`, since this rig's
+# data is Mimir's own self-monitoring metrics and carries no `team` label.
+curl -s http://localhost:8080/usage-metrics | grep -v '^#'
 ```
+
+### Cost attribution (experimental, and the sub-tenant driver source)
+
+This is the OSS primitive underneath Grafana Cloud's cost-attribution
+product, and promcost's candidate source for attributing a pool *below* the
+tenant (issues #29, #31, #37). Two separate settings are required and
+neither works alone:
+
+```
+-validation.cost-attribution-trackers={"by-job":{"labels":[{"input":"job"}]}}   # what to track (a per-tenant limit)
+-cost-attribution.registry-path=/usage-metrics                                  # where to expose it
+```
+
+Verified output on this rig (Mimir 3.2.0, 2026-09-18):
+
+```
+cortex_ingester_attributed_active_series{job="mimir-local/mimir",tenant="infra",tracker="by-job"} 6332
+cortex_ingester_attributed_active_series{job="alloy",tenant="infra",tracker="by-job"}              415
+cortex_ingester_attributed_active_series{job="__missing__",tenant="infra",tracker="by-job"}          8
+cortex_distributor_received_attributed_samples_total{...}                                       59068
+cortex_attributed_series_overflow_labels{job="__overflow__",tenant="infra",tracker="by-job"}         1
+```
+
+Four things worth knowing before building on it:
+
+- **The label is `tenant`, not `user`.** Every other `cortex_*` metric uses
+  `user`; these use `tenant`, plus `tracker` and the tracked label(s). Any
+  join against the normal registry has to translate.
+- **It reconciles exactly.** 6332 + 415 + 8 = 6755 =
+  `cortex_ingester_active_series{user="infra"}` on the normal registry, so
+  the breakdown is exhaustive and sums to the tenant total — which is what
+  a share model needs.
+- **Unlabelled series land in `__missing__`**, and overflow past
+  `-validation.max-cost-attribution-cardinality` (default 2000) lands in
+  `__overflow__`.
+- **It is forward-only.** Counting starts when the tracker is configured;
+  there is no backfill, and the counters reset when Mimir restarts.
+
+It covers **ingestion only** — samples received, discarded samples, active
+series (plus native-histogram variants). Nothing on the query or ruler path
+is attributed, and nothing identifies which *rule* produced a series.
 
 In Grafana, open the **Mimir Mixin** folder — e.g. "Mimir / Overview" —
 and confirm panels render (may take a couple of minutes after first
