@@ -1,6 +1,11 @@
 # 0003: The cost model — mapping tenant behaviour to what you actually pay for
 
-**Status:** Proposed
+**Status:** Proposed — amended 2026-09-18 after the review on PR #26 (issue
+#36). The **change-attribution layer is deliberately out of scope here**:
+this is a snapshot model, answering what each tenant costs over one window.
+Deltas, their decomposition and naming causes are specified separately in
+ADR 0005 (issue #31). Amendments are marked **[A]**, and each says what was
+measured rather than asserted.
 
 ## Context
 
@@ -40,6 +45,19 @@ attribution has to be exhaustive and sum to 100%.
 **They are resource counters, not cost.** "15,005 active series" is a fact,
 not a decision. Turning it into one requires knowing that active series
 drive ingester *memory*, and how many ingesters you run.
+
+**[A] The strongest version of the prior art, stated fairly.** Three of
+those 14 panels are not plain leaderboards: in-memory series growth,
+received-samples-rate growth and discarded-samples-rate growth each compute
+a delta across the dashboard window using `@ start()` / `@ end()`
+(re-counted 2026-09-18 against `dev/mimir-local/mixin/dashboards/mimir-top-tenants.json`:
+14 queries, 14 using `topk`, 0 computing a share, 3 computing growth). Those
+growth panels are the nearest existing thing to a change report, so the
+argument is *not* "nobody shows change". It is that they show change
+**per axis, as a leaderboard, in resource units, with no cause** — a tenant
+can top the series-growth panel and the samples-growth panel without anything
+saying what that cost, which of them matters more, or what changed to cause
+it. That gap is what this ADR and ADR 0005 close between them.
 
 So the gap is not data collection. It is **the conversion** — and the
 conversion needs two things Mimir cannot supply: which resource pool each
@@ -116,20 +134,75 @@ what physically makes it grow, and which per-tenant number tracks it.
 | 6 | **Query path (frontend + querier)** | data actually fetched to answer queries | `cortex_query_fetched_chunk_bytes_total`, `cortex_query_samples_processed_total`, `cortex_query_seconds_total` | **medium-high** — but only covers query-path traffic (see correction above) |
 | 7 | **Ruler CPU** | time spent evaluating rules | `cortex_prometheus_rule_evaluation_duration_seconds_sum`, `cortex_ruler_query_seconds_total` | **high** |
 
-### The second-order effect that makes rules matter more than they look
+### [A] How each driver must be read
+
+Naming a metric is not enough to use it. Each driver also has a *type*
+(which decides how it is turned into a figure over a window) and an
+*aggregation* (which decides what is summed, divided or maxed first). Both
+were missing, and neither is obvious — the mixin's own queries are the
+evidence:
+
+| # | Driver | Type | Aggregation over the window | Aggregation across replicas |
+|---|---|---|---|---|
+| 1 | `cortex_ingester_active_series` | gauge | average (or a quantile) over the window; a max flatters spikes | `sum by (user)`, **then divide by `max(cortex_distributor_replication_factor)`**, and exclude ingest-storage instances with `unless on (cluster, namespace, job) cortex_partition_ring_partitions` |
+| 2 | `cortex_distributor_received_samples_total` | counter | `increase()` over the window (never a bare difference — counters reset) | `sum by (user)` |
+| 3 | `cortex_ingester_tsdb_storage_blocks_bytes`, `cortex_bucket_blocks_count` | gauge | average over the window | `sum by (user)`, replication divisor applies to the ingester-side metric |
+| 4 | `cortex_bucket_store_blocks_loaded_size_bytes` | gauge | average over the window | **`max by (user)` of `sum by (user, pod)`** — blocks are replicated across store-gateways, so summing counts a block once per replica |
+| 5 | `cortex_bucket_index_estimated_compaction_jobs` | gauge | average over the window | `sum by (user)` |
+| 6 | `cortex_query_*_total` | counter | `increase()` over the window | `sum by (user)` |
+| 7 | `cortex_prometheus_rule_evaluation_duration_seconds_sum`, `cortex_ruler_query_seconds_total` | counter | `increase()` over the window | `sum by (user)` |
+
+Three consequences worth stating plainly:
+
+- **A uniform replication factor cancels in a share, and does not cancel in
+  anything else.** "5 of your 8 ingesters", any absolute figure, and every
+  currency figure are wrong by exactly the replication factor if it is
+  skipped. `/distributor/all_user_stats` says so itself — the admin page
+  prints *"NB stats do not account for replication factor"* — and the rig
+  hides the problem by running RF=1.
+- **Counters and gauges cannot share a code path.** Pools 2, 6 and 7 need
+  `increase()`; the rest need an average. A snapshot model can blur this; a
+  delta model (ADR 0005) cannot.
+- **An ingester rollout changes the scrape set**, which moves a gauge
+  average for reasons that have nothing to do with tenant behaviour. That is
+  ADR 0005's problem to handle, but it starts here.
+
+### [A] The second-order effect that makes rules matter — with its magnitude measured
 
 Pools 1–3 have a feedback loop that a naive reading misses. **A recording
 rule does not only consume query capacity — it writes new series, and those
-series then cost ingester memory and storage forever.**
+series then cost ingester memory and storage for as long as they are
+retained.**
 
-A rule that evaluates cheaply but emits 50,000 new series is a far larger
-cost event than a slow rule emitting ten. `RuleIngestionRate` in
-`/distributor/all_user_stats` measures exactly this, separated from
-API-driven ingestion.
+The original text went further and called rules "one of the *inputs* to the
+largest slice". That was asserted, not measured. Measured on the rig
+2026-09-18, tenant `infra`:
 
-This is also what connects the rule attribution already built (ADR 0001,
-0002) to the pool that actually dominates the bill. Rules are not a small
-slice of cost; they are one of the *inputs* to the largest slice.
+```
+/distributor/all_user_stats:  APIIngestionRate  353.35 samples/s
+                              RuleIngestionRate  13.33 samples/s   → 3.6%
+ruler API:                    122 recording rules, 122 alerting rules
+ruler CPU over the same period: rule evaluation 38.3s, ruler queries 31.9s
+```
+
+So on a mixin-shaped corpus, 122 recording rules account for under 4% of
+ingestion, while evaluating all 244 rules is real ruler CPU. **Rule output
+is a driver of pools 1–3 whose magnitude is corpus-dependent, not a
+presumed dominant cost.** The case that matters is the opposite one — a
+tenant whose recording rules `sum by (...)` over high-cardinality data can
+invert this ratio, and catching that is exactly the product's job.
+
+Two cautions on the evidence:
+
+- **`RuleIngestionRate` vs `APIIngestionRate` is a two-way scalar split.**
+  It can corroborate *"the growth came from rules"*. It can never say
+  **which** rule, and no amount of aggregation makes it able to.
+- Naming the rule needs the rule definitions, which is promcost's own
+  advantage: a recording rule's `record:` field is its output metric name,
+  so its series are countable directly (issue #37). Label-based attribution
+  — Mimir's cost-attribution trackers, or Grafana Cloud's product built on
+  them — structurally cannot do this, because rule output carries whatever
+  labels the expression produced, not the identity of the rule.
 
 ### How a share becomes a cost
 
@@ -157,6 +230,26 @@ operator.
 sentence a platform lead can take into a budget conversation. No dashboard
 produces it, and it converts to currency the moment they supply an instance
 cost — but it is already actionable without one.
+
+#### [A] What a cross-pool total may claim
+
+`cost(tenant)` above sums over pools, and decision 3 says an unpriced pool
+is reported as **not costed**, never zero. Those two facts collide: a single
+blended *"X is 40% of your Mimir cost"* silently claims a completeness the
+model explicitly refuses to claim, because the denominator only contains the
+pools that happened to be priced.
+
+**Rule: a cross-pool total always names its own coverage, or it is not
+rendered.** The reportable form is
+
+> `analytics` is **40% of the 78% of platform cost we can currently price**
+> (ingester memory, write path, ruler; storage and compactor not costed).
+
+with the priced fraction computed from the operator's inventory, not
+assumed. A per-pool share needs no such qualifier — it is complete within
+its pool by construction. When no pool is priced at all, the report shows
+resource shares only and says so, rather than showing a percentage of
+nothing.
 
 ---
 
@@ -212,6 +305,29 @@ A tenant missing a driver must be excluded from that pool's denominator and
 reported as unmeasured for it — never folded in as a zero, which would both
 understate them and inflate everyone else's share. This extends the
 missing-vs-zero principle (ADR 0001 decision 3) from stats to cost.
+
+#### [A] …and that exclusion does not survive a second window
+
+Excluding an unmeasured tenant is correct within one window and a trap
+across two. If `payments` is unmeasured on Monday and measured on Tuesday,
+the denominator gains a member, so **every other tenant's share falls** for
+reasons unrelated to anything they did. Worse, decision 1 guarantees the
+shares sum to 100% on both days, so the output looks perfectly consistent
+and the artefact is invisible.
+
+**Amendment: a comparison is only valid over a stable measured set.** When
+two windows are compared:
+
+1. the comparison is computed over the tenants measured in **both** windows;
+2. tenants that entered or left the measured set are reported as their own
+   line item — *"`payments` became measurable on Tuesday; it holds 6% of
+   pool 1 and is excluded from the day-over-day figures above"*;
+3. the same rule applies to a pool entering or leaving the priced set.
+
+A share change caused by denominator membership is never folded into
+another tenant's delta. ADR 0005 (issue #31) builds the rest of the delta
+model on top of this; it is stated here because it is a correction to
+*this* decision.
 
 ### 6. Mappings must be calibrated, not asserted — and this rig cannot do it
 
@@ -272,6 +388,25 @@ Then add pools in confidence order (2 → 6/7 → 3/4 → 5), and stand up the
 microservices test environment before any of the low-confidence mappings are
 presented as anything other than hypotheses.
 
+### [A] Acceptance criteria, restated
+
+The criteria above are all *level* statements, and they under-test the
+model. Two additions, neither of which is much extra work:
+
+- **Aggregation is part of the acceptance test, not an implementation
+  detail.** Pool 1 is only correct if the replication divisor and the
+  ingest-storage guard are applied (see "How each driver must be read"). On
+  the rig, RF=1 makes a wrong implementation indistinguishable from a right
+  one, so this needs a unit test with RF>1 fixtures rather than a rig check.
+- **Ship it as a change statement if ADR 0005 lands first.** Per the review,
+  and per the finding that day-over-day figures need no stored history —
+  these are meta-monitoring metrics already in a Prometheus/Mimir, so
+  "yesterday" is a range query, not a sink. The target sentence then becomes
+  *"`analytics` holds 62% of ingester memory, up 4pp on yesterday: 3pp its
+  own growth, 1pp `payments` shrinking"* — same pool, same driver, one more
+  query, and it exercises the decomposition before the report shape is
+  fixed.
+
 ---
 
 ## Consequences
@@ -291,6 +426,12 @@ presented as anything other than hypotheses.
 - **Calibration becomes a standing obligation.** A mapping that was right
   for Mimir 3.2 on one topology may drift. The assumption trail is what
   makes drift visible rather than silent.
+- **[A] This model answers "what does each tenant cost", and only that.**
+  Every question of the form "…and why did it change" needs the delta layer
+  in ADR 0005. The amendments above are the parts of that layer which are
+  corrections to *this* ADR rather than additions on top of it: how drivers
+  aggregate over a window, and what happens to a share when the measured set
+  changes.
 
 ## References
 
@@ -307,4 +448,11 @@ presented as anything other than hypotheses.
   14-panel prior art this ADR is positioned against
 - GitHub issue #10 — infrastructure-metric validation, reclassified here
   from QA task to core calibration layer
-- Measurements: `dev/mimir-local`, Mimir 3.2.0, 2026-09-16
+- [ADR 0004](0004-finops-pivot-scope-and-sequencing.md) — the pivot that
+  adopts this cost model (decision 2) and sequences the work around it
+- The review on PR #26, tracked as issue #36 — the source of every **[A]**
+  amendment; issue #31 (ADR 0005, change attribution), #29 (driver
+  verification), #37 (rule → output-series join)
+- Measurements: `dev/mimir-local`, Mimir 3.2.0 — original 2026-09-16;
+  amendments 2026-09-18 (mixin query counts, `/distributor/all_user_stats`
+  rule-vs-API ingestion split, ruler CPU, rule counts from the ruler API)
