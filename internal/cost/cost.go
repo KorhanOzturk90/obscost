@@ -204,6 +204,12 @@ type PoolAllocation struct {
 
 const inventorySource = "promcost.yaml inventory"
 
+// AssumptionReplicationFactor is the Name of the assumption-trail line
+// recording which replication factor Allocate divided by, and where it
+// came from. Exported so a consumer of an allocation (e.g.
+// internal/ruleoutput) can cite the same divisor instead of re-deriving it.
+const AssumptionReplicationFactor = "replication factor"
+
 // Allocate splits m's pool across its measured tenants and prices it from
 // inv. expected lists tenants the caller knows exist; any of them absent
 // from m.Drivers is reported as unmeasured rather than as zero. It may be
@@ -239,7 +245,7 @@ func Allocate(m Measurement, inv Inventory, expected []string) PoolAllocation {
 	if rfNote != "" {
 		a.Notes = append(a.Notes, rfNote)
 	}
-	a.Assumptions = append(a.Assumptions, Assumption{Name: "replication factor", Value: rf.display(), Source: rf.source})
+	a.Assumptions = append(a.Assumptions, Assumption{Name: AssumptionReplicationFactor, Value: rf.display(), Source: rf.source})
 
 	for tenant, v := range m.Drivers {
 		a.TotalRaw += v

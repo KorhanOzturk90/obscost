@@ -41,7 +41,7 @@ func newRootCmd(stdout, stderr io.Writer) *cobra.Command {
 	root.SetErr(stderr)
 	root.AddCommand(newCheckCmd(stdout))
 	root.AddCommand(newReportCmd(stdout, stderr))
-	root.AddCommand(newCostCmd(stdout))
+	root.AddCommand(newCostCmd(stdout, stderr))
 	return root
 }
 
