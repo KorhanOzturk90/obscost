@@ -5,7 +5,9 @@
 this is a snapshot model, answering what each tenant costs over one window.
 Deltas, their decomposition and naming causes are specified separately in
 ADR 0005 (issue #31). Amendments are marked **[A]**, and each says what was
-measured rather than asserted.
+measured rather than asserted. A second, rig-verified amendment (issue #29,
+2026-09-19) is marked **[V]**; where it and an **[A]** row disagree, **[V]**
+is the measured one.
 
 ## Context
 
@@ -166,6 +168,85 @@ Three consequences worth stating plainly:
 - **An ingester rollout changes the scrape set**, which moves a gauge
   average for reasons that have nothing to do with tenant behaviour. That is
   ADR 0005's problem to handle, but it starts here.
+
+### [V] The drivers, verified on the rig (issue #29)
+
+The **[A]** table above was derived from the mixin's queries. This one was
+measured on 2026-09-18/19 against Mimir 3.2.0 on two rigs: the k3d
+microservices rig (classic write path, 3 ingesters at RF=3, **remote** rule
+evaluation) and the compose monolith (RF=1, **local** rule evaluation).
+Every cell traces to a command and its output in
+[`docs/adr0003-driver-verification.md`](../adr0003-driver-verification.md)
+(section in brackets). *Not verified* means just that. It is not a guess
+in either direction.
+
+| # | Driver | `user` label on 3.2.0 | Type | Window | Across replicas | Local rule eval | Remote rule eval |
+|---|---|---|---|---|---|---|---|
+| 1 | `cortex_ingester_active_series` | yes [E1] | gauge [E2] | `avg_over_time` of the already-aggregated, de-replicated value, i.e. sum first, then average (subquery or recording rule) [E3] | **classic:** `sum by (cluster, namespace, user)` ÷ `on (cluster, namespace) group_left() max by (cluster, namespace)(cortex_distributor_replication_factor)`; RF=3 gave exactly 3× before dividing [E3]. **Ingest storage:** the mixin's second branch, max per partition then sum, no divisor [E10]. *Not verified on a rig.* | present (ingestion side) | present |
+| 2 | `cortex_distributor_received_samples_total` | yes [E1] | counter; resets on restart [E2, E8] | `increase()`; a bare difference read 183k vs `increase()` 323k across a restart [E8] | `sum by (user)`, **no divisor**: it is pre-replication [E4]. **Rule output is counted by the ruler's own copy** of this metric (`job=…/ruler`) on microservices, and by the single counter on a monolith [E4]. | present | present |
+| 3a | `cortex_ingester_tsdb_storage_blocks_bytes` | yes [E1] | gauge [E2] | average | Replication divisor would apply (one copy per ingester). *×RF not observed: no block had shipped on k3d.* | present [E5] | present, value 0 [E5] |
+| 3b | `cortex_bucket_blocks_count` | yes, **only once the tenant has a block in the bucket**; emitted by the compactor [E1, E5] | gauge [E2] | average | mixin: `max by (user)` [E10]. *Multi-compactor behaviour not verified.* | present [E5] | *not observed: no block on k3d yet* |
+| 4 | `cortex_bucket_store_blocks_loaded_size_bytes` | yes, but **0 for 10 h** after a block is shipped (`ignore-blocks-within` default) [E5] | gauge [E2] | average | mixin: `max by (user)(sum by (user, pod)(…))`, titled *"per-store-gateway disk utilization"* [E10]. *max vs sum not verified: one store-gateway on both rigs.* | present [E5] | *not observed: no block on k3d yet* |
+| 5 | `cortex_bucket_index_estimated_compaction_jobs` | yes, once the tenant has a block; carries `type="merge\|split"` [E2, E5] | gauge [E2] | average | mixin: `sum by (user)`, and only when `cortex_bucket_index_estimated_compaction_jobs_errors_total` is not rising [E10]. *Multi-compactor behaviour not verified.* | present [E5] | *not observed: no block on k3d yet* |
+| 6 | `cortex_query_{fetched_chunk_bytes,samples_processed,seconds}_total` | yes, **only for tenants with query-frontend traffic** [E1, E6] | counters, query-frontend only [E2] | `increase()` | `sum by (user)` over the query-frontend (the only exporter); `seconds` also carries `sharded` [E2] | **no rule work at all**: 1,376 rule evaluations, the counters did not move [E6] | **all rule work**: for tenants without human traffic, frontend `op="query"` count = `cortex_ruler_queries_total`, and no label separates the two [E6] |
+| 7a | `cortex_prometheus_rule_evaluation_duration_seconds_sum` | yes [E1] | **summary** (`_sum` is a counter) [E2] | `increase()` | `sum by (user)` | present | present; times the same rule evaluations whose queries pool 6 records [E6, E7] |
+| 7b | `cortex_ruler_query_seconds_total` | yes, **local evaluation only** [E7] | counter [E2] | `increase()` | `sum by (user)` | present; smaller than 7a in every reading (10.5 s vs 13.0 s over one window) [E7] | **absent**: no such family on the ruler [E7] |
+
+What this changes in the **[A]** table and the mappings table. Each point
+is a correction, not a new decision:
+
+1. **Pool 1's divisor, as written, returns nothing.** "`sum by (user)`,
+   then divide by `max(cortex_distributor_replication_factor)`" returned
+   an empty result in both literal forms, because `sum by (user)` keeps no
+   label for the divisor to match on [E3]. Use the mixin's
+   `sum by (cluster, namespace, user)` with `on (cluster, namespace)`, or
+   `scalar()` on a single cluster. Under ingest storage there is no divisor
+   at all [E10]. That is a second code path, not a guard on the first.
+2. **Pool 2 needs no divisor, and must pick a scope.** The distributor
+   counter is pre-replication (860 samples/s = 13,014 series ÷ 15 s). The
+   ingester counter and `/distributor/all_user_stats`' `ingestionRate` are
+   ×RF (2,602/s) [E4]. On microservices, rule output lands under the
+   ruler's `job`. The mixin's `job=~".*/distributor.*"` filter excludes it;
+   the ADR's unfiltered `sum by (user)` includes it [E4].
+3. **Pool 3 has no per-tenant object-storage driver.**
+   `cortex_ingester_tsdb_storage_blocks_bytes` is ingester **local disk**
+   (its HELP text; the mixin titles it *"Space used by local blocks"*).
+   `cortex_bucket_blocks_count` counts blocks, not bytes, and comes from the
+   compactor. No per-user byte metric for bucket contents exists on this
+   rig [E5]. The row's "object storage ← bytes of blocks retained" mapping
+   is therefore unsupported by any metric verified here.
+4. **Pool 4's driver measures store-gateway footprint, not blocks.** 124 KB
+   loaded against a 1.2 MiB block in the bucket [E5]. It reads 0 for any
+   tenant whose blocks are all younger than 10 h. The mixin's `max` is the
+   worst single store-gateway [E10]. It is not a de-duplication of
+   replicas, which is what the **[A]** table says. Which aggregation turns
+   it into a *share* with more store-gateways than the store-gateway RF is
+   an open question.
+5. **Pools 6 and 7 overlap under remote evaluation, and 7b vanishes.**
+   Under remote evaluation, rule queries are pool-6 traffic that
+   `cortex_prometheus_rule_evaluation_duration_seconds` also times, and
+   `cortex_ruler_query_seconds_total` does not exist [E6, E7]. Under local
+   evaluation pool 6 has no rule work, and 7b appears to be a component of
+   7a [E7]. Summing 6 + 7, or 7a + 7b, double-counts in one mode or the
+   other. The ruler's evaluation mode is a fact the report needs to know
+   rather than infer from which metrics happen to be present.
+6. **Decision 5's evidence changes meaning under remote evaluation.** "Only
+   `infra` appears in the `cortex_query_*` family" is a local-evaluation
+   fact. On the k3d rig every tenant with rules appears there [E6].
+
+The cardinality API questions that gate the sub-tenant tier are answered in
+[E9]:
+
+- It is **off by default**. It is configured as a per-tenant limit: it
+  sits under `limits:` and the error names the tenant. Enabling it per
+  tenant through runtime overrides should therefore work, but that was not
+  exercised.
+- `label_names` returns distinct-value counts per label name.
+- `label_values` returns de-replicated in-memory series counts per value,
+  at most 500 values.
+- `active_series` returns every matching series' full label set: 5.1 MB
+  for 13k series in 0.24 s here. When disabled, it reports the error with
+  HTTP 200.
 
 ### [A] The second-order effect that makes rules matter — with its magnitude measured
 
@@ -453,6 +534,8 @@ model. Two additions, neither of which is much extra work:
 - The review on PR #26, tracked as issue #36 — the source of every **[A]**
   amendment; issue #31 (ADR 0005, change attribution), #29 (driver
   verification), #37 (rule → output-series join)
+- [`docs/adr0003-driver-verification.md`](../adr0003-driver-verification.md)
+  — the commands and outputs behind every **[V]** cell (issue #29)
 - Measurements: `dev/mimir-local`, Mimir 3.2.0 — original 2026-09-16;
   amendments 2026-09-18 (mixin query counts, `/distributor/all_user_stats`
   rule-vs-API ingestion split, ruler CPU, rule counts from the ruler API)
