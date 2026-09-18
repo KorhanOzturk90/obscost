@@ -28,6 +28,14 @@ const empty = `{"status":"success","data":{"resultType":"vector","result":[]}}`
 
 func server(t *testing.T, series, rf string, queries *[]string) *httptest.Server {
 	t.Helper()
+	return serverWithIngest(t, series, empty, rf, queries)
+}
+
+// serverWithIngest answers the classic and ingest-storage forms of the
+// active-series query separately, the way a real cluster of one
+// architecture answers one of them with data and the other with nothing.
+func serverWithIngest(t *testing.T, classic, ingest, rf string, queries *[]string) *httptest.Server {
+	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Scope-OrgID") != "monitoring" {
 			w.WriteHeader(http.StatusUnauthorized)
@@ -39,8 +47,10 @@ func server(t *testing.T, series, rf string, queries *[]string) *httptest.Server
 		}
 		w.Header().Set("Content-Type", "application/json")
 		switch {
+		case strings.Contains(q, "cortex_ingester_active_series") && strings.Contains(q, "label_replace"):
+			_, _ = w.Write([]byte(ingest))
 		case strings.Contains(q, "cortex_ingester_active_series"):
-			_, _ = w.Write([]byte(series))
+			_, _ = w.Write([]byte(classic))
 		case strings.Contains(q, "cortex_distributor_replication_factor"):
 			_, _ = w.Write([]byte(rf))
 		default:
@@ -127,6 +137,52 @@ func TestSubqueryStep(t *testing.T) {
 	for _, tt := range tests {
 		if got := subqueryStep(tt.window); got != tt.want {
 			t.Errorf("subqueryStep(%v) = %v, want %v", tt.window, got, tt.want)
+		}
+	}
+}
+
+// Real per-tenant values from dev/mimir-k8s running ARCH=ingest: the
+// classic query returned nothing and no replication factor was exported.
+const activeSeriesIngest = `{"status":"success","data":{"resultType":"vector","result":[
+  {"metric":{"user":"analytics"},"value":[1757800000,"13010"]},
+  {"metric":{"user":"monitoring"},"value":[1757800000,"12643"]},
+  {"metric":{"user":"infra"},"value":[1757800000,"7005"]}]}}`
+
+func TestReadIngesterMemory_FallsBackToIngestStorage(t *testing.T) {
+	var queries []string
+	srv := serverWithIngest(t, empty, activeSeriesIngest, empty, &queries)
+	defer srv.Close()
+
+	m, err := New(Config{BaseURL: srv.URL, MetricsTenant: "monitoring"}).ReadIngesterMemory(context.Background(), time.Hour)
+	if err != nil {
+		t.Fatalf("ReadIngesterMemory: %v", err)
+	}
+	if !m.Deduplicated || m.Architecture != "ingest storage" {
+		t.Fatalf("Deduplicated=%v Architecture=%q, want true / ingest storage", m.Deduplicated, m.Architecture)
+	}
+	if !strings.Contains(m.DriverQuery, "label_replace") {
+		t.Errorf("DriverQuery = %q, want the ingest-storage form recorded for the assumption trail", m.DriverQuery)
+	}
+	a := cost.Allocate(m, cost.Inventory{}, nil)
+	if a.Total == nil || *a.Total != 32658 {
+		t.Errorf("Total = %v, want 32658 (no divisor under ingest storage)", a.Total)
+	}
+}
+
+func TestReadIngesterMemory_ClassicDataSkipsIngestQuery(t *testing.T) {
+	var queries []string
+	srv := serverWithIngest(t, activeSeriesRF3, activeSeriesIngest, rf3, &queries)
+	defer srv.Close()
+	m, err := New(Config{BaseURL: srv.URL, MetricsTenant: "monitoring"}).ReadIngesterMemory(context.Background(), time.Hour)
+	if err != nil {
+		t.Fatalf("ReadIngesterMemory: %v", err)
+	}
+	if m.Deduplicated {
+		t.Error("classic data present, but the measurement was marked deduplicated")
+	}
+	for _, q := range queries {
+		if strings.Contains(q, "label_replace") {
+			t.Errorf("ingest-storage query issued although the classic one returned data: %s", q)
 		}
 	}
 }

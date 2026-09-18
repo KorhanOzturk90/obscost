@@ -243,3 +243,22 @@ func TestWindowString(t *testing.T) {
 		}
 	}
 }
+
+// Under ingest storage the driver query has already deduplicated, so no
+// divisor applies — and an inventory override must not reintroduce one.
+func TestAllocate_DeduplicatedDriversAreNotDivided(t *testing.T) {
+	m := rigMeasurement()
+	for k, v := range m.Drivers {
+		m.Drivers[k] = v / 3
+	}
+	m.ReplicationFactor = nil
+	m.Deduplicated = true
+	m.Architecture = "ingest storage"
+	a := Allocate(m, Inventory{ReplicationFactor: intp(3)}, nil)
+	if a.Total == nil || !approx(*a.Total, 24058) {
+		t.Errorf("Total = %v, want 24058 undivided", a.Total)
+	}
+	if !strings.Contains(strings.Join(a.Notes, "\n"), "ignored") {
+		t.Errorf("Notes = %q, want the ignored override surfaced", a.Notes)
+	}
+}

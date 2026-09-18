@@ -101,8 +101,12 @@ func (costMDReporter) Render(w io.Writer, result CostResult) error {
 }
 
 var costMDTemplate = template.Must(template.New("cost").Funcs(template.FuncMap{
+	// mdcell code-formats a table cell. A pipe must be escaped even inside
+	// backticks — GFM splits table cells before parsing code spans, and
+	// the ingest-storage driver query contains a regex alternation.
 	"mdcell": func(s string) string {
-		return "`" + strings.ReplaceAll(s, "`", "'") + "`"
+		s = strings.ReplaceAll(s, "`", "'")
+		return "`" + strings.ReplaceAll(s, "|", `\|`) + "`"
 	},
 }).Parse(costMDTemplateSrc))
 

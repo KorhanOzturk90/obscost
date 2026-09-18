@@ -131,6 +131,15 @@ type Measurement struct {
 	// one. RFQuery is the PromQL that was asked.
 	ReplicationFactor *float64
 	RFQuery           string
+	// Deduplicated is true when Drivers already count each series once,
+	// so no replication divisor applies. That is the case under Mimir's
+	// ingest-storage architecture, where each ingester owns a Kafka
+	// partition and the driver query takes the max across the zone
+	// replicas of a partition instead of summing replicas.
+	Deduplicated bool
+	// Architecture names the write path the driver query found, e.g.
+	// "classic" or "ingest storage", for the assumption trail.
+	Architecture string
 }
 
 // Assumption is one line of a figure's assumption trail: what was assumed,
@@ -217,6 +226,13 @@ func Allocate(m Measurement, inv Inventory, expected []string) PoolAllocation {
 		},
 		Assumption{Name: "driver query", Value: m.DriverQuery, Source: m.Source},
 	)
+	if m.Architecture != "" {
+		a.Assumptions = append(a.Assumptions, Assumption{
+			Name:   "write path",
+			Value:  m.Architecture,
+			Source: "detected from which driver query returned data",
+		})
+	}
 
 	rf, rfNote := resolveReplicationFactor(m, inv)
 	a.ReplicationFactor = rf.value
@@ -343,6 +359,19 @@ func (r rfResolution) display() string {
 // knowing better than what the metrics tenant can see; a disagreement with
 // the measured value is surfaced as a note rather than silently resolved.
 func resolveReplicationFactor(m Measurement, inv Inventory) (rfResolution, string) {
+	if m.Deduplicated {
+		one := 1.0
+		var note string
+		if inv.ReplicationFactor != nil && *inv.ReplicationFactor != 1 {
+			note = fmt.Sprintf(
+				"inventory.replication_factor (%d) is ignored: under %s the driver query already counts each series once",
+				*inv.ReplicationFactor, m.Architecture)
+		}
+		return rfResolution{
+			value:  &one,
+			source: m.Architecture + ": one owner per partition, zone replicas collapsed with max, so there is nothing to divide",
+		}, note
+	}
 	if inv.ReplicationFactor != nil {
 		v := float64(*inv.ReplicationFactor)
 		var note string

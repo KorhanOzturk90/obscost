@@ -17,7 +17,7 @@ func goldenCostResult() CostResult {
 		Window:      7 * 24 * time.Hour,
 		End:         end,
 		Source:      "Mimir metrics (queried as tenant monitoring)",
-		DriverQuery: "q",
+		DriverQuery: `label_replace(x, "id", "$1", "pod", ".*-(rc|[0-9]+)$")`,
 		Drivers:     map[string]float64{"analytics": 45015, "infra": 23229, "payments": 3615},
 		RFQuery:     "rfq",
 		// No replication factor: shares still render, absolute figures don't.
