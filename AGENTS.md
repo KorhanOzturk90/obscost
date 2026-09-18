@@ -34,6 +34,8 @@ A third workload source bypasses execution telemetry entirely: `internal/telemet
 
 Rule *definitions* (as opposed to executions) come from `--dir` (a local rule-file checkout, via `internal/loader/dir` — same as `check`) or, when `--dir` is omitted, directly from Mimir's own ruler API (`internal/loader/rulerapi`, `GET /prometheus/api/v1/rules`, tenant-scoped) for an explicit `--tenant a,b,c` list — added specifically because each tenant's rules typically live in a separate repository promcost has no access to, and asking Mimir what it's actually evaluating is authoritative where a checkout might be stale. Tenants are explicit, not auto-discovered, by deliberate choice — see the doc comment on `newDefinitionsSource` in `internal/cli/report.go` for why.
 
+`promcost cost` (`internal/cli/cost.go`) is ADR 0004 build step 1, tenant showback, for ADR 0003's pool 1 only: it splits ingester memory across tenants by active series and renders "`analytics` uses 62% of ingester memory — the equivalent of 5.0 of your 8 ingesters", in currency only if promcost.yaml's `inventory:` block prices the pool. It is a separate command from `report` because the two share almost no inputs. The arithmetic lives in `internal/cost` (pure, no I/O: exhaustive shares, "not measured"/"not costed" never rendered as 0, an assumption trail on every figure) and the PromQL in `internal/cost/mimirdrivers`, which follows ADR 0003's "[A] How each driver must be read" (sum-then-average subquery, the ingest-storage guard, replication divisor applied in `internal/cost` so it shows in the trail). Both it and `mimirmetrics` query Mimir through the shared `internal/promapi` client. It is a snapshot over one window; comparing windows waits for ADR 0005 (#31).
+
 ### Commands
 
 ```
@@ -49,6 +51,8 @@ Run a single test: `go test ./internal/analyzer/checks/ -run TestPCS01_Positive_
 
 Regenerate the report golden fixtures (md and html) after intentionally changing one of `internal/report`'s templates: `UPDATE_GOLDEN=1 go test ./internal/report/...`.
 
+Try the cost view against the local rig: `./bin/promcost cost --metrics-tenant infra --config <yaml with backend.url: http://localhost:8080 and an inventory block> --since 1h`.
+
 Try it against a fixture: `./bin/promcost check --dir testdata/corpus/positive/pcs01_heavy_subquery/rules --config testdata/corpus/positive/pcs01_heavy_subquery/promcost.yaml`.
 
 ## What promcost is
@@ -57,7 +61,7 @@ promcost attributes the resource use and cost of a shared, multi-tenant metrics 
 
 Since [ADR 0004](docs/adr/0004-finops-pivot-scope-and-sequencing.md) (accepted 2026-09-17) the product is **cost allocation for self-hosted Mimir**: what each tenant costs, in resources first and currency only when the operator supplies prices. Rule-level workload attribution (`report`, ADRs 0001–0002) is no longer the headline — it is the drill-down that explains the ruler and query pools of the cost model, and the only thing that can tell a tenant *what to change*.
 
-**Read the ADRs before designing anything here.** They are the current source of truth for this layer, in order: [0001](docs/adr/0001-observed-workload-attribution-layer.md) (observed workload attribution), [0002](docs/adr/0002-where-workload-evidence-comes-from.md) (which telemetry source answers which question), 0003 (the pool→driver cost model — in review, PR #26), [0004](docs/adr/0004-finops-pivot-scope-and-sequencing.md) (the pivot's scope and build order).
+**Read the ADRs before designing anything here.** They are the current source of truth for this layer, in order: [0001](docs/adr/0001-observed-workload-attribution-layer.md) (observed workload attribution), [0002](docs/adr/0002-where-workload-evidence-comes-from.md) (which telemetry source answers which question), [0003](docs/adr/0003-cost-model-pool-driver-mappings.md) (the pool→driver cost model), [0004](docs/adr/0004-finops-pivot-scope-and-sequencing.md) (the pivot's scope and build order).
 
 ### Scope now
 

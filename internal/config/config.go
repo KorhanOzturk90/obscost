@@ -94,11 +94,42 @@ type PintConfig struct {
 	ConfigTemplate string `yaml:"config_template,omitempty"`
 }
 
+// PoolInventory is what the operator knows about one resource pool of ADR
+// 0003's cost model. Both fields are pointers because "not supplied" and
+// "zero" are different facts: an absent Replicas means the pool is shown
+// as shares only, never as "0 of your 0 ingesters", and an absent price
+// means the pool is reported as not costed rather than as free (ADR 0003
+// decision 3).
+type PoolInventory struct {
+	Replicas            *int     `yaml:"replicas,omitempty"`
+	CostPerReplicaMonth *float64 `yaml:"cost_per_replica_month,omitempty"`
+}
+
+// InventoryConfig is ADR 0003 decision 3's operator inventory: the short
+// list of things an operator already knows and promcost never guesses.
+// Every field is optional, and a partial inventory is the normal case.
+//
+// This is not the cost_model block above. That one is the v0 spec's
+// per-unit price list, parsed for compatibility and consumed by nothing;
+// ADR 0004 decision 2 replaced per-unit coefficients with per-pool costs.
+type InventoryConfig struct {
+	// Currency labels any currency figure. Required only if a pool has a
+	// price, so a figure never renders without its unit.
+	Currency string `yaml:"currency,omitempty"`
+	// ReplicationFactor overrides the value read from
+	// cortex_distributor_replication_factor, for clusters that don't
+	// expose it to the metrics tenant.
+	ReplicationFactor *int `yaml:"replication_factor,omitempty"`
+	// Pools is keyed by pool ID, e.g. "ingester_memory".
+	Pools map[string]PoolInventory `yaml:"pools,omitempty"`
+}
+
 type Config struct {
 	Backend   BackendConfig   `yaml:"backend,omitempty"`
 	Tenancy   TenancyConfig   `yaml:"tenancy,omitempty"`
 	Limits    LimitsConfig    `yaml:"limits,omitempty"`
 	CostModel CostModelConfig `yaml:"cost_model,omitempty"`
+	Inventory InventoryConfig `yaml:"inventory,omitempty"`
 	Checks    ChecksConfig    `yaml:"checks,omitempty"`
 	Pint      PintConfig      `yaml:"pint,omitempty"`
 }
