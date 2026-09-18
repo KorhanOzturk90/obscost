@@ -82,6 +82,17 @@ services:
       # per rule evaluation on stdout) — the real-world telemetry source
       # promcost's internal/telemetry/mimirlogs parses. Off by default.
       - -ruler.query-stats-enabled=true
+      # Cost attribution (experimental, Mimir 3.x): attributes ingested
+      # samples and active series to the values of chosen label(s) *inside*
+      # a tenant — the OSS primitive under Grafana Cloud's cost-attribution
+      # product, and promcost's candidate sub-tenant driver source (issues
+      # #29/#31). Two separate things are needed: a tracker definition (a
+      # per-tenant limit, set here as the global default) and a registry
+      # path — without the path, nothing is exposed anywhere. `job` is used
+      # as the tracked label because this rig's data is Mimir's own
+      # self-monitoring metrics, which carry no `team`-style label.
+      - '-validation.cost-attribution-trackers={"by-job":{"labels":[{"input":"job"}]}}'
+      - -cost-attribution.registry-path=/usage-metrics
       - -compactor.data-dir=/data/compactor
       # single-binary instance: nothing else to replicate/shard to.
       - -ingester.ring.replication-factor=1
