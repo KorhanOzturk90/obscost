@@ -20,8 +20,8 @@ Both can run at once: this one is on `localhost:8090`, the compose rig on
 ## Requirements
 
 - Docker with **at least 8 GB** of memory (Docker Desktop → Settings →
-  Resources). The classic stack settles around 4–5 GB; ingest storage adds
-  Kafka.
+  Resources). The classic stack measured ~2.3 GB for the k3d node on
+  first run; ingest storage adds Kafka.
 - `brew install k3d helm` (kubectl is assumed).
 
 ## Use
