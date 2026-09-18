@@ -228,3 +228,18 @@ func TestInventoryValidate(t *testing.T) {
 		t.Errorf("empty inventory: %v, want valid (every field is optional)", err)
 	}
 }
+
+func TestWindowString(t *testing.T) {
+	tests := map[time.Duration]string{
+		5 * time.Minute:         "5m",
+		90 * time.Minute:        "90m",
+		24 * time.Hour:          "24h",
+		7 * 24 * time.Hour:      "7d",
+		1500 * time.Millisecond: "1.5s",
+	}
+	for in, want := range tests {
+		if got := windowString(in); got != want {
+			t.Errorf("windowString(%v) = %q, want %q", in, got, want)
+		}
+	}
+}

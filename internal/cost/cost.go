@@ -370,13 +370,19 @@ func divideBy(v float64, by *float64) *float64 {
 }
 
 // windowString spells a window the way an operator would: whole days
-// from 2d up, whole hours below that ("24h", not "1d").
+// from 2d up, then the largest whole unit ("24h", "90m", "5m"), and Go's
+// own form only for something no single unit divides.
 func windowString(d time.Duration) string {
 	if d >= 48*time.Hour && d%(24*time.Hour) == 0 {
 		return fmt.Sprintf("%dd", d/(24*time.Hour))
 	}
-	if d > 0 && d%time.Hour == 0 {
-		return fmt.Sprintf("%dh", d/time.Hour)
+	for _, u := range []struct {
+		size   time.Duration
+		suffix string
+	}{{time.Hour, "h"}, {time.Minute, "m"}, {time.Second, "s"}} {
+		if d > 0 && d%u.size == 0 {
+			return fmt.Sprintf("%d%s", d/u.size, u.suffix)
+		}
 	}
 	return d.String()
 }
