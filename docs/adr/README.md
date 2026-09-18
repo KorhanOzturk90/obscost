@@ -27,3 +27,4 @@ that's just "the obvious way to do it."
 | [0002](0002-where-workload-evidence-comes-from.md) | Where workload evidence comes from — three sources, and what each can actually answer | Accepted |
 | [0003](0003-cost-model-pool-driver-mappings.md) | The cost model — mapping tenant behaviour to what you actually pay for | Proposed |
 | [0004](0004-finops-pivot-scope-and-sequencing.md) | Pivoting to end-to-end cost allocation — what we take, what we change, and in what order | Proposed |
+| [0005](0005-cost-change-attribution.md) | Cost change attribution — delta, decomposition, causes | Proposed |
