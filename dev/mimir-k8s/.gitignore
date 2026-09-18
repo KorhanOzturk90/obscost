@@ -1,2 +1,3 @@
 .cache/
 rules/monitoring/mixin-rules.yaml
+__pycache__/
