@@ -78,21 +78,37 @@ type rulesResponse struct {
 	Status string `json:"status"`
 	Error  string `json:"error,omitempty"`
 	Data   struct {
-		Groups []ruleGroup `json:"groups"`
+		Groups []Group `json:"groups"`
 	} `json:"data"`
 }
 
-type ruleGroup struct {
-	Name     string     `json:"name"`
-	File     string     `json:"file"`
-	Interval float64    `json:"interval"` // seconds
-	Rules    []ruleJSON `json:"rules"`
+// Group is one rule group as the ruler API reports it, minus the
+// runtime-only fields (evaluation timing, health, alert state) that change
+// on every evaluation and say nothing about the group's definition. It is
+// exported so internal/timeline can snapshot definitions directly:
+// AnnotatedRule drops labels, `for` and annotations, which a change
+// timeline needs.
+type Group struct {
+	Name     string  `json:"name"`
+	File     string  `json:"file"`
+	Interval float64 `json:"interval"` // seconds
+	Rules    []Rule  `json:"rules"`
 }
 
-type ruleJSON struct {
-	Name  string `json:"name"`
-	Query string `json:"query"`
-	Type  string `json:"type"` // "recording" | "alerting"
+// Rule is one rule's definition as the ruler API reports it. Duration
+// (an alerting rule's `for`) and KeepFiringFor are in seconds, as on the
+// wire. Labels and Duration appear in the live mimir-3.2.0 response
+// (realResponseFixture in the tests). Annotations and KeepFiringFor use the
+// Prometheus-compatible API's field names and decode as empty/zero when a
+// Mimir version omits them.
+type Rule struct {
+	Name          string            `json:"name"`
+	Query         string            `json:"query"`
+	Type          string            `json:"type"` // "recording" | "alerting"
+	Duration      float64           `json:"duration,omitempty"`
+	KeepFiringFor float64           `json:"keepFiringFor,omitempty"`
+	Labels        map[string]string `json:"labels,omitempty"`
+	Annotations   map[string]string `json:"annotations,omitempty"`
 }
 
 // Load fetches rules for every configured tenant. A per-tenant fetch
@@ -115,13 +131,13 @@ func (l *Loader) Load(ctx context.Context) ([]rule.AnnotatedRule, []loader.LoadE
 	for _, tenant := range l.cfg.Tenants {
 		source := fmt.Sprintf("%s (tenant %s)", l.cfg.BaseURL, tenant)
 
-		resp, err := l.fetch(ctx, tenant)
+		groups, err := l.Fetch(ctx, tenant)
 		if err != nil {
 			loadErrs = append(loadErrs, loader.LoadError{File: source, Err: err})
 			continue
 		}
 
-		for _, g := range resp.Data.Groups {
+		for _, g := range groups {
 			interval := time.Duration(g.Interval * float64(time.Second))
 
 			for _, rn := range g.Rules {
@@ -167,6 +183,22 @@ func (l *Loader) Load(ctx context.Context) ([]rule.AnnotatedRule, []loader.LoadE
 	}
 
 	return rules, loadErrs, nil
+}
+
+// Fetch returns tenant's rule groups as the ruler API reports them, with no
+// PromQL parsing or conversion to AnnotatedRule. A tenant with no rule
+// groups yields an empty, non-nil slice and no error. Any transport,
+// status or decode failure is an error, never an empty result, so a caller
+// can tell "this tenant has no rules" apart from "we could not ask".
+func (l *Loader) Fetch(ctx context.Context, tenant string) ([]Group, error) {
+	resp, err := l.fetch(ctx, tenant)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Data.Groups == nil {
+		return []Group{}, nil
+	}
+	return resp.Data.Groups, nil
 }
 
 func (l *Loader) fetch(ctx context.Context, tenant string) (*rulesResponse, error) {
