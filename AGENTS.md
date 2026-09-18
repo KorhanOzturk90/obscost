@@ -22,6 +22,8 @@ git worktree remove ../obscost-<short-topic>   # after merging/deleting the bran
 
 `git worktree list` shows every active worktree and which branch it's on — check this before assuming the shared main checkout reflects only your own work.
 
+**A second rig, `dev/mimir-k8s`**, runs microservices Mimir (one pod per component, 3 ingesters at RF=3, classic or ingest-storage write path) on a k3d cluster named `obscost`, with simulated tenants and rules — see its README. It is on `localhost:8090` and is a single cluster per machine, so check `k3d cluster list` before `make up`/`make down`: another session may be using it.
+
 **One exception:** `dev/mimir-local`'s running Docker containers are bound to whatever's on disk in the directory they were started from (currently the shared `obscost/` checkout, on `dev-mimir-local-rig`) — host ports aren't worktree-scoped, so don't start a second copy of that rig from a different worktree without remapping ports/project name first.
 
 ## Repository status

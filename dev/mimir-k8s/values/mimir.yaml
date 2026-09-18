@@ -1,0 +1,128 @@
+# mimir-distributed 6.2.0 (Mimir 3.2.0), trimmed to fit an 8 GB Docker VM
+# while keeping the properties promcost's cost model depends on:
+#
+#   - every component is its own pod, so per-component CPU/memory is
+#     measurable (container_* metrics per pod) — the one thing the
+#     docker-compose rig structurally cannot give (ADR 0003 decision 6, #34)
+#   - 3 ingesters at replication factor 3, so the replication divisor is
+#     exercised for real (ADR 0003 [A]; the compose rig runs RF=1)
+#   - rules are evaluated remotely through the query-frontend, as large
+#     production clusters do, so ruler queries show up on the query path
+#     (cortex_query_* per user, query-frontend query stats) instead of
+#     being invisible to it as under local evaluation
+#
+# This file is the *classic* architecture (distributors push to ingesters).
+# The chart's own default since 6.0 is ingest storage (Kafka); layer
+# values/ingest-storage.yaml on top to get that instead — see the README.
+
+kafka:
+  enabled: false
+
+mimir:
+  structuredConfig:
+    ingest_storage:
+      enabled: false
+      kafka:
+        address: null
+        topic: null
+        auto_create_topic_default_partitions: null
+    distributor:
+      remote_timeout: null
+    ingester:
+      push_grpc_method_enabled: null
+      ring:
+        replication_factor: 3
+    ruler:
+      # Remote evaluation through the main query path. The chart's
+      # remoteEvaluationDedicatedQueryPath would add three more pods for
+      # isolation this rig does not need.
+      query_frontend:
+        address: dns:///mimir-query-frontend.mimir.svc:9095
+    limits:
+      cardinality_analysis_enabled: true
+      # Room for the simulated tenants' churn without tripping limits.
+      max_global_series_per_user: 500000
+      ingestion_rate: 100000
+      ingestion_burst_size: 1000000
+      ruler_max_rules_per_rule_group: 50
+
+# Small requests everywhere so the scheduler fits everything on one node;
+# no limits, so a component that genuinely needs more memory shows it in
+# its working set instead of being OOM-killed into a wrong measurement.
+x-small: &small
+  requests: {cpu: 25m, memory: 64Mi}
+
+distributor:
+  replicas: 1
+  resources: *small
+  extraArgs:
+    validation.cost-attribution-trackers: '{"by-team":{"labels":[{"input":"team"}]}}'
+    cost-attribution.registry-path: /usage-metrics
+
+ingester:
+  replicas: 3
+  zoneAwareReplication:
+    enabled: false
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+  persistentVolume:
+    size: 2Gi
+  extraArgs:
+    validation.cost-attribution-trackers: '{"by-team":{"labels":[{"input":"team"}]}}'
+    cost-attribution.registry-path: /usage-metrics
+
+store_gateway:
+  replicas: 1
+  zoneAwareReplication:
+    enabled: false
+  resources: *small
+  persistentVolume:
+    size: 2Gi
+
+compactor:
+  replicas: 1
+  resources: *small
+  persistentVolume:
+    size: 2Gi
+
+querier:
+  replicas: 1
+  resources: *small
+
+query_frontend:
+  replicas: 1
+  resources: *small
+
+query_scheduler:
+  replicas: 1
+  resources: *small
+
+ruler:
+  replicas: 1
+  resources: *small
+
+alertmanager:
+  replicas: 1
+  resources: *small
+  persistentVolume:
+    size: 1Gi
+
+overrides_exporter:
+  replicas: 1
+  resources: *small
+
+rollout_operator:
+  enabled: false
+
+minio:
+  resources:
+    requests: {cpu: 25m, memory: 128Mi}
+  persistence:
+    size: 5Gi
+
+gateway:
+  replicas: 1
+  resources: *small
+  service:
+    type: NodePort
+    nodePort: 30090

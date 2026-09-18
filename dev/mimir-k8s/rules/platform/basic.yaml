@@ -1,0 +1,9 @@
+namespace: basic
+groups:
+  - name: platform_basic
+    interval: 1m
+    rules:
+      - alert: PlatformDown
+        expr: absent(avalanche_gauge_metric_mmmmm_0_0)
+        for: 5m
+        labels: {severity: critical}

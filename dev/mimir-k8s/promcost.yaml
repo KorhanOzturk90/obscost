@@ -1,0 +1,11 @@
+# promcost config for the k3d rig (used by `make cost`).
+backend:
+  url: http://localhost:8090
+inventory:
+  currency: EUR
+  pools:
+    ingester_memory:
+      replicas: 3
+      # Illustrative only — a laptop has no invoice. Replace with a real
+      # instance price when this runs on cloud VMs.
+      cost_per_replica_month: 120
