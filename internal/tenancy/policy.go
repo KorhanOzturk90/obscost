@@ -1,6 +1,7 @@
 package tenancy
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -8,11 +9,9 @@ import (
 // UnmappedPolicy implements spec §3's tenancy.unmapped setting: error | skip
 // | tenant:<name>.
 //
-// "error" does not itself fail a load: the rule is kept with an empty
-// tenant, and PC-S06 (tenant-resolution) is the check that turns that into
-// an error-severity Finding subject to --fail-on. This keeps "a rule failed
-// to resolve" a reportable, remediation-carrying Finding like everything
-// else, rather than a second, differently-shaped failure mode.
+// "error" makes an unresolved rule a load error: a rule with no tenant
+// can't be attributed to anyone, so it fails the load rather than being
+// silently dropped or reported under an empty tenant.
 type UnmappedPolicy struct {
 	Mode           string // "error" | "skip" | "tenant"
 	FallbackTenant string
@@ -35,19 +34,24 @@ func ParseUnmappedPolicy(raw string) (UnmappedPolicy, error) {
 	}
 }
 
+// ErrUnmapped is returned by Apply under the "error" policy for a rule
+// that did not resolve to a tenant.
+var ErrUnmapped = errors.New("no tenant mapping (tenancy.unmapped: error)")
+
 // Apply decides the tenant to use and whether to keep a rule that resolved
-// (or failed to resolve) as described. Only "skip" drops a rule at load
-// time; "error" keeps it with an empty tenant for PC-S06 to report.
-func (p UnmappedPolicy) Apply(tenant string, resolved bool) (finalTenant string, keep bool) {
+// (or failed to resolve) as described. "skip" drops it silently; "error"
+// drops it and returns ErrUnmapped for the caller to report as a load
+// error.
+func (p UnmappedPolicy) Apply(tenant string, resolved bool) (finalTenant string, keep bool, err error) {
 	if resolved {
-		return tenant, true
+		return tenant, true, nil
 	}
 	switch p.Mode {
 	case "skip":
-		return "", false
+		return "", false, nil
 	case "tenant":
-		return p.FallbackTenant, true
+		return p.FallbackTenant, true, nil
 	default: // "error"
-		return "", true
+		return "", false, ErrUnmapped
 	}
 }
