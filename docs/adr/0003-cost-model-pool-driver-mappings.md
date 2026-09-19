@@ -168,66 +168,49 @@ Three consequences worth stating plainly:
   average for reasons that have nothing to do with tenant behaviour. That is
   ADR 0005's problem to handle, but it starts here.
 
-### [A2] Why rules matter: evaluation cost first, output series second
+### [A2] Why rules matter: evaluation cost, not output
 
-**In short: a rule's cost is what it costs to evaluate, not what it
-writes.**
+**A rule's cost is what it costs to evaluate, not what it writes.** This
+replaces the 2026-09-18 **[A]** version, which read "rules are one of the
+*inputs* to the largest slice" as a claim about output series, measured
+that, found it small, and drifted toward "rules are a minor cost".
 
-This replaces the 2026-09-18 **[A]** version, which read "rules are one of
-the *inputs* to the largest slice" as a claim about output series,
-measured that, found it small, and drifted toward "rules are a minor
-cost". The claim was about evaluation.
-
-**1. Evaluation cost — the main one.** Every rule is a query executed on a
-fixed interval, forever, whether or not anyone looks at the result. A
-rule written inefficiently — a subquery, a long range
-(`quantile_over_time(...[6h])`), an unfiltered selector over a
-high-cardinality metric, a `count by` over everything — pays that cost
-every evaluation. It lands in:
-
-- **pool 7 (ruler CPU)** when rules are evaluated locally inside the ruler
-  (Mimir's default), measured by
-  `cortex_prometheus_rule_evaluation_duration_seconds_sum` and
-  `cortex_ruler_query_seconds_total`;
-- **pool 6 (query path)** when the ruler evaluates remotely through a
-  query-frontend (common on large clusters), where rule queries become
-  ordinary query traffic — `cortex_query_seconds_total`,
-  `cortex_query_fetched_chunk_bytes_total`,
-  `cortex_query_samples_processed_total` per `user`.
-
-Nothing here scales with how many series a rule *writes*. A rule with one
-output series can be the most expensive thing a tenant runs.
-
-**2. Output series — real, usually small.** A recording rule also writes
-series, which then cost ingester memory (pool 1) and storage (pool 3) for
-as long as they are retained. Measured on the compose rig 2026-09-18,
-tenant `infra`:
-
-```
-/distributor/all_user_stats:  APIIngestionRate  353.35 samples/s
-                              RuleIngestionRate  13.33 samples/s   → 3.6%
-ruler API:                    122 recording rules, 122 alerting rules
-ruler CPU over the same period: rule evaluation 38.3s, ruler queries 31.9s
+```mermaid
+flowchart LR
+    RULE["A rule, re-evaluated<br/>every interval, forever"] --> EVAL["the query it runs"]
+    RULE --> OUT["the series it writes"]
+    EVAL -->|evaluated in the ruler<br/>Mimir's default| P7["Pool 7 — ruler CPU<br/>cortex_prometheus_rule_evaluation_duration_seconds_sum<br/>cortex_ruler_query_seconds_total"]
+    EVAL -->|evaluated remotely<br/>via query-frontend| P6["Pool 6 — query path<br/>cortex_query_seconds_total<br/>cortex_query_fetched_chunk_bytes_total"]
+    OUT --> P13["Pools 1, 3 — memory, storage<br/>real, usually small"]
+    P7 --> WHICH{"which rule?"}
+    P6 --> WHICH
+    P13 --> WHICH
+    WHICH --> ATTR["per-rule attribution, ADR 0001/0002<br/>no cortex_* metric goes below tenant or group"]
 ```
 
-On a mixin-shaped corpus, rule output is under 4% of ingestion while
-evaluation is the real cost — the same measurement that was read the other
-way in [A]. Output can still dominate in the uncommon case of a recording
-rule that preserves high-cardinality labels, which is why it stays a
-tracked driver of pools 1–3 rather than being dropped.
+An inefficiently written rule — a subquery, a long range, an unfiltered
+selector over a high-cardinality metric — pays its cost on every
+evaluation, whether or not anyone reads the result, and nothing about that
+scales with how many series it writes. A rule with one output series can
+be the most expensive thing a tenant runs.
 
-**Which rule is the expensive one** is a question no pool-level metric
-answers. Every `cortex_*` figure above stops at the tenant (or, for
-`cortex_prometheus_rule_*`, the rule group). Naming the rule is ADR
-0001/0002's per-rule attribution — the query-stats log, or the
-query-frontend's per-query stats under remote evaluation — and that is
-the part of this product no label-based tool (Mimir's cost-attribution
-trackers, Grafana Cloud's product built on them) can do, because neither
-evaluation cost nor output series carry the identity of the rule. For the
-output side specifically, a recording rule's `record:` name is its output
-metric, so its series are countable directly (issue #37);
-`RuleIngestionRate` vs `APIIngestionRate` is only a two-way scalar split
-that can corroborate "rules did it", never say which.
+Output series are still a driver of pools 1 and 3, because a recording
+rule's output occupies memory for as long as it is retained, and a rule
+that preserves high-cardinality labels can dominate. It is just rarely the
+big number: on the compose rig (2026-09-18, tenant `infra`, 122 recording
+rules) rule output was **3.6%** of ingestion — 13.33 against 353.35
+samples/s — while the ruler spent 38.3s evaluating and 31.9s querying over
+the same window.
+
+**Which** rule is expensive is the question none of these metrics answer:
+they stop at the tenant, or at the rule group. Naming it needs the rule
+definitions joined to per-rule evidence (ADR 0001/0002), which is also why
+label-based attribution — Mimir's cost-attribution trackers, Grafana
+Cloud's product built on them — structurally cannot: neither evaluation
+cost nor output series carry the identity of the rule. On the output side,
+a recording rule's `record:` name is its output metric, so its series are
+countable directly (issue #37); `RuleIngestionRate` vs `APIIngestionRate`
+is only a two-way split that corroborates "rules did it", never which one.
 
 ### How a share becomes a cost
 
