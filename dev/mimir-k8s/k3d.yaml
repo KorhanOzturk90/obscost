@@ -1,0 +1,24 @@
+# One-node k3d cluster for the microservices Mimir rig. One node is enough:
+# the point is separate *processes* per component (ADR 0003 decision 6),
+# not separate machines, and a single node keeps the whole thing inside a
+# laptop's Docker VM. Traefik is disabled — nothing here needs an ingress;
+# the Mimir gateway is published as a NodePort instead.
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: obscost
+servers: 1
+agents: 0
+ports:
+  # Mimir gateway (nginx) -> http://localhost:8090. 8080 stays free for the
+  # docker-compose rig in dev/mimir-local, so both can run side by side.
+  - port: 127.0.0.1:8090:30090
+    nodeFilters: [server:0]
+  # Grafana -> http://localhost:3090
+  - port: 127.0.0.1:3090:30300
+    nodeFilters: [server:0]
+options:
+  k3s:
+    extraArgs:
+      - arg: --disable=traefik
+        nodeFilters: [server:*]

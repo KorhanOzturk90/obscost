@@ -1,0 +1,282 @@
+// Alloy for the microservices Mimir rig. Two jobs:
+//
+//  1. Self-monitoring into the `monitoring` tenant — every Mimir pod's
+//     /metrics, the cost-attribution registry on distributors and
+//     ingesters, and cAdvisor's per-container CPU/memory for the mimir
+//     namespace. This is what `promcost cost --metrics-tenant monitoring`
+//     reads, and the container_* series are the per-component resource
+//     truth ADR 0003's pool->driver mappings get calibrated against (#34).
+//
+//  2. Simulated tenant traffic — each avalanche pod in the `tenants`
+//     namespace is scraped and remote-written under the tenant named by
+//     its `tenant` pod label. One pipeline per tenant, because a
+//     remote_write's X-Scope-OrgID header is static.
+//
+// Labels follow the conventions the mimir-mixin (and so promcost's
+// queries) assume: job="<namespace>/<component>", plus cluster/namespace/pod.
+
+// ---------------------------------------------------------------- self-monitoring
+
+discovery.kubernetes "mimir_pods" {
+  role = "pod"
+  namespaces {
+    names = ["mimir"]
+  }
+}
+
+discovery.relabel "mimir_pods" {
+  targets = discovery.kubernetes.mimir_pods.targets
+
+  rule {
+    source_labels = ["__meta_kubernetes_pod_container_port_name"]
+    regex         = "http-metrics"
+    action        = "keep"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_phase"]
+    regex         = "Running"
+    action        = "keep"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_namespace", "__meta_kubernetes_pod_label_app_kubernetes_io_component"]
+    separator     = "/"
+    target_label  = "job"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_namespace"]
+    target_label  = "namespace"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_name"]
+    target_label  = "pod"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_container_name"]
+    target_label  = "container"
+  }
+  rule {
+    target_label = "cluster"
+    replacement  = "obscost-k3d"
+  }
+}
+
+prometheus.scrape "mimir" {
+  targets         = discovery.relabel.mimir_pods.output
+  scrape_interval = "15s"
+  forward_to      = [prometheus.remote_write.monitoring.receiver]
+}
+
+// Cost-attribution registry: only distributors and ingesters serve it, and
+// only because values/mimir.yaml sets -cost-attribution.registry-path.
+discovery.relabel "usage_pods" {
+  targets = discovery.relabel.mimir_pods.output
+
+  rule {
+    source_labels = ["job"]
+    regex         = "mimir/(distributor|ingester)"
+    action        = "keep"
+  }
+}
+
+prometheus.scrape "mimir_usage" {
+  targets         = discovery.relabel.usage_pods.output
+  metrics_path    = "/usage-metrics"
+  scrape_interval = "15s"
+  forward_to      = [prometheus.remote_write.monitoring.receiver]
+}
+
+// cAdvisor through the API server's node proxy: per-container CPU and
+// memory, restricted to the mimir namespace and a handful of series so the
+// monitoring tenant stays small.
+discovery.kubernetes "nodes" {
+  role = "node"
+}
+
+discovery.relabel "cadvisor" {
+  targets = discovery.kubernetes.nodes.targets
+
+  rule {
+    target_label = "__address__"
+    replacement  = "kubernetes.default.svc:443"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_node_name"]
+    regex         = "(.+)"
+    target_label  = "__metrics_path__"
+    replacement   = "/api/v1/nodes/$1/proxy/metrics/cadvisor"
+  }
+  rule {
+    target_label = "cluster"
+    replacement  = "obscost-k3d"
+  }
+  rule {
+    target_label = "job"
+    replacement  = "kube-system/cadvisor"
+  }
+}
+
+prometheus.scrape "cadvisor" {
+  targets           = discovery.relabel.cadvisor.output
+  scheme            = "https"
+  bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+  tls_config {
+    insecure_skip_verify = true
+  }
+  scrape_interval = "15s"
+  forward_to      = [prometheus.relabel.cadvisor.receiver]
+}
+
+prometheus.relabel "cadvisor" {
+  forward_to = [prometheus.remote_write.monitoring.receiver]
+
+  rule {
+    source_labels = ["__name__"]
+    regex         = "container_(cpu_usage_seconds_total|memory_working_set_bytes|memory_rss|fs_writes_bytes_total|fs_reads_bytes_total|network_(receive|transmit)_bytes_total)"
+    action        = "keep"
+  }
+  rule {
+    source_labels = ["namespace"]
+    regex         = "mimir"
+    action        = "keep"
+  }
+  // Pod-level aggregate series (container="") and the pause container
+  // would double-count every pod.
+  rule {
+    source_labels = ["container"]
+    regex         = "|POD"
+    action        = "drop"
+  }
+}
+
+prometheus.remote_write "monitoring" {
+  endpoint {
+    url     = "http://mimir-gateway.mimir.svc/api/v1/push"
+    headers = {"X-Scope-OrgID" = "monitoring"}
+  }
+}
+
+// ---------------------------------------------------------------- simulated tenants
+
+discovery.kubernetes "tenant_pods" {
+  role = "pod"
+  namespaces {
+    names = ["tenants"]
+  }
+}
+
+discovery.relabel "tenant_pods" {
+  targets = discovery.kubernetes.tenant_pods.targets
+
+  rule {
+    source_labels = ["__meta_kubernetes_pod_phase"]
+    regex         = "Running"
+    action        = "keep"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_container_port_name"]
+    regex         = "metrics"
+    action        = "keep"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_label_tenant"]
+    target_label  = "__tenant__"
+  }
+  // `team` feeds Mimir's by-team cost-attribution tracker, so one tenant
+  // can be split into teams (ADR 0004 decision 7).
+  rule {
+    source_labels = ["__meta_kubernetes_pod_label_team"]
+    target_label  = "team"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_label_app"]
+    target_label  = "job"
+    replacement   = "tenants/$1"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_name"]
+    target_label  = "pod"
+  }
+}
+
+// One scrape + write pair per tenant. Keep this list in step with
+// tenants/*.yaml.
+
+discovery.relabel "tenant_analytics" {
+  targets = discovery.relabel.tenant_pods.output
+  rule {
+    source_labels = ["__tenant__"]
+    regex         = "analytics"
+    action        = "keep"
+  }
+}
+prometheus.scrape "tenant_analytics" {
+  targets         = discovery.relabel.tenant_analytics.output
+  scrape_interval = "15s"
+  forward_to      = [prometheus.remote_write.tenant_analytics.receiver]
+}
+prometheus.remote_write "tenant_analytics" {
+  endpoint {
+    url     = "http://mimir-gateway.mimir.svc/api/v1/push"
+    headers = {"X-Scope-OrgID" = "analytics"}
+  }
+}
+
+discovery.relabel "tenant_infra" {
+  targets = discovery.relabel.tenant_pods.output
+  rule {
+    source_labels = ["__tenant__"]
+    regex         = "infra"
+    action        = "keep"
+  }
+}
+prometheus.scrape "tenant_infra" {
+  targets         = discovery.relabel.tenant_infra.output
+  scrape_interval = "15s"
+  forward_to      = [prometheus.remote_write.tenant_infra.receiver]
+}
+prometheus.remote_write "tenant_infra" {
+  endpoint {
+    url     = "http://mimir-gateway.mimir.svc/api/v1/push"
+    headers = {"X-Scope-OrgID" = "infra"}
+  }
+}
+
+discovery.relabel "tenant_payments" {
+  targets = discovery.relabel.tenant_pods.output
+  rule {
+    source_labels = ["__tenant__"]
+    regex         = "payments"
+    action        = "keep"
+  }
+}
+prometheus.scrape "tenant_payments" {
+  targets         = discovery.relabel.tenant_payments.output
+  scrape_interval = "15s"
+  forward_to      = [prometheus.remote_write.tenant_payments.receiver]
+}
+prometheus.remote_write "tenant_payments" {
+  endpoint {
+    url     = "http://mimir-gateway.mimir.svc/api/v1/push"
+    headers = {"X-Scope-OrgID" = "payments"}
+  }
+}
+
+discovery.relabel "tenant_platform" {
+  targets = discovery.relabel.tenant_pods.output
+  rule {
+    source_labels = ["__tenant__"]
+    regex         = "platform"
+    action        = "keep"
+  }
+}
+prometheus.scrape "tenant_platform" {
+  targets         = discovery.relabel.tenant_platform.output
+  scrape_interval = "15s"
+  forward_to      = [prometheus.remote_write.tenant_platform.receiver]
+}
+prometheus.remote_write "tenant_platform" {
+  endpoint {
+    url     = "http://mimir-gateway.mimir.svc/api/v1/push"
+    headers = {"X-Scope-OrgID" = "platform"}
+  }
+}
