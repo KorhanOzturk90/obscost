@@ -24,6 +24,15 @@ git worktree remove ../obscost-<short-topic>   # after merging/deleting the bran
 
 **One exception:** `dev/mimir-local`'s running Docker containers are bound to whatever's on disk in the directory they were started from (currently the shared `obscost/` checkout, on `dev-mimir-local-rig`) — host ports aren't worktree-scoped, so don't start a second copy of that rig from a different worktree without remapping ports/project name first.
 
+## Writing ADRs and design docs
+
+Keep them brief and focused — a reader should get the decision and its reason in a minute, not dig for it.
+
+- **Lead with the takeaway.** State the decision or claim in the first line or two of the document and of each section; evidence and caveats come after it, never before.
+- **Prefer a diagram to a paragraph** when explaining a design choice, a data flow or a trade-off. Use Mermaid (it renders on GitHub, and ADR 0004 already does) — a diagram is for showing the mechanism, not decoration.
+- **Cut detail that doesn't change the decision.** Raw measurements, full query listings and exploration notes belong in the PR description, an issue, or a `dev/` README, linked from the ADR rather than pasted into it.
+- **Amend in place sparingly.** A short, marked amendment (`[A]`, `[A2]`) is fine; if a section needs rewriting rather than correcting, it is time for a new ADR that supersedes it (see [`docs/adr/README.md`](docs/adr/README.md)).
+
 ## Repository status
 
 Milestone 1 (spec §8.1: parser + static tier `PC-S01..PC-S06`, golden-corpus tests, `promcost check --offline`) is implemented. Module path: `github.com/KorhanOzturk90/obscost`. Live tier (`PC-L0x`, the `Meter` interface), fleet tier (`PC-F0x`), and the `scan`/`explain`/`rewrite`/`pint-config` subcommands were never built, and are now frozen rather than planned — see "The frozen static-analysis side" below and [`docs/archive/v0-static-analyzer-design.md`](docs/archive/v0-static-analyzer-design.md).
