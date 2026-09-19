@@ -170,13 +170,13 @@ Three consequences worth stating plainly:
 
 ### [A2] Why rules matter: evaluation cost first, output series second
 
-*This section replaces the 2026-09-18 **[A]** version, which misread the
-original claim.* The original line — rules are "one of the *inputs* to the
-largest slice" — was taken to mean rule **output**: recording rules writing
-series that then occupy ingester memory. The amendment measured that,
-found it small, and let the conclusion drift toward "rules are a minor
-cost". That tested a claim nobody made. The claim that matters is about
-**evaluation**: the query resources a rule consumes every time it runs.
+**In short: a rule's cost is what it costs to evaluate, not what it
+writes.**
+
+This replaces the 2026-09-18 **[A]** version, which read "rules are one of
+the *inputs* to the largest slice" as a claim about output series,
+measured that, found it small, and drifted toward "rules are a minor
+cost". The claim was about evaluation.
 
 **1. Evaluation cost — the main one.** Every rule is a query executed on a
 fixed interval, forever, whether or not anyone looks at the result. A
