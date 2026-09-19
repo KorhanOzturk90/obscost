@@ -25,7 +25,7 @@ ifeq ($(ARCH),ingest)
 MIMIR_VALUES += -f values/ingest-storage.yaml
 endif
 
-.PHONY: up down cluster mimir alloy grafana tenants rules mixin-rules status cost scale rollout-ingesters scenario-heavy-rule scenario-heavy-rule-off
+.PHONY: up down cluster mimir alloy grafana tenants rules mixin-rules status cost scale rollout-ingesters scenario-expensive-rule scenario-expensive-rule-off
 
 up: cluster mimir alloy grafana tenants mixin-rules rules status
 
@@ -87,10 +87,10 @@ rollout-ingesters:
 	kubectl -n mimir rollout restart statefulset/mimir-ingester
 	kubectl -n mimir rollout status statefulset/mimir-ingester --timeout=15m
 
-scenario-heavy-rule:
-	./scripts/sync-rules.sh analytics rules/scenarios/analytics-heavy.yaml
+scenario-expensive-rule:
+	./scripts/sync-rules.sh analytics rules/scenarios/analytics-expensive.yaml
 
-scenario-heavy-rule-off:
+scenario-expensive-rule-off:
 	./scripts/sync-rules.sh analytics
 
 down:

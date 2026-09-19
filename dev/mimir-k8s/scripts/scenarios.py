@@ -12,7 +12,7 @@ Order matters and is deliberate:
   2. scale analytics-bi 1 -> 2 -> 1 — then waits out the ingester's
      active-series idle timeout, so the removed replica's series expire
      before the next scenario (that wait is itself a measurement)
-  3. heavy recording rule on -> off
+  3. expensive recording rules on -> off
 
 Takes about 45 minutes. Needs the rig from `make up` on localhost:8090.
 """
@@ -165,37 +165,53 @@ def scenario_scale():
 
 # --------------------------------------------------------------------------- 3
 
-def scenario_heavy_rule():
+def increase_by_user(metric, window):
+    return by(query(f"sum by (user) (increase({metric}[{window}]))"), "user")
+
+
+def component_cpu(window):
+    return by(query(
+        f'sum by (container) (rate(container_cpu_usage_seconds_total{{namespace="mimir", '
+        f'container=~"querier|query-frontend|ruler"}}[{window}]))'), "container")
+
+
+def scenario_expensive_rule():
     log("=" * 72)
-    log("SCENARIO 3 — heavy recording rule on analytics")
-    log("Prediction: the rule re-emits one series per (src, series_id, team) =")
-    log("20x400 (bi) + 10x500 (ml) = 13,000 new series, roughly doubling analytics;")
-    log("but RuleIngestionRate only reaches ~20% of analytics' ingestion: the rule")
-    log("writes each series once a minute, the scrape every 15s. Same series count,")
-    log("a quarter of the samples — pool 1 (memory) and pool 2 (write path) should")
-    log("disagree about how big this change is.")
+    log("SCENARIO 3 — expensive rules on analytics (ADR 0003 [A2])")
+    log("Prediction: two recording rules writing one series each, but running a 6h")
+    log("quantile and a 1h/15s subquery over every analytics series. Analytics'")
+    log("rule-evaluation and query time jump by a large factor, querier CPU rises,")
+    log("and active series grow by 2 — so promcost cost (pool 1) does not move.")
     before = show_cost("5m", "before")
-    stats_before = user_stats().get("analytics", {})
-    sh("./scripts/sync-rules.sh", "analytics", "rules/scenarios/analytics-heavy.yaml")
-    wait(7 * 60, "rule evaluates every 1m; one full 5m window after")
-    after = show_cost("5m", "heavy rule on")
-    stats_after = user_stats().get("analytics", {})
+    eval_before = increase_by_user("cortex_prometheus_rule_evaluation_duration_seconds_sum", "5m")
+    query_before = increase_by_user("cortex_query_seconds_total", "5m")
+    cpu_before = component_cpu("5m")
+    sh("./scripts/sync-rules.sh", "analytics", "rules/scenarios/analytics-expensive.yaml")
+    wait(7 * 60, "rules evaluate every 1m; one full 5m window after")
+    after = show_cost("5m", "expensive rules on")
+    eval_after = increase_by_user("cortex_prometheus_rule_evaluation_duration_seconds_sum", "5m")
+    query_after = increase_by_user("cortex_query_seconds_total", "5m")
+    cpu_after = component_cpu("5m")
+
     d = after["analytics"]["driver"] - before["analytics"]["driver"]
-    log(f"analytics delta: {d:+,.0f} series (predicted +13,000)")
-    for label, st in (("before", stats_before), ("after", stats_after)):
-        total = st.get("ingestionRate") or 0
-        rule = st.get("RuleIngestionRate") or 0
-        log(f"    all_user_stats {label:<6} ingestion {total:8.1f}/s  rules {rule:8.1f}/s "
-            f"({rule / total * 100 if total else 0:4.1f}%)  numSeries {st.get('numSeries', 0):,}")
+    log(f"pool 1 — analytics active series delta: {d:+,.0f} (predicted +2)")
+    log("rule evaluation / query time per tenant over 5m (seconds):")
+    log(f"    {'tenant':<11} {'eval before':>11} {'eval after':>11} {'query before':>12} {'query after':>12}")
+    for name in sorted(set(eval_before) | set(eval_after)):
+        log(f"    {name:<11} {eval_before.get(name, 0):>11.2f} {eval_after.get(name, 0):>11.2f} "
+            f"{query_before.get(name, 0):>12.2f} {query_after.get(name, 0):>12.2f}")
+    log("CPU (cores, 5m average):")
+    for c in sorted(set(cpu_before) | set(cpu_after)):
+        log(f"    {c:<15} {cpu_before.get(c, 0):.3f} -> {cpu_after.get(c, 0):.3f}")
     sh("./scripts/sync-rules.sh", "analytics")
-    log("heavy rule removed (its series expire after the idle timeout)")
+    log("expensive rules removed")
 
 
 def main():
     log(f"promcost: {PROMCOST}")
     scenario_rollout()
     scenario_scale()
-    scenario_heavy_rule()
+    scenario_expensive_rule()
     log("done")
 
 

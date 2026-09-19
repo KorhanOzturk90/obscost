@@ -100,7 +100,7 @@ before it is measured. That prediction is the test.
 |---|---|---|
 | `make scale TARGET=avalanche-analytics-bi REPLICAS=2` | +8,000 analytics series | analytics' share of ingester memory rises; `by-team` shows it is `bi` |
 | `make rollout-ingesters` | every ingester pod replaced | a window spanning it must **not** show a jump in active series (sum-then-average query) |
-| `make scenario-heavy-rule` / `-off` | one recording rule re-emitting every analytics series | analytics roughly doubles; `RuleIngestionRate` share rises; #37 should name the rule |
+| `make scenario-expensive-rule` / `-off` | two analytics rules with one output series each but expensive queries (6h quantile subquery, 1h/15s subquery) | analytics' rule-evaluation and query time jump; querier CPU rises; active series +2, so `promcost cost` (pool 1 only) does **not** move — the ADR 0003 [A2] case |
 | `make up ARCH=ingest` (after `make down`) | ingest storage | the classic-only active-series query finds nothing — see below |
 
 ## Findings so far
