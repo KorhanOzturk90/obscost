@@ -208,15 +208,58 @@ figure in a sweep is now averaged over a 10-minute window, each step
 verifies that it actually landed, and steps are large enough (+16k series)
 to clear the fixed baseline.
 
-**OpenCost cross-check (in progress)**
+**Calibration — what query load costs (E1/E3, 2026-09-21)**
 
-`make opencost` + `scripts/compare-opencost.py`. Over a 1h window ours runs
-10–35% above OpenCost per component, with idle 21% above — a systematic gap
-consistent with OpenCost still covering less than the full window after a
-restart, not yet with a formula difference. Two bugs found while wiring it
-up are in the git history: Alloy overwriting OpenCost's `pod` labels (which
-priced everything at zero), and pods that cAdvisor reports after the API
-has forgotten them each becoming their own component.
+Expensive rules added to `analytics` one at a time, ingestion unchanged:
+
+| rules | data fetched (5m) | query seconds | ingester CPU | querier CPU | ingester time on reads |
+|---:|---:|---:|---:|---:|---:|
+| 0 | 28 MiB | 112.8 | 0.295 | 0.069 | 88% |
+| 1 | 123 MiB | 405.5 | 0.465 | 0.217 | 95% |
+| 2 | 266 MiB | 1,117.2 | 0.840 | 0.457 | 95% |
+| 3 | 345 MiB | 733.8 | 0.722 | 0.379 | 96% |
+
+- **E1: ingester CPU nearly tripled with no extra ingestion** (0.295 → 0.840
+  cores), fitting data fetched at R² 0.83 over a fixed 0.28 cores. Ingester
+  CPU is a read cost. ADR 0003 pool 2 calls it the write path; ADR 0006
+  decision 1 corrects that, and this is the measurement behind it.
+- **E3: querier CPU is predicted better by query *seconds* (R² 0.962) than
+  by bytes fetched (R² 0.832).** That is awkward, and real: querier CPU *is*
+  query time, while bytes drive ingester and store-gateway work. But look
+  at the last row — more data fetched, *less* query time — because time also
+  moves with contention and scheduling, while bytes track what the tenant
+  asked for. So: time predicts the pool's size; volume attributes it fairly.
+- An earlier attempt at this sweep **saturated the rig** (one rule at 61k
+  series took the node past 4 cores and Mimir stopped answering). The sweep
+  now settles first, uses a 1h rather than 6h subquery, and stops when the
+  cluster passes 70% of its CPU budget.
+
+**OpenCost cross-check**
+
+`make opencost` + `scripts/compare-opencost.py`, 30m window:
+
+| | podcost.py | OpenCost |
+|---|---:|---:|
+| node cost basis | 0.2243/h | **identical** (`node_total_hourly_cost` 0.4485/h) |
+| ingester | 0.01506 | 0.01150 |
+| querier | 0.00550 | 0.00387 |
+| idle | 0.18532 | 0.15708 |
+
+The node price agrees exactly, and both use `max(request, usage)`. The gap
+is **observed runtime**: OpenCost reported `minutes: 25` of the 30 and
+prorates by it, where Mimir's data covers the full window. Scaling for that
+leaves agreement within ~10%, OpenCost slightly lower.
+
+That is a design lesson, not a rounding difference: **a pod that ran for
+twenty minutes of an hour costs twenty minutes**, and `avg_over_time`
+cannot tell a short-lived pod from a gap in scraping. `podcost.py` now
+measures each pod's coverage, prorates by it, and prints it as a "seen"
+column — the same missing-versus-zero principle ADR 0001 applies to stats.
+
+Two bugs found while wiring this up: Alloy was overwriting OpenCost's `pod`
+labels (its output is *about* other pods), which made it price everything
+at zero; and pods that cAdvisor still reports after the API has forgotten
+them were each becoming their own component.
 
 **Earlier findings**
 

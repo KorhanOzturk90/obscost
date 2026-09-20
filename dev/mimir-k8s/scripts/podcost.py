@@ -11,7 +11,8 @@ nodes. So for every pod, over the window:
                price_dim × max(request, usage)_dim / node_capacity_dim
 
 max(request, usage) because a reservation costs money whether it is used or
-not, and usage above a request is real consumption. Costs are then summed
+not, and usage above a request is real consumption, prorated by the
+fraction of the window the pod was actually observed ("seen" below). Costs are then summed
 per component (ingester, querier, …) — those sums are what ADR 0003 calls a
 pool's cost, and what promcost's inventory asks the operator to supply.
 
@@ -112,6 +113,23 @@ def node_capacity():
     return cpu, mem
 
 
+def coverage(window):
+    """{(namespace, pod): fraction of the window the pod was observed}.
+
+    A pod that ran for twenty minutes of an hour costs twenty minutes, not
+    an hour — and `avg_over_time` cannot tell the two apart, because it
+    averages the samples that exist. OpenCost prorates by observed minutes
+    and this script did not, which was most of a 49% disagreement between
+    them. Coverage is measured against the pod with the most samples in the
+    window, so it needs no knowledge of the scrape interval.
+    """
+    counts = {}
+    for row in query(f'count_over_time(sum by (namespace, pod) (container_memory_working_set_bytes)[{window}:])'):
+        counts[(row["metric"]["namespace"], row["metric"]["pod"])] = float(row["value"][1])
+    full = max(counts.values(), default=1.0)
+    return {key: min(value / full, 1.0) for key, value in counts.items()}
+
+
 def usage(window):
     """{(namespace, pod): (cores, bytes)} averaged over the window."""
     cpu = {}
@@ -158,14 +176,17 @@ def allocate(window, cpu_hour, gib_hour):
     node_cost_hour = cap_cpu * cpu_hour + cap_mem / GIB * gib_hour
     facts = pod_facts()
     used = usage(window)
+    seen = coverage(window)
 
-    by_component = defaultdict(lambda: {"cost": 0.0, "cpu": 0.0, "mem": 0.0, "pods": 0})
+    by_component = defaultdict(lambda: {"cost": 0.0, "cpu": 0.0, "mem": 0.0, "pods": 0, "coverage": 0.0})
     for key in set(facts) | set(used):
         req_cpu, req_mem, workload = facts.get(key, (0.0, 0.0, workload_from_pod_name(key[1])))
         use_cpu, use_mem = used.get(key, (0.0, 0.0))
         cpu, mem = max(req_cpu, use_cpu), max(req_mem, use_mem)
+        share = seen.get(key, 1.0)
         row = by_component[component_of(key[0], workload)]
-        row["cost"] += cpu * cpu_hour + mem / GIB * gib_hour
+        row["coverage"] += share
+        row["cost"] += (cpu * cpu_hour + mem / GIB * gib_hour) * share
         row["cpu"] += cpu
         row["mem"] += mem
         row["pods"] += 1
@@ -196,13 +217,14 @@ def main():
     print(f"Node cost basis: {cap_cpu:.1f} cores, {cap_mem / GIB:.1f} GiB allocatable"
           f" -> {node_cost_hour:.4f}/hour at {args.cpu_hour}/vCPU-h and {args.gib_hour}/GiB-h")
     print(f"Allocation over the last {args.window}, by max(request, usage):\n")
-    print(f"  {'component':<28} {'pods':>4} {'cores':>7} {'GiB':>7} {'cost/h':>9} {'share':>7}")
+    print(f"  {'component':<28} {'pods':>4} {'cores':>7} {'GiB':>7} {'seen':>6} {'cost/h':>9} {'share':>7}")
     for name, row in sorted(by_component.items(), key=lambda kv: -kv[1]["cost"]):
-        print(f"  {name:<28} {row['pods']:>4} {row['cpu']:>7.2f} {row['mem'] / GIB:>7.2f} "
+        seen_pct = row["coverage"] / row["pods"] * 100 if row["pods"] else 0
+        print(f"  {name:<28} {row['pods']:>4} {row['cpu']:>7.2f} {row['mem'] / GIB:>7.2f} {seen_pct:>5.0f}% "
               f"{row['cost']:>9.4f} {row['cost'] / node_cost_hour * 100:>6.1f}%")
-    print(f"  {'-' * 68}")
-    print(f"  {'allocated':<28} {'':>4} {'':>7} {'':>7} {allocated:>9.4f} {allocated / node_cost_hour * 100:>6.1f}%")
-    print(f"  {'idle / headroom':<28} {'':>4} {'':>7} {'':>7} {idle:>9.4f} {idle / node_cost_hour * 100:>6.1f}%")
+    print(f"  {'-' * 75}")
+    print(f"  {'allocated':<28} {'':>4} {'':>7} {'':>7} {'':>6} {allocated:>9.4f} {allocated / node_cost_hour * 100:>6.1f}%")
+    print(f"  {'idle / headroom':<28} {'':>4} {'':>7} {'':>7} {'':>6} {idle:>9.4f} {idle / node_cost_hour * 100:>6.1f}%")
     print("\nIdle is reported, never spread across components (ADR 0006 decision 4).")
     print("Mimir's own pools are the 'mimir' rows; the rest is what shares the cluster.")
 

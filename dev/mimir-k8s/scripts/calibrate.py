@@ -17,7 +17,7 @@ import argparse
 import os
 import subprocess
 import sys
-import time
+import time  # noqa: F401
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from scenarios import by, kubectl, log, query, settle, sh  # noqa: E402
@@ -46,9 +46,37 @@ def fit(points):
     return a, b, r2
 
 
-def scalar(promql):
-    rows = query(promql)
-    return float(rows[0]["value"][1]) if rows else 0.0
+def scalar(promql, attempts=5):
+    """One number out of Mimir, retrying while the rig is busy.
+
+    A sweep deliberately loads the cluster, and a loaded Mimir answers
+    slowly — the first run of the query sweep died on a read timeout
+    mid-measurement and threw away the steps it had already taken.
+    """
+    for attempt in range(attempts):
+        try:
+            rows = query(promql)
+            return float(rows[0]["value"][1]) if rows else 0.0
+        except OSError as err:
+            if attempt == attempts - 1:
+                raise
+            log(f"    query timed out ({err}); retrying in 20s")
+            time.sleep(20)
+    return 0.0
+
+
+def node_cpu_used():
+    """Cores currently burned across the whole cluster."""
+    return scalar("sum(rate(container_cpu_usage_seconds_total[3m]))")
+
+
+def node_cpu_budget():
+    """Cores the k3d node may use, as `make up CPUS=` set it."""
+    out = subprocess.run(["docker", "inspect", "k3d-obscost-server-0",
+                          "--format", "{{.HostConfig.NanoCpus}}"],
+                         capture_output=True, text=True)
+    nanos = int(out.stdout.strip() or 0)
+    return nanos / 1e9 if nanos else 0.0
 
 
 # Everything measured here is averaged over a window rather than sampled.
@@ -119,7 +147,7 @@ groups:
     interval: 1m
     rules:
       - record: analytics:sweep{n}:p99_6h
-        expr: max(quantile_over_time(0.99, label_replace({{__name__=~"avalanche_gauge_metric_.*"}}, "src", "$1", "__name__", "(.*)")[6h:1m]))
+        expr: max(quantile_over_time(0.99, label_replace({{__name__=~"avalanche_gauge_metric_.*"}}, "src", "$1", "__name__", "(.*)")[1h:1m]))
 """
 
 
@@ -132,9 +160,18 @@ def sweep_query(steps):
     log("ingester CPU really a write-path cost?) and querier CPU vs bytes fetched")
     log("against querier CPU vs query seconds (which driver predicts pool 6?).")
     os.makedirs(CACHE, exist_ok=True)
+    budget = node_cpu_budget()
+    log(f"  node CPU budget: {budget:.1f} cores" if budget else "  node CPU budget: uncapped")
+    settle()
     rows = []
     try:
         for n in range(0, steps + 1):
+            if budget and rows:
+                used = node_cpu_used()
+                if used > 0.7 * budget:
+                    log(f"  stopping at {n - 1} rules: the cluster is using {used:.2f} of "
+                        f"{budget:.1f} cores, and a saturated rig measures the CPU cap, not the query")
+                    break
             files = []
             for i in range(1, n + 1):
                 path = f"{CACHE}/expensive{i}.yaml"
