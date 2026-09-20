@@ -27,7 +27,6 @@ import urllib.request
 
 PROMCOST = sys.argv[1] if len(sys.argv) > 1 else "../../bin/promcost"
 MIMIR = "http://localhost:8090"
-DISTRIBUTOR_PORT = 18080
 
 
 def log(msg=""):
@@ -66,25 +65,6 @@ def show_cost(since, label):
         log(f"    {name:<11} {t['driver']:>9,.0f} series  {t['share'] * 100:5.1f}%  "
             f"{t.get('equivalent_replicas', 0):.2f} ingesters")
     return tenants
-
-
-def user_stats():
-    """/distributor/all_user_stats, via a short-lived port-forward."""
-    pf = subprocess.Popen(
-        ["kubectl", "-n", "mimir", "port-forward", "deploy/mimir-distributor", f"{DISTRIBUTOR_PORT}:8080"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    try:
-        for _ in range(20):
-            try:
-                req = urllib.request.Request(f"http://localhost:{DISTRIBUTOR_PORT}/distributor/all_user_stats",
-                                             headers={"Accept": "application/json"})
-                with urllib.request.urlopen(req, timeout=5) as resp:
-                    return {u["userID"]: u for u in json.load(resp)}
-            except OSError:
-                time.sleep(0.5)
-        return {}
-    finally:
-        pf.terminate()
 
 
 def team_series():
@@ -211,6 +191,11 @@ def increase_by_user(metric, window):
 
 
 def component_cpu(window):
+    # `container` here is the Kubernetes container name, which the chart sets
+    # to the component name. cAdvisor's pod-level aggregate (container="") and
+    # the pause container (container="POD") never reach Mimir: alloy/config.alloy
+    # drops both before remote_write, so this regex matches exactly one series
+    # per component pod.
     return by(query(
         f'sum by (container) (rate(container_cpu_usage_seconds_total{{namespace="mimir", '
         f'container=~"querier|query-frontend|ruler"}}[{window}]))'), "container")

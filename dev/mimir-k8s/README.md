@@ -31,6 +31,7 @@ Both can run at once: this one is on `localhost:8090`, the compose rig on
 
 ```bash
 make up                 # cluster + Mimir + Alloy + Grafana + tenants + rules (~5–10 min first time)
+make up MIXIN_RULES=1   # also sync the mimir-mixin's recording rules (see Grafana, below)
 make status             # pods, and per-tenant active series as Mimir sees them
 make cost               # promcost cost against the rig (build ../../bin/promcost first)
 make down               # delete the whole cluster
@@ -41,9 +42,12 @@ k3d cluster stop obscost   # pause cleanly (frees CPU/memory, keeps data); `k3d 
 *obscost → obscost — tenant cost drivers*: each ADR 0003 pool's driver per
 tenant, next to what the Mimir components actually use (cAdvisor). The
 *Mimir Dashboards* folder has the full mimir-mixin set from the same chart
-version — *Tenants* and *Top tenants* are the useful ones here — and its
-recording rules run in the `monitoring` tenant. There is one datasource per
-tenant (`Mimir (analytics)`, …) for Explore.
+version — *Tenants* and *Top tenants* are the useful ones here. Several of
+their panels read the mixin's ~120 recording rules, which are **not** loaded
+by default: they evaluate every minute through the query path, a noticeable
+share of a laptop rig's CPU. `make up MIXIN_RULES=1` syncs them into the
+`monitoring` tenant; without it those panels stay empty. There is one
+datasource per tenant (`Mimir (analytics)`, …) for Explore.
 
 `make up ARCH=ingest` deploys Mimir 3.x's default **ingest-storage**
 architecture instead (distributors → Kafka → ingesters). Switching an
