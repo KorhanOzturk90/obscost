@@ -187,7 +187,7 @@ just for ranking.
 
 | analytics replicas | raw active series | ingester working set | Go heap |
 |---|---:|---:|---:|
-| 1 | 122,858 | 953 MiB | 726 MiB |
+| 1 | 120,158 | 900 MiB | 711 MiB |
 | 3 | 164,868 | 1,031 MiB | 788 MiB |
 | 5 | 202,199 | 1,168 MiB | 914 MiB |
 | 7 | 250,301 | 1,293 MiB | 1,005 MiB |
