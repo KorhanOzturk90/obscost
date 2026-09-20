@@ -183,6 +183,41 @@ like this. ADR 0002 decision 8 already prefers fetched volume over wall
 time; this is the first measurement showing why it matters for cost, not
 just for ranking.
 
+**Calibration — ingester memory per active series (E2, 2026-09-21)**
+
+| analytics replicas | raw active series | ingester working set | Go heap |
+|---|---:|---:|---:|
+| 1 | 122,858 | 953 MiB | 726 MiB |
+| 3 | 164,868 | 1,031 MiB | 788 MiB |
+| 5 | 202,199 | 1,168 MiB | 914 MiB |
+| 7 | 250,301 | 1,293 MiB | 1,005 MiB |
+
+Fit: **3.15 KiB of working set per raw active series, R² 0.996** (Go heap
+2.40 KiB/series, R² 0.985), over a **fixed 531 MiB** across the three
+ingesters. So ADR 0003 pool 1's driver holds, and ~40% of ingester memory
+at this scale is fixed cost that a per-series share spreads pro rata. The
+rig runs `GOGC=50`, which makes these coefficients lower than a default Go
+runtime would give — a reason to repeat this on a cloud cluster before
+quoting the number to anyone.
+
+**The first attempt at that sweep was wrong, in an instructive way.** It
+sampled `cortex_ingester_memory_series` instantaneously and fitted
+R² = 0.15. That gauge is a sawtooth: it swung between 104k and 181k within
+half an hour on an unchanged rig, because the TSDB head compacts. Every
+figure in a sweep is now averaged over a 10-minute window, each step
+verifies that it actually landed, and steps are large enough (+16k series)
+to clear the fixed baseline.
+
+**OpenCost cross-check (in progress)**
+
+`make opencost` + `scripts/compare-opencost.py`. Over a 1h window ours runs
+10–35% above OpenCost per component, with idle 21% above — a systematic gap
+consistent with OpenCost still covering less than the full window after a
+restart, not yet with a formula difference. Two bugs found while wiring it
+up are in the git history: Alloy overwriting OpenCost's `pod` labels (which
+priced everything at zero), and pods that cAdvisor reports after the API
+has forgotten them each becoming their own component.
+
 **Earlier findings**
 
 - **The chart's default architecture is ingest storage, not classic.**
