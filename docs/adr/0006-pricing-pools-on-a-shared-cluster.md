@@ -84,7 +84,17 @@ split comes from the instance type. Sources, in preference order:
 Nothing here is guessed: with no source, the pool is **not costed** (ADR
 0003 decision 3), exactly as today.
 
-### 4. Idle capacity belongs to nobody
+### 4. Cost is prorated by observed runtime, and coverage is reported
+
+A pod that ran for twenty minutes of an hour costs twenty minutes. An
+average over a window cannot tell a short-lived pod from a gap in
+scraping, so each pod's cost is multiplied by the fraction of the window it
+was actually observed, and that fraction is shown. Cross-checking against
+OpenCost is what surfaced this: it reported 25 minutes of a 30-minute
+window and prorated, we assumed the full window, and that was most of the
+disagreement between two otherwise identical calculations.
+
+### 5. Idle capacity belongs to nobody
 
 A cluster kept at 40% utilisation for headroom has cost that no tenant
 caused. Spreading it across tenants inflates every share and makes the
@@ -93,7 +103,7 @@ its own line — *"31% of Mimir's node cost was unallocated headroom"* — and
 tenant shares are shares of the allocated remainder. Non-Mimir namespaces
 are outside the calculation entirely.
 
-### 5. We report average cost, and say which it is
+### 6. We report average cost, and say which it is
 
 Under autoscaling, a tenant's *marginal* cost (would removing it remove a
 node?) is not its *average* cost (its share of what the nodes cost now).
@@ -102,7 +112,7 @@ report that does not say which one it shows will be used for the wrong
 question. promcost reports average cost and labels it. Marginal cost is a
 later, separate question — it needs node-level bin-packing, not a share.
 
-### 6. Reconciliation is a standing check
+### 7. Reconciliation is a standing check
 
 For any window, Σ (pool costs) + idle must equal the node cost attributed to
 Mimir's namespace. The report should be able to print that identity, because
@@ -127,7 +137,7 @@ everything above. It is also how a billing export earns its place: to
   and part variable. Splitting the whole pool by one driver charges every
   tenant a pro-rata slice of the fixed part, which is fine for chargeback
   and wrong for "what would we save by removing this tenant" — the same
-  average-versus-marginal distinction as decision 5, one level down.
+  average-versus-marginal distinction as decision 6, one level down.
 - **The mappings need calibration, not assertion** — ADR 0003 decision 6
   said so; this ADR is what makes it testable, since a pool now names a
   resource dimension that can be measured directly per pod.
@@ -152,7 +162,22 @@ Not by argument — `dev/mimir-k8s` exists for this:
 | E2 — sweep active series 10k→60k | ADR 0003 pool 1's driver | memory vs series fits a line (R² > 0.95); slope is the KB/series coefficient |
 | E3 — step query load | pool 6's driver | bytes fetched predicts querier CPU better than query seconds do |
 
-First results (`dev/mimir-k8s`, 2026-09-21): E2 fits **3.15 KiB of ingester
+First results (`dev/mimir-k8s`, 2026-09-21, full tables in that README):
+
+- **E1 holds decisions 1 and 2**: with ingestion unchanged, three expensive
+  rules took ingester CPU from 0.295 to 0.840 cores and the read share of
+  ingester request time from 88% to 96%. Ingester CPU is a read cost.
+- **E3 splits the query path further.** Querier CPU fits query *seconds*
+  (R² 0.962) better than bytes fetched (R² 0.832) — querier CPU is query
+  time, while bytes drive ingester and store-gateway work. But query
+  seconds is not monotonic in a tenant's own demand: one step fetched more
+  data in *less* time, because time also moves with contention. So time
+  sizes that pool and volume attributes it; a driver chosen for
+  predictiveness alone would charge tenants for their neighbours.
+- **OpenCost agrees** once decision 4 is applied: identical node price,
+  both using `max(request, usage)`, within ~10% after proration.
+
+E2 fits **3.15 KiB of ingester
 working set per raw active series, R² 0.996**, on top of **531 MiB that is
 fixed across three ingesters**. So pool 1's driver holds — and roughly 40%
 of ingester memory at that scale is fixed cost, which a per-series share
