@@ -1,0 +1,42 @@
+# OpenCost as a cross-check on ADR 0006 decision 3: it prices pods from
+# node cost the same way scripts/podcost.py does, so agreement is evidence
+# our arithmetic is right, and disagreement is a finding either way.
+#
+# Installed by `make opencost`, not by `make up`.
+opencost:
+  exporter:
+    defaultClusterId: obscost-k3d
+    resources:
+      requests: {cpu: 25m, memory: 128Mi}
+      limits: {memory: 512Mi}
+
+  prometheus:
+    internal:
+      enabled: true
+      # The header-injecting proxy, not Mimir's gateway (see proxy.yaml).
+      serviceName: mimir-monitoring-proxy
+      namespaceName: mimir
+      port: 8080
+      scheme: http
+
+  # k3d nodes have no cloud price. These are the same synthetic figures
+  # scripts/podcost.py defaults to, so the two are comparable: ~$0.04 per
+  # vCPU-hour and ~$0.005 per GiB-hour.
+  customPricing:
+    enabled: true
+    createConfigmap: true
+    provider: custom
+    costModel:
+      description: Synthetic k3d pricing, matching scripts/podcost.py defaults.
+      CPU: 0.04
+      spotCPU: 0.04
+      RAM: 0.005
+      spotRAM: 0.005
+      GPU: 0
+      storage: 0.0001
+      zoneNetworkEgress: 0
+      regionNetworkEgress: 0
+      internetNetworkEgress: 0
+
+  ui:
+    enabled: false

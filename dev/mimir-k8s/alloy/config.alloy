@@ -151,6 +151,45 @@ prometheus.relabel "cadvisor" {
   }
 }
 
+// OpenCost publishes the per-node prices it derives (node_cpu_hourly_cost
+// and friends) as metrics, and then queries them back out of Prometheus —
+// so without this scrape it prices everything at zero. Its port is named
+// "http", not "http-metrics", so it needs its own discovery.
+discovery.relabel "opencost" {
+  targets = discovery.kubernetes.mimir_pods.targets
+
+  rule {
+    source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+    regex         = "opencost"
+    action        = "keep"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_container_port_number"]
+    regex         = "9003"
+    action        = "keep"
+  }
+  rule {
+    target_label = "job"
+    replacement  = "mimir/opencost"
+  }
+  rule {
+    target_label = "cluster"
+    replacement  = "obscost-k3d"
+  }
+}
+
+// honor_labels, and no `pod` target label: OpenCost's own output is
+// *about* other pods (kube_pod_container_resource_requests and friends),
+// so stamping the scrape target's pod name over those labels makes every
+// pod in the cluster look like the OpenCost pod — which it did, and
+// OpenCost then priced everything at zero.
+prometheus.scrape "opencost" {
+  targets         = discovery.relabel.opencost.output
+  scrape_interval = "30s"
+  honor_labels    = true
+  forward_to      = [prometheus.remote_write.monitoring.receiver]
+}
+
 prometheus.remote_write "monitoring" {
   endpoint {
     url     = "http://mimir-gateway.mimir.svc/api/v1/push"

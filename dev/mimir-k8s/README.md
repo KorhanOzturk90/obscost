@@ -106,6 +106,12 @@ per component — because on a shared cluster nobody is billed for
 "ingesters". Idle capacity is printed as its own line and never spread
 across components.
 
+[`scripts/compare-opencost.py`](scripts/compare-opencost.py), after
+`make opencost`, runs the same allocation through OpenCost and prints both
+side by side. OpenCost cannot send a tenancy header, so it reaches Mimir
+through a three-line nginx proxy ([`opencost/proxy.yaml`](opencost/proxy.yaml))
+that adds `X-Scope-OrgID: monitoring`.
+
 [`scripts/calibrate.py`](scripts/calibrate.py) sweeps one input across
 several values and fits a line, where a scenario changes it once and checks
 a prediction. The output is a coefficient and an R²: "ingester memory is

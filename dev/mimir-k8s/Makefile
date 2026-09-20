@@ -17,6 +17,7 @@ ARCH           ?= classic
 # this container, whatever Docker Desktop is set to.
 CPUS           ?= 4
 GRAFANA_VERSION := 10.5.15
+OPENCOST_VERSION := 2.5.31
 MIMIR_URL      := http://localhost:8090
 PROMCOST       ?= ../../bin/promcost
 
@@ -25,7 +26,7 @@ ifeq ($(ARCH),ingest)
 MIMIR_VALUES += -f values/ingest-storage.yaml
 endif
 
-.PHONY: up down cluster mimir alloy grafana tenants rules mixin-rules status cost podcost calibrate-series calibrate-query scale rollout-ingesters scenario-expensive-rule scenario-expensive-rule-off
+.PHONY: up down cluster mimir alloy grafana tenants rules mixin-rules status cost podcost calibrate-series calibrate-query opencost scale rollout-ingesters scenario-expensive-rule scenario-expensive-rule-off
 
 # `make up MIXIN_RULES=1` also loads the mimir-mixin's ~120 recording rules
 # into the monitoring tenant. They power several mixin dashboard panels but
@@ -82,6 +83,17 @@ status:
 cost:
 	$(PROMCOST) cost --metrics-tenant monitoring --config promcost.yaml \
 	  --tenant analytics,infra,payments,platform,monitoring --since $(or $(SINCE),1h)
+
+# OpenCost, as a cross-check on podcost.py's arithmetic (ADR 0006). Not part
+# of `make up`: one more pod, and only useful when comparing.
+opencost:
+	helm repo add opencost https://opencost.github.io/opencost-helm-chart >/dev/null 2>&1 || true
+	kubectl apply -f opencost/proxy.yaml
+	kubectl -n mimir rollout status deploy/mimir-monitoring-proxy --timeout=120s
+	helm upgrade --install opencost opencost/opencost --version $(OPENCOST_VERSION) \
+	  --namespace mimir -f opencost/values.yaml --wait
+	$(MAKE) alloy
+	@echo "OpenCost installed; compare with: ./scripts/compare-opencost.py"
 
 # What the components cost, derived from node prices the way an operator on
 # a shared cluster has to derive them (ADR 0006 decision 3), with idle

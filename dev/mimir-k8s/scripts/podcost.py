@@ -123,6 +123,23 @@ def usage(window):
     return {key: (cpu.get(key, 0.0), mem.get(key, 0.0)) for key in set(cpu) | set(mem)}
 
 
+def workload_from_pod_name(pod):
+    """Best-effort workload name for a pod the API no longer knows about.
+
+    cAdvisor keeps reporting a pod for a while after it is deleted, and
+    those pod-hours are real cost in the window, so they are kept rather
+    than dropped — but without ownerReferences the workload has to be
+    recovered from the name: Deployment pods carry two generated segments
+    (alloy-5dc5cfdb85-7cs89), StatefulSet pods carry an ordinal.
+    """
+    parts = pod.split("-")
+    if len(parts) >= 3 and len(parts[-1]) == 5 and len(parts[-2]) >= 8:
+        return "-".join(parts[:-2])
+    if len(parts) >= 2 and parts[-1].isdigit():
+        return "-".join(parts[:-1])
+    return pod
+
+
 def component_of(namespace, workload):
     """Group pods the way the cost model groups them: by Mimir component."""
     if namespace == "tenants":
@@ -130,6 +147,31 @@ def component_of(namespace, workload):
     if namespace != "mimir":
         return f"{namespace} (cluster overhead)"
     return workload[len("mimir-"):] if workload.startswith("mimir-") else workload
+
+
+def allocate(window, cpu_hour, gib_hour):
+    """The ADR 0006 decision 3 allocation, shared with compare-opencost.py.
+
+    Returns (node_cost_per_hour, {component: {...}}, idle_cost_per_hour).
+    """
+    cap_cpu, cap_mem = node_capacity()
+    node_cost_hour = cap_cpu * cpu_hour + cap_mem / GIB * gib_hour
+    facts = pod_facts()
+    used = usage(window)
+
+    by_component = defaultdict(lambda: {"cost": 0.0, "cpu": 0.0, "mem": 0.0, "pods": 0})
+    for key in set(facts) | set(used):
+        req_cpu, req_mem, workload = facts.get(key, (0.0, 0.0, workload_from_pod_name(key[1])))
+        use_cpu, use_mem = used.get(key, (0.0, 0.0))
+        cpu, mem = max(req_cpu, use_cpu), max(req_mem, use_mem)
+        row = by_component[component_of(key[0], workload)]
+        row["cost"] += cpu * cpu_hour + mem / GIB * gib_hour
+        row["cpu"] += cpu
+        row["mem"] += mem
+        row["pods"] += 1
+
+    allocated = sum(row["cost"] for row in by_component.values())
+    return node_cost_hour, dict(by_component), node_cost_hour - allocated
 
 
 def main():
@@ -141,24 +183,9 @@ def main():
     args = ap.parse_args()
 
     cap_cpu, cap_mem = node_capacity()
-    node_cost_hour = cap_cpu * args.cpu_hour + cap_mem / GIB * args.gib_hour
-    facts = pod_facts()
-    used = usage(args.window)
+    node_cost_hour, by_component, idle = allocate(args.window, args.cpu_hour, args.gib_hour)
+    allocated = node_cost_hour - idle
 
-    by_component = defaultdict(lambda: {"cost": 0.0, "cpu": 0.0, "mem": 0.0, "pods": 0})
-    for key in set(facts) | set(used):
-        req_cpu, req_mem, workload = facts.get(key, (0.0, 0.0, key[1]))
-        use_cpu, use_mem = used.get(key, (0.0, 0.0))
-        cpu, mem = max(req_cpu, use_cpu), max(req_mem, use_mem)
-        cost = cpu * args.cpu_hour + mem / GIB * args.gib_hour
-        row = by_component[component_of(key[0], workload)]
-        row["cost"] += cost
-        row["cpu"] += cpu
-        row["mem"] += mem
-        row["pods"] += 1
-
-    allocated = sum(row["cost"] for row in by_component.values())
-    idle = node_cost_hour - allocated
 
     if args.json:
         json.dump({"window": args.window, "node_cost_hour": node_cost_hour,
