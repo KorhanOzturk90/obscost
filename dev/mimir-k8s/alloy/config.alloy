@@ -62,7 +62,7 @@ discovery.relabel "mimir_pods" {
 
 prometheus.scrape "mimir" {
   targets         = discovery.relabel.mimir_pods.output
-  scrape_interval = "15s"
+  scrape_interval = "30s"
   forward_to      = [prometheus.remote_write.monitoring.receiver]
 }
 
@@ -81,7 +81,7 @@ discovery.relabel "usage_pods" {
 prometheus.scrape "mimir_usage" {
   targets         = discovery.relabel.usage_pods.output
   metrics_path    = "/usage-metrics"
-  scrape_interval = "15s"
+  scrape_interval = "30s"
   forward_to      = [prometheus.remote_write.monitoring.receiver]
 }
 
@@ -122,7 +122,7 @@ prometheus.scrape "cadvisor" {
   tls_config {
     insecure_skip_verify = true
   }
-  scrape_interval = "15s"
+  scrape_interval = "30s"
   forward_to      = [prometheus.relabel.cadvisor.receiver]
 }
 
@@ -211,7 +211,7 @@ discovery.relabel "tenant_analytics" {
 }
 prometheus.scrape "tenant_analytics" {
   targets         = discovery.relabel.tenant_analytics.output
-  scrape_interval = "15s"
+  scrape_interval = "30s"
   forward_to      = [prometheus.remote_write.tenant_analytics.receiver]
 }
 prometheus.remote_write "tenant_analytics" {
@@ -231,7 +231,7 @@ discovery.relabel "tenant_infra" {
 }
 prometheus.scrape "tenant_infra" {
   targets         = discovery.relabel.tenant_infra.output
-  scrape_interval = "15s"
+  scrape_interval = "30s"
   forward_to      = [prometheus.remote_write.tenant_infra.receiver]
 }
 prometheus.remote_write "tenant_infra" {
@@ -251,7 +251,7 @@ discovery.relabel "tenant_payments" {
 }
 prometheus.scrape "tenant_payments" {
   targets         = discovery.relabel.tenant_payments.output
-  scrape_interval = "15s"
+  scrape_interval = "30s"
   forward_to      = [prometheus.remote_write.tenant_payments.receiver]
 }
 prometheus.remote_write "tenant_payments" {
@@ -271,7 +271,7 @@ discovery.relabel "tenant_platform" {
 }
 prometheus.scrape "tenant_platform" {
   targets         = discovery.relabel.tenant_platform.output
-  scrape_interval = "15s"
+  scrape_interval = "30s"
   forward_to      = [prometheus.remote_write.tenant_platform.receiver]
 }
 prometheus.remote_write "tenant_platform" {

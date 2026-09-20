@@ -27,7 +27,13 @@ endif
 
 .PHONY: up down cluster mimir alloy grafana tenants rules mixin-rules status cost scale rollout-ingesters scenario-expensive-rule scenario-expensive-rule-off
 
-up: cluster mimir alloy grafana tenants mixin-rules rules status
+# `make up MIXIN_RULES=1` also loads the mimir-mixin's ~120 recording rules
+# into the monitoring tenant. They power several mixin dashboard panels but
+# evaluate every minute through the query path, which is a noticeable share
+# of a laptop rig's CPU — off by default.
+MIXIN_RULES ?=
+
+up: cluster mimir alloy grafana tenants $(if $(MIXIN_RULES),mixin-rules,) rules status
 
 cluster:
 	@k3d cluster list $(CLUSTER) >/dev/null 2>&1 || k3d cluster create --config k3d.yaml
@@ -58,6 +64,7 @@ mixin-rules:
 	@rm -rf .cache/chart && mkdir -p .cache/chart
 	@helm pull $(MIMIR_CHART) --version $(MIMIR_VERSION) --untar -d .cache/chart
 	@{ echo "namespace: mimir-mixin"; cat .cache/chart/mimir-distributed/mixins/rules.yaml; } > rules/monitoring/mixin-rules.yaml
+	./scripts/sync-rules.sh monitoring
 
 tenants:
 	kubectl apply -f tenants/workloads.yaml

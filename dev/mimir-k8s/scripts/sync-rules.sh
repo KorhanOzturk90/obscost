@@ -56,7 +56,9 @@ if [[ $# -gt 0 ]]; then
 else
   for dir in rules/*/; do
     tenant=$(basename "$dir")
-    [[ $tenant == scenarios ]] && continue
+    # scenarios/ holds opt-in rules; monitoring's mixin rules are synced
+    # only by `make mixin-rules`, which names the tenant explicitly.
+    [[ $tenant == scenarios || $tenant == monitoring ]] && continue
     sync_tenant "$tenant"
   done
 fi
