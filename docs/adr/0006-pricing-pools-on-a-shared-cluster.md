@@ -122,6 +122,12 @@ everything above. It is also how a billing export earns its place: to
   stable replica count price well; anything scaled by an autoscaler needs
   pod-hours rather than a replica count, which is why decision 3 is
   expressed per pod and per window.
+- **Fixed cost gets shared out by the driver, silently.** A pool's cost is
+  part fixed (a Go runtime, caches and WAL buffers exist at zero series)
+  and part variable. Splitting the whole pool by one driver charges every
+  tenant a pro-rata slice of the fixed part, which is fine for chargeback
+  and wrong for "what would we save by removing this tenant" — the same
+  average-versus-marginal distinction as decision 5, one level down.
 - **The mappings need calibration, not assertion** — ADR 0003 decision 6
   said so; this ADR is what makes it testable, since a pool now names a
   resource dimension that can be measured directly per pod.
@@ -145,6 +151,13 @@ Not by argument — `dev/mimir-k8s` exists for this:
 | E1 — step query load at constant ingestion | decisions 1 and 2 | ingester CPU tracks query volume; route split moves with it |
 | E2 — sweep active series 10k→60k | ADR 0003 pool 1's driver | memory vs series fits a line (R² > 0.95); slope is the KB/series coefficient |
 | E3 — step query load | pool 6's driver | bytes fetched predicts querier CPU better than query seconds do |
+
+First results (`dev/mimir-k8s`, 2026-09-21): E2 fits **3.15 KiB of ingester
+working set per raw active series, R² 0.996**, on top of **531 MiB that is
+fixed across three ingesters**. So pool 1's driver holds — and roughly 40%
+of ingester memory at that scale is fixed cost, which a per-series share
+spreads across tenants pro rata. That is a defensible choice and a choice
+nonetheless; see the consequence below.
 
 ## References
 
