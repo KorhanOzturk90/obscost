@@ -86,8 +86,11 @@ prometheus.scrape "mimir_usage" {
 }
 
 // cAdvisor through the API server's node proxy: per-container CPU and
-// memory, restricted to the mimir namespace and a handful of series so the
-// monitoring tenant stays small.
+// memory, restricted to a few namespaces and a handful of series so the
+// monitoring tenant stays small. kube-system is included because pricing a
+// pool from node cost (ADR 0006) needs to know what *else* is on the node:
+// without it, everything the cluster runs besides Mimir looks like idle
+// capacity.
 discovery.kubernetes "nodes" {
   role = "node"
 }
@@ -136,7 +139,7 @@ prometheus.relabel "cadvisor" {
   }
   rule {
     source_labels = ["namespace"]
-    regex         = "mimir"
+    regex         = "mimir|tenants|kube-system"
     action        = "keep"
   }
   // Pod-level aggregate series (container="") and the pause container

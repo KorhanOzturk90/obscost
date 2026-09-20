@@ -25,7 +25,7 @@ ifeq ($(ARCH),ingest)
 MIMIR_VALUES += -f values/ingest-storage.yaml
 endif
 
-.PHONY: up down cluster mimir alloy grafana tenants rules mixin-rules status cost scale rollout-ingesters scenario-expensive-rule scenario-expensive-rule-off
+.PHONY: up down cluster mimir alloy grafana tenants rules mixin-rules status cost podcost calibrate-series calibrate-query scale rollout-ingesters scenario-expensive-rule scenario-expensive-rule-off
 
 # `make up MIXIN_RULES=1` also loads the mimir-mixin's ~120 recording rules
 # into the monitoring tenant. They power several mixin dashboard panels but
@@ -82,6 +82,19 @@ status:
 cost:
 	$(PROMCOST) cost --metrics-tenant monitoring --config promcost.yaml \
 	  --tenant analytics,infra,payments,platform,monitoring --since $(or $(SINCE),1h)
+
+# What the components cost, derived from node prices the way an operator on
+# a shared cluster has to derive them (ADR 0006 decision 3), with idle
+# capacity on its own line.
+podcost:
+	./scripts/podcost.py --window $(or $(WINDOW),1h)
+
+# Calibration sweeps: coefficients, not yes/no answers. ~45m and ~30m.
+calibrate-series:
+	./scripts/calibrate.py series
+
+calibrate-query:
+	./scripts/calibrate.py query
 
 # --- scenarios: each changes one thing whose effect on the report is predictable
 

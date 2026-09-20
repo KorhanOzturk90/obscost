@@ -92,6 +92,26 @@ They are shaped to separate the pools: `analytics` has cheap rollups,
 `payments` has few rules but expensive long-range quantiles (ruler / query
 CPU, not memory), `platform` has almost nothing.
 
+## Costing and calibration
+
+```bash
+make podcost                 # what each component costs, derived from node prices
+make calibrate-series        # coefficient: ingester memory per active series (~1h)
+make calibrate-query         # what query load costs ingesters and queriers (~30m)
+```
+
+[`scripts/podcost.py`](scripts/podcost.py) implements [ADR 0006](../../docs/adr/0006-pricing-pools-on-a-shared-cluster.md)
+decision 3 — `price × max(request, usage) / node capacity`, per pod, summed
+per component — because on a shared cluster nobody is billed for
+"ingesters". Idle capacity is printed as its own line and never spread
+across components.
+
+[`scripts/calibrate.py`](scripts/calibrate.py) sweeps one input across
+several values and fits a line, where a scenario changes it once and checks
+a prediction. The output is a coefficient and an R²: "ingester memory is
+driven by active series" is only useful once it reads "N KiB per series,
+R² = 0.9x".
+
 ## Scenarios
 
 `./scripts/scenarios.py <path/to/promcost>` runs all three in order and
