@@ -105,43 +105,80 @@ before it is measured. That prediction is the test.
 
 ## Findings so far
 
-First runs, 2026-09-18, Mimir 3.2.0 / chart 6.2.0:
+Mimir 3.2.0 / chart 6.2.0. Scenario numbers are from `scripts/scenarios.py`
+on the classic write path, 2026-09-20.
+
+**Scenario 1 — rolling the ingesters (4m19s), over a 7m window**
+
+| tenant | before | promcost (sum, then average) | average each series, then sum | lowest point |
+|---|---:|---:|---:|---:|
+| analytics | 13,016 | 11,776 | **26,030** | 8,676 |
+| infra | 7,007 | 6,340 | **14,014** | 4,671 |
+
+Averaging each series before summing reads **exactly double**: a restarted
+pod gets a new IP, so `cortex_ingester_active_series` becomes a *new*
+series, and both the old and the new one contribute their own average.
+promcost's sum-then-average reads 9% low instead (the sum dips to ~2/3
+while one ingester is down) and recovers. This is the ADR 0003 [A]
+aggregation rule paying for itself.
+
+**Scenario 2 — one more replica for `analytics`/`bi`**
+
++8,009 series against a predicted +8,000, all of it under team `bi` in the
+cost-attribution tracker (8,007 → 16,012 real series) with `ml` unmoved.
+Scaling back down did **not** reduce the count for 16 minutes and had only
+partly decayed at 24: Mimir keeps a series active for 20 minutes after its
+last sample, so removing load does not reduce a tenant's memory share
+until that expires.
+
+**Scenario 3 — two expensive rules that write one series each**
+
+| | before | after |
+|---|---:|---:|
+| analytics rule evaluation (5m) | 3.23s | **15.22s** |
+| analytics query time (5m) | 16.01s | **76.33s** |
+| querier CPU | 0.052 cores | 0.119 cores |
+| analytics active series | 13,014 | **13,016** |
+
+Exactly the ADR 0003 [A2] case: the tenant's cost on pools 6 and 7 roughly
+quintuples while pool 1 moves by two series, so `promcost cost` as it
+stands reports nothing at all.
+
+**And a finding nobody predicted: contention leaks into wall time.**
+`infra`, which was not touched, also doubled — evaluation 3.94s → 8.89s,
+query time 25.44s → 58.38s — because analytics' rules were monopolising
+the shared querier. Any attribution that ranks by *wall time* charges a
+tenant for its neighbours' behaviour; data volume fetched does not move
+like this. ADR 0002 decision 8 already prefers fetched volume over wall
+time; this is the first measurement showing why it matters for cost, not
+just for ranking.
+
+**Earlier findings**
 
 - **The chart's default architecture is ingest storage, not classic.**
   Under it every ingester exports `cortex_partition_ring_partitions`, so
   the classic active-series query (whose guard excludes exactly those
   ingesters) returns **nothing**, and `cortex_distributor_replication_factor`
-  is not exported at all. Per-tenant series need the mixin's other branch:
-  max across zone replicas of a partition, summed across partitions, no
-  divisor. promcost's pool-1 query now detects this (PR #40).
+  is not exported at all. promcost's pool-1 query now detects this (#40).
 - **Classic, RF=3 works end to end**: raw per-tenant sums were exactly 3×
-  the generated series (analytics 39,030 raw → 13,010), and `promcost cost`
-  reported 13,010.
+  the generated series, and `promcost cost` reported the real figures.
 - **Cost-attribution metrics are also pre-replication** under classic:
-  `cortex_ingester_attributed_active_series{team="bi"}` reads ~24,000 for
-  8,000 real series, summed across ingesters. The sub-tenant tier needs the
-  same divisor as pool 1.
-- **The `monitoring` tenant is not small**: ~10k real series, 25–30% of
-  ingester memory here. Costing only "customer" tenants would hand its
-  share to everyone else.
-- **Ingester working set** on the classic run: ~635 MiB across 3 pods for
-  ~99k in-memory series (33k per pod, replicas included) — the first
-  data point for calibrating memory-per-series (#34); a laptop is not where
-  that number should be finalized.
-
-- **A scenario runner's own baseline can wreck it.** The first run used
-  avalanche's hourly `series_id` churn; one churn landed mid-scenario and
-  every tenant read ~1.7× for 20 minutes (Mimir's active-series idle
-  timeout). The baseline now has no churn.
-- **Rolling the ingesters** (first run, ingest storage): promcost's
-  sum-then-average read 5% low over a window spanning the 4-minute rollout
-  (the sum dips to ~2/3 while an ingester is down), while averaging each
-  series first read 58% high. Worth re-running before trusting the second
-  number.
+  the `by-team` tracker reads 3× the real series count.
+- **The `monitoring` tenant is not small** — 25–35% of ingester memory
+  here. Costing only "customer" tenants hands its share to everyone else.
 - **`/distributor/all_user_stats` under ingest storage** reported 39,014
   series for analytics, 3× the real 13,010, with no replication at all.
   Unexplained; one suspect is `ingester.ring.replication_factor: 3` left
   set by values/mimir.yaml, which the ingest overlay does not reset.
+- **A scenario is only as good as its baseline.** The first run started
+  while the rig was still filling up and read +10,608 where the change was
+  +8,000. `scripts/scenarios.py` now waits for active series to stop
+  moving before and after each scenario.
+- **Resource use, once tuned** (see values/mimir.yaml): 0.51 cores and
+  1.43 GiB across all Mimir containers, 2.55 GiB for the k3d node.
+  Untuned it was 4.4 cores and 5.8 GiB, with the Kubernetes API timing
+  out — no memory limits, the chart's 1 GiB ruler ballast, the mixin's
+  ~120 recording rules, and 15s scrapes.
 
 ## Laptop vs VM
 

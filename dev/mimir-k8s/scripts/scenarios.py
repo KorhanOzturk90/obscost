@@ -4,7 +4,9 @@
 Each scenario states its prediction before acting, then measures. Output
 is plain text meant to be pasted into an issue or PR.
 
-    ./scripts/scenarios.py [path/to/promcost]
+    ./scripts/scenarios.py [path/to/promcost] [scenario ...]
+
+Scenario names: rollout, scale, expensive. Default: all three, in order.
 
 Order matters and is deliberate:
 
@@ -90,6 +92,48 @@ def team_series():
     return by(query('sum by (team) (cortex_ingester_attributed_active_series{tenant="analytics"})'), "team")
 
 
+# The two forms of "real active series per tenant", as promcost's pool-1
+# query uses them: classic (sum across ingesters, divided by the
+# replication factor) and ingest storage (max across the zone replicas of
+# a partition). active_series_expr picks whichever the cluster answers.
+CLASSIC_SERIES = ("sum by (user) ({inner} unless on (cluster, namespace, job) cortex_partition_ring_partitions)"
+                  " / on () group_left max(cortex_distributor_replication_factor)")
+INGEST_SERIES = ('sum by (user) (max by (ingester_id, user) (label_replace({inner}'
+                 ' and on (cluster, namespace, job) cortex_partition_ring_partitions,'
+                 ' "ingester_id", "$1", "pod", ".*?-(rc-[0-9]+-[0-9]+|[0-9]+)$")))')
+
+
+def active_series_expr(inner="cortex_ingester_active_series"):
+    """The active-series expression this cluster's write path answers."""
+    classic = CLASSIC_SERIES.format(inner=inner)
+    return classic if query(classic) else INGEST_SERIES.format(inner=inner)
+
+
+def settle(tenant="analytics", tolerance=0.01, timeout_s=35 * 60):
+    """Block until `tenant`'s active series stop moving.
+
+    Every measurement here is a delta, and a delta against a baseline that
+    is still drifting is meaningless: the first run of these scenarios
+    started while the rig was still filling up and read +10,608 where the
+    true change was +8,000. Series also *leave* slowly — Mimir keeps a
+    series active for 20 minutes after its last sample — so this is the
+    only honest way to sequence scenarios that add and remove series.
+    """
+    expr = active_series_expr()
+    deadline = time.time() + timeout_s
+    previous = None
+    while time.time() < deadline:
+        current = by(query(expr), "user").get(tenant, 0)
+        if previous and abs(current - previous) <= tolerance * max(previous, 1):
+            log(f"settled: {tenant} steady at {current:,.0f} series")
+            return current
+        log(f"settling: {tenant} at {current:,.0f} series" + ("" if previous is None else f" (was {previous:,.0f})"))
+        previous = current
+        time.sleep(120)
+    log(f"WARNING: {tenant} still moving after {timeout_s // 60}m; measurements below are suspect")
+    return previous
+
+
 def wait(seconds, why):
     log(f"waiting {seconds // 60}m{seconds % 60:02d}s — {why}")
     time.sleep(seconds)
@@ -109,6 +153,7 @@ def scenario_rollout():
     log("series first and then summing hides the dip. StatefulSet pods keep their")
     log("names, so a restart does NOT create new series here — the double-count")
     log("the subquery guards against needs a pod *rename* (Deployment, zone move).")
+    settle()
     before = show_cost("10m", "before")
     t0 = time.time()
     kubectl("-n", "mimir", "rollout", "restart", "statefulset/mimir-ingester")
@@ -118,14 +163,8 @@ def scenario_rollout():
     window = f"{(took // 60) + 3}m"
     after = show_cost(window, "window spanning the rollout")
 
-    ingest = ("label_replace({inner}, \"ingester_id\", \"$1\", \"pod\", \".*?-(rc-[0-9]+-[0-9]+|[0-9]+)$\")")
-    guard = " and on (cluster, namespace, job) cortex_partition_ring_partitions"
-    per_series_first = by(query(
-        "sum by (user) (max by (ingester_id, user) ("
-        + ingest.format(inner=f"avg_over_time(cortex_ingester_active_series[{window}]){guard}") + "))"), "user")
-    dip = by(query(
-        "min_over_time((sum by (user) (max by (ingester_id, user) ("
-        + ingest.format(inner="cortex_ingester_active_series" + guard) + f")))[{window}:15s])"), "user")
+    per_series_first = by(query(active_series_expr(f"avg_over_time(cortex_ingester_active_series[{window}])")), "user")
+    dip = by(query(f"min_over_time(({active_series_expr()})[{window}:15s])"), "user")
     log(f"comparison over the same {window} window:")
     log(f"    {'tenant':<11} {'before':>9} {'promcost':>9} {'avg-first':>9} {'lowest':>9}")
     for name in before:
@@ -143,6 +182,7 @@ def scenario_scale():
     log("tenants' series unchanged, their shares fall. After scaling back, analytics")
     log("stays inflated until the ingester's active-series idle timeout (20m default)")
     log("expires the removed replica's series.")
+    baseline = settle()
     before = show_cost("5m", "before")
     teams_before = team_series()
     kubectl("-n", "tenants", "scale", "deploy/avalanche-analytics-bi", "--replicas=2")
@@ -150,17 +190,18 @@ def scenario_scale():
     wait(6 * 60, "one full 5m window at the new size")
     after = show_cost("5m", "scaled to 2")
     teams_after = team_series()
-    d = after["analytics"]["driver"] - before["analytics"]["driver"]
-    log(f"analytics delta: {d:+,.0f} series (predicted +8,000)")
+    d = after["analytics"]["driver"] - baseline
+    log(f"analytics delta vs settled baseline: {d:+,.0f} series (predicted +8,000)")
     for team in sorted(set(teams_before) | set(teams_after)):
         log(f"    by-team {team:<12} {teams_before.get(team, 0):>9,.0f} -> {teams_after.get(team, 0):>9,.0f} (raw tracker)")
 
     kubectl("-n", "tenants", "scale", "deploy/avalanche-analytics-bi", "--replicas=1")
-    elapsed = 0
-    for minutes in (6, 16, 24):
-        wait((minutes - elapsed) * 60, f"scaled back; checking at +{minutes}m")
-        elapsed = minutes
-        show_cost("5m", f"{minutes}m after scaling back to 1")
+    t0 = time.time()
+    log("scaled back to 1; the removed replica's series stay active until Mimir's")
+    log("20m idle timeout expires them — watching them go:")
+    settle()
+    log(f"analytics returned to its baseline {int(time.time() - t0) // 60}m after scaling down")
+    show_cost("5m", "after scaling back to 1")
 
 
 # --------------------------------------------------------------------------- 3
@@ -182,6 +223,7 @@ def scenario_expensive_rule():
     log("quantile and a 1h/15s subquery over every analytics series. Analytics'")
     log("rule-evaluation and query time jump by a large factor, querier CPU rises,")
     log("and active series grow by 2 — so promcost cost (pool 1) does not move.")
+    baseline = settle()
     before = show_cost("5m", "before")
     eval_before = increase_by_user("cortex_prometheus_rule_evaluation_duration_seconds_sum", "5m")
     query_before = increase_by_user("cortex_query_seconds_total", "5m")
@@ -193,8 +235,8 @@ def scenario_expensive_rule():
     query_after = increase_by_user("cortex_query_seconds_total", "5m")
     cpu_after = component_cpu("5m")
 
-    d = after["analytics"]["driver"] - before["analytics"]["driver"]
-    log(f"pool 1 — analytics active series delta: {d:+,.0f} (predicted +2)")
+    d = after["analytics"]["driver"] - baseline
+    log(f"pool 1 — analytics active series delta vs settled baseline: {d:+,.0f} (predicted +2)")
     log("rule evaluation / query time per tenant over 5m (seconds):")
     log(f"    {'tenant':<11} {'eval before':>11} {'eval after':>11} {'query before':>12} {'query after':>12}")
     for name in sorted(set(eval_before) | set(eval_after)):
@@ -207,11 +249,17 @@ def scenario_expensive_rule():
     log("expensive rules removed")
 
 
+SCENARIOS = {"rollout": scenario_rollout, "scale": scenario_scale, "expensive": scenario_expensive_rule}
+
+
 def main():
     log(f"promcost: {PROMCOST}")
-    scenario_rollout()
-    scenario_scale()
-    scenario_expensive_rule()
+    chosen = [a for a in sys.argv[2:]] or list(SCENARIOS)
+    for name in chosen:
+        if name not in SCENARIOS:
+            raise SystemExit(f"unknown scenario {name!r}; pick from {', '.join(SCENARIOS)}")
+    for name in chosen:
+        SCENARIOS[name]()
     log("done")
 
 
