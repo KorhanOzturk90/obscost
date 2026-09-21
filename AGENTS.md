@@ -22,7 +22,18 @@ git worktree remove ../obscost-<short-topic>   # after merging/deleting the bran
 
 `git worktree list` shows every active worktree and which branch it's on — check this before assuming the shared main checkout reflects only your own work.
 
+**A second rig, `dev/mimir-k8s`**, runs microservices Mimir (one pod per component, 3 ingesters at RF=3, classic or ingest-storage write path) on a k3d cluster named `obscost`, with simulated tenants and rules — see its README. It is on `localhost:8090` and is a single cluster per machine, so check `k3d cluster list` before `make up`/`make down`: another session may be using it.
+
 **One exception:** `dev/mimir-local`'s running Docker containers are bound to whatever's on disk in the directory they were started from (currently the shared `obscost/` checkout, on `dev-mimir-local-rig`) — host ports aren't worktree-scoped, so don't start a second copy of that rig from a different worktree without remapping ports/project name first.
+
+## Writing ADRs and design docs
+
+Keep them brief and focused — a reader should get the decision and its reason in a minute, not dig for it.
+
+- **Lead with the takeaway.** State the decision or claim in the first line or two of the document and of each section; evidence and caveats come after it, never before.
+- **Prefer a diagram to a paragraph** when explaining a design choice, a data flow or a trade-off. Use Mermaid (it renders on GitHub, and ADR 0004 already does) — a diagram is for showing the mechanism, not decoration.
+- **Cut detail that doesn't change the decision.** Raw measurements, full query listings and exploration notes belong in the PR description, an issue, or a `dev/` README, linked from the ADR rather than pasted into it.
+- **Amend in place sparingly.** A short, marked amendment (`[A]`, `[A2]`) is fine; if a section needs rewriting rather than correcting, it is time for a new ADR that supersedes it (see [`docs/adr/README.md`](docs/adr/README.md)).
 
 ## Repository status
 
@@ -33,6 +44,8 @@ See `PRODUCT-DIRECTION.md` (the thesis: observed workload attribution) and `docs
 A third workload source bypasses execution telemetry entirely: `internal/telemetry/mimirmetrics` queries Mimir's own `cortex_prometheus_rule_*` metrics over the PromQL API, so `promcost report --metrics-tenant <t>` runs against a Mimir URL with no log capture and no rule definitions at all. It is exact, cheap, and has history — but it stops at the rule group, because those metrics carry no rule name and no measure of data volume whatsoever. `attribution.Report.Granularity` records that limit so renderers describe an absent rule tier as a property of the source rather than as "no matched rule executions", and `attribution.AggregateObservations` is the constructor for this path (as opposed to `Aggregate`, which needs executions). Read `docs/adr/0002-where-workload-evidence-comes-from.md` before extending any of this — it sets out which of the three sources owns which question, and why ranking prefers fetched volume over wall time. Note `--metrics-tenant` names the tenant that *scraped* Mimir (typically a monitoring tenant), not a tenant being reported on; that is the most confusing thing about this source.
 
 Rule *definitions* (as opposed to executions) come from `--dir` (a local rule-file checkout, via `internal/loader/dir`) or, when `--dir` is omitted, directly from Mimir's own ruler API (`internal/loader/rulerapi`, `GET /prometheus/api/v1/rules`, tenant-scoped) for an explicit `--tenant a,b,c` list — added specifically because each tenant's rules typically live in a separate repository promcost has no access to, and asking Mimir what it's actually evaluating is authoritative where a checkout might be stale. Tenants are explicit, not auto-discovered, by deliberate choice — see the doc comment on `newDefinitionsSource` in `internal/cli/report.go` for why.
+
+`promcost cost` (`internal/cli/cost.go`) is ADR 0004 build step 1, tenant showback, for ADR 0003's pool 1 only: it splits ingester memory across tenants by active series and renders "`analytics` uses 62% of ingester memory — the equivalent of 5.0 of your 8 ingesters", in currency only if promcost.yaml's `inventory:` block prices the pool. It is a separate command from `report` because the two share almost no inputs. The arithmetic lives in `internal/cost` (pure, no I/O: exhaustive shares, "not measured"/"not costed" never rendered as 0, an assumption trail on every figure) and the PromQL in `internal/cost/mimirdrivers`, which follows ADR 0003's "[A] How each driver must be read" (sum-then-average subquery, the ingest-storage guard, replication divisor applied in `internal/cost` so it shows in the trail). Both it and `mimirmetrics` query Mimir through the shared `internal/promapi` client. It is a snapshot over one window; comparing windows waits for ADR 0005 (#31).
 
 ### Commands
 
@@ -49,7 +62,9 @@ Run a single test: `go test ./internal/attribution/ -run TestAggregate -v`.
 
 Regenerate the report golden fixtures (md and html) after intentionally changing one of `internal/report`'s templates: `UPDATE_GOLDEN=1 go test ./internal/report/...`.
 
-Try it against a fixture: `./bin/promcost report --dir internal/cli/testdata/report/clean/rules --config internal/cli/testdata/report/clean/promcost.yaml --telemetry internal/cli/testdata/report/clean/executions.ndjson`.
+Try the cost view against the local rig: `./bin/promcost cost --metrics-tenant infra --config <yaml with backend.url: http://localhost:8080 and an inventory block> --since 1h`.
+
+Try `report` against a fixture: `./bin/promcost report --dir internal/cli/testdata/report/clean/rules --config internal/cli/testdata/report/clean/promcost.yaml --telemetry internal/cli/testdata/report/clean/executions.ndjson`.
 
 ## What promcost is
 
@@ -57,7 +72,7 @@ promcost attributes the resource use and cost of a shared, multi-tenant metrics 
 
 Since [ADR 0004](docs/adr/0004-finops-pivot-scope-and-sequencing.md) (accepted 2026-09-17) the product is **cost allocation for self-hosted Mimir**: what each tenant costs, in resources first and currency only when the operator supplies prices. Rule-level workload attribution (`report`, ADRs 0001–0002) is no longer the headline — it is the drill-down that explains the ruler and query pools of the cost model, and the only thing that can tell a tenant *what to change*.
 
-**Read the ADRs before designing anything here.** They are the current source of truth for this layer, in order: [0001](docs/adr/0001-observed-workload-attribution-layer.md) (observed workload attribution), [0002](docs/adr/0002-where-workload-evidence-comes-from.md) (which telemetry source answers which question), 0003 (the pool→driver cost model — in review, PR #26), [0004](docs/adr/0004-finops-pivot-scope-and-sequencing.md) (the pivot's scope and build order), [0006](docs/adr/0006-remove-static-analysis.md) (removing the static analyzer).
+**Read the ADRs before designing anything here.** They are the current source of truth for this layer, in order: [0001](docs/adr/0001-observed-workload-attribution-layer.md) (observed workload attribution), [0002](docs/adr/0002-where-workload-evidence-comes-from.md) (which telemetry source answers which question), [0003](docs/adr/0003-cost-model-pool-driver-mappings.md) (the pool→driver cost model), [0004](docs/adr/0004-finops-pivot-scope-and-sequencing.md) (the pivot's scope and build order), [0006](docs/adr/0006-remove-static-analysis.md) (removing the static analyzer).
 
 ### Scope now
 

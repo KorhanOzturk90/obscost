@@ -1,0 +1,153 @@
+# mimir-distributed 6.2.0 (Mimir 3.2.0), trimmed to fit an 8 GB Docker VM
+# while keeping the properties promcost's cost model depends on:
+#
+#   - every component is its own pod, so per-component CPU/memory is
+#     measurable (container_* metrics per pod) — the one thing the
+#     docker-compose rig structurally cannot give (ADR 0003 decision 6, #34)
+#   - 3 ingesters at replication factor 3, so the replication divisor is
+#     exercised for real (ADR 0003 [A]; the compose rig runs RF=1)
+#   - rules are evaluated remotely through the query-frontend, as large
+#     production clusters do, so ruler queries show up on the query path
+#     (cortex_query_* per user, query-frontend query stats) instead of
+#     being invisible to it as under local evaluation
+#
+# This file is the *classic* architecture (distributors push to ingesters).
+# The chart's own default since 6.0 is ingest storage (Kafka); layer
+# values/ingest-storage.yaml on top to get that instead — see the README.
+
+kafka:
+  enabled: false
+
+mimir:
+  structuredConfig:
+    ingest_storage:
+      enabled: false
+      kafka:
+        address: null
+        topic: null
+        auto_create_topic_default_partitions: null
+    distributor:
+      remote_timeout: null
+    ingester:
+      push_grpc_method_enabled: null
+      ring:
+        replication_factor: 3
+    ruler:
+      # alertmanager is not deployed (see below); without this the ruler
+      # retries alert delivery against a service that does not exist.
+      alertmanager_url: ""
+      # Remote evaluation through the main query path. The chart's
+      # remoteEvaluationDedicatedQueryPath would add three more pods for
+      # isolation this rig does not need.
+      query_frontend:
+        address: dns:///mimir-query-frontend.mimir.svc:9095
+    limits:
+      cardinality_analysis_enabled: true
+      # Room for the simulated tenants' churn without tripping limits.
+      max_global_series_per_user: 500000
+      ingestion_rate: 100000
+      ingestion_burst_size: 1000000
+      ruler_max_rules_per_rule_group: 50
+
+# Every component gets a memory *limit* as well as a request, and Go is
+# told about it (GOMEMLIMIT below, per component): without a limit each of
+# the twelve Mimir processes grows its heap until the node thrashes, which
+# is what made a laptop unusable here. Limits are generous next to what
+# these components actually use with ~30k series, and a component that
+# needs more will OOM visibly rather than starving the machine quietly.
+#
+# GOGC=50 collects at half the default heap growth — a little more CPU for
+# noticeably less resident memory, the right trade on a laptop rig.
+global:
+  extraEnv:
+    - name: GOGC
+      value: "50"
+
+x-small: &small
+  requests: {cpu: 25m, memory: 64Mi}
+  limits: {memory: 256Mi}
+
+distributor:
+  replicas: 1
+  resources: *small
+  extraArgs:
+    validation.cost-attribution-trackers: '{"by-team":{"labels":[{"input":"team"}]}}'
+    cost-attribution.registry-path: /usage-metrics
+
+ingester:
+  replicas: 3
+  zoneAwareReplication:
+    enabled: false
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 768Mi}
+  persistentVolume:
+    size: 2Gi
+  extraArgs:
+    validation.cost-attribution-trackers: '{"by-team":{"labels":[{"input":"team"}]}}'
+    cost-attribution.registry-path: /usage-metrics
+
+store_gateway:
+  replicas: 1
+  zoneAwareReplication:
+    enabled: false
+  resources: *small
+  persistentVolume:
+    size: 2Gi
+
+compactor:
+  replicas: 1
+  resources: *small
+  persistentVolume:
+    size: 2Gi
+
+querier:
+  replicas: 1
+  resources: *small
+
+query_frontend:
+  replicas: 1
+  resources: *small
+
+query_scheduler:
+  replicas: 1
+  resources: *small
+
+ruler:
+  replicas: 1
+  resources: *small
+  # The chart gives the ruler a 1 GiB memory ballast by default, sized for
+  # a production ruler evaluating thousands of rules. Here it is a gigabyte
+  # of heap the node cannot spare.
+  memBallastSizeBytes: 0
+
+# Not deployed: nothing here alerts, and the overrides-exporter only
+# re-publishes configured limits. Two fewer Go processes on the node.
+alertmanager:
+  enabled: false
+
+overrides_exporter:
+  enabled: false
+
+rollout_operator:
+  enabled: false
+
+minio:
+  resources:
+    requests: {cpu: 25m, memory: 128Mi}
+  persistence:
+    size: 5Gi
+
+gateway:
+  replicas: 1
+  resources: *small
+  service:
+    type: NodePort
+    nodePort: 30090
+
+# Render the mimir-mixin dashboards as ConfigMaps (labelled
+# grafana_dashboard=1) for the Grafana sidecar to pick up. Their recording
+# rules go into the `monitoring` tenant via `make mixin-rules`.
+metaMonitoring:
+  dashboards:
+    enabled: true

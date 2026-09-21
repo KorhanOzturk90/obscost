@@ -1,0 +1,20 @@
+namespace: sre
+groups:
+  - name: infra_rollups
+    interval: 1m
+    rules:
+      - record: job:avalanche_gauge_metric_mmmmm_0_0:sum
+        expr: sum by (job) (avalanche_gauge_metric_mmmmm_0_0)
+      - record: job:avalanche_series:count
+        expr: count by (job) ({__name__=~"avalanche_gauge_metric_.*"})
+  - name: infra_alerts
+    interval: 30s
+    rules:
+      - alert: InfraTargetMissing
+        expr: up{job="tenants/avalanche"} == 0
+        for: 2m
+        labels: {severity: critical}
+      - alert: InfraSeriesDrop
+        expr: count({__name__=~"avalanche_gauge_metric_.*"}) < 1000
+        for: 5m
+        labels: {severity: warning}

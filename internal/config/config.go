@@ -1,6 +1,6 @@
 // Package config loads and represents promcost.yaml: the backend `report`
-// talks to (the ruler API) and the tenancy block that maps rule files to
-// tenants.
+// and `cost` talk to, the tenancy block that maps rule files to tenants,
+// and the operator inventory `cost` prices its pools from.
 //
 // Sections the v0 static analyzer used (checks, pint, limits, cost_model)
 // were removed with it (docs/adr/0006-remove-static-analysis.md). A config
@@ -43,9 +43,40 @@ type TenancyConfig struct {
 	Unmapped string `yaml:"unmapped,omitempty"`
 }
 
+// PoolInventory is what the operator knows about one resource pool of ADR
+// 0003's cost model. Both fields are pointers because "not supplied" and
+// "zero" are different facts: an absent Replicas means the pool is shown
+// as shares only, never as "0 of your 0 ingesters", and an absent price
+// means the pool is reported as not costed rather than as free (ADR 0003
+// decision 3).
+type PoolInventory struct {
+	Replicas            *int     `yaml:"replicas,omitempty"`
+	CostPerReplicaMonth *float64 `yaml:"cost_per_replica_month,omitempty"`
+}
+
+// InventoryConfig is ADR 0003 decision 3's operator inventory: the short
+// list of things an operator already knows and promcost never guesses.
+// Every field is optional, and a partial inventory is the normal case.
+//
+// This replaces the v0 spec's cost_model block, a per-unit price list that
+// nothing consumed: ADR 0004 decision 2 chose per-pool costs over per-unit
+// coefficients, and cost_model is one of the removedSections below.
+type InventoryConfig struct {
+	// Currency labels any currency figure. Required only if a pool has a
+	// price, so a figure never renders without its unit.
+	Currency string `yaml:"currency,omitempty"`
+	// ReplicationFactor overrides the value read from
+	// cortex_distributor_replication_factor, for clusters that don't
+	// expose it to the metrics tenant.
+	ReplicationFactor *int `yaml:"replication_factor,omitempty"`
+	// Pools is keyed by pool ID, e.g. "ingester_memory".
+	Pools map[string]PoolInventory `yaml:"pools,omitempty"`
+}
+
 type Config struct {
-	Backend BackendConfig `yaml:"backend,omitempty"`
-	Tenancy TenancyConfig `yaml:"tenancy,omitempty"`
+	Backend   BackendConfig   `yaml:"backend,omitempty"`
+	Tenancy   TenancyConfig   `yaml:"tenancy,omitempty"`
+	Inventory InventoryConfig `yaml:"inventory,omitempty"`
 }
 
 // removedSections are top-level keys that belonged to the static analyzer,

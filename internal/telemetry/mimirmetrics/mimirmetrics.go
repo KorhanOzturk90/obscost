@@ -42,18 +42,15 @@ package mimirmetrics
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"math"
 	"net/http"
-	"net/url"
 	"path"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/KorhanOzturk90/obscost/internal/promapi"
 )
 
 // Config configures a Source. Header/BearerToken/HTTPClient/Timeout mirror
@@ -113,31 +110,24 @@ type Workload struct {
 }
 
 type Source struct {
-	cfg    Config
-	client *http.Client
+	cfg Config
+	api *promapi.Client
 }
 
-// New builds a Source. The default timeout is 30s rather than rulerapi's
-// 10s: listing rule definitions is a cheap metadata read, whereas
-// increase() over a 7d or 30d window fans out across every ruler series in
-// the metrics tenant and is a genuinely heavy query on a large cluster.
+// New builds a Source. See promapi.New for the default timeout.
 func New(cfg Config) *Source {
-	if cfg.Header == "" {
-		cfg.Header = "X-Scope-OrgID"
-	}
-	client := cfg.HTTPClient
-	if client == nil {
-		timeout := cfg.Timeout
-		if timeout <= 0 {
-			timeout = 30 * time.Second
-		}
-		client = &http.Client{Timeout: timeout}
-	}
-	return &Source{cfg: cfg, client: client}
+	return &Source{cfg: cfg, api: promapi.New(promapi.Config{
+		BaseURL:     cfg.BaseURL,
+		Header:      cfg.Header,
+		Tenant:      cfg.MetricsTenant,
+		BearerToken: cfg.BearerToken,
+		Timeout:     cfg.Timeout,
+		HTTPClient:  cfg.HTTPClient,
+	})}
 }
 
 // The three queries, each verified against a live mimir-3.2.0. The %s is
-// the window as a PromQL range string (see promQLDuration).
+// the window as a PromQL range string (see promapi.Duration).
 //
 // Evaluation count is taken from the histogram's _count rather than from
 // cortex_prometheus_rule_evaluations_total, even though the latter also
@@ -172,7 +162,7 @@ func (s *Source) Read(ctx context.Context, window time.Duration) (Workload, erro
 	if s.cfg.MetricsTenant == "" {
 		return Workload{}, errors.New("MetricsTenant is required: it names the tenant whose TSDB holds Mimir's own cortex_prometheus_rule_* series (commonly a monitoring tenant), which is not one of the tenants being reported on")
 	}
-	rangeStr, err := promQLDuration(window)
+	rangeStr, err := promapi.Duration(window)
 	if err != nil {
 		return Workload{}, err
 	}
@@ -202,7 +192,7 @@ func (s *Source) Read(ctx context.Context, window time.Duration) (Workload, erro
 		return Workload{}, err
 	}
 	for _, smp := range durations {
-		tenant, value, ok := smp.userValue()
+		tenant, value, ok := userValue(smp)
 		if !ok {
 			continue
 		}
@@ -216,7 +206,7 @@ func (s *Source) Read(ctx context.Context, window time.Duration) (Workload, erro
 		return Workload{}, err
 	}
 	for _, smp := range counts {
-		tenant, value, ok := smp.userValue()
+		tenant, value, ok := userValue(smp)
 		if !ok {
 			continue
 		}
@@ -228,7 +218,7 @@ func (s *Source) Read(ctx context.Context, window time.Duration) (Workload, erro
 		return Workload{}, err
 	}
 	for _, smp := range groups {
-		tenant, value, ok := smp.userValue()
+		tenant, value, ok := userValue(smp)
 		if !ok {
 			continue
 		}
@@ -298,33 +288,6 @@ func (a *tenantAccum) workload(tenant string) TenantWorkload {
 	return tw
 }
 
-// vectorResponse mirrors Mimir's actual /prometheus/api/v1/query response
-// for an instant query, e.g.:
-//
-//	{"status":"success","data":{"resultType":"vector","result":[
-//	  {"metric":{"user":"infra"},"value":[1757800000.123,"10.528"]}]}}
-//
-// This is the standard Prometheus envelope; Mimir adds nothing to it.
-type vectorResponse struct {
-	Status    string `json:"status"`
-	ErrorType string `json:"errorType,omitempty"`
-	Error     string `json:"error,omitempty"`
-	Data      struct {
-		ResultType string         `json:"resultType"`
-		Result     []vectorSample `json:"result"`
-	} `json:"data"`
-}
-
-// vectorSample is one element of a vector result. `value` is a two-element
-// heterogeneous array — [<unix seconds as a JSON number>, "<the sample
-// value as a JSON *string*>"] — which is why it is held as raw messages
-// rather than a typed pair. The value is a string because Prometheus needs
-// to round-trip NaN and ±Inf, which JSON numbers cannot express.
-type vectorSample struct {
-	Metric map[string]string `json:"metric"`
-	Value  []json.RawMessage `json:"value"`
-}
-
 // userValue pulls the tenant and the sample value out of one sample,
 // reporting ok=false for anything it cannot use.
 //
@@ -334,78 +297,30 @@ type vectorSample struct {
 // produce one of these — the PromQL API always emits a `user` label for a
 // `sum by (user)` result and always renders values as parseable strings —
 // so this is a guard against a proxy or a future response shape, not a
-// case a caller could act on. Non-finite values (NaN, ±Inf) are skipped
-// for the same reason plus a concrete one: they would make Read's
-// documented sort order non-transitive.
-func (s vectorSample) userValue() (tenant string, value float64, ok bool) {
+// case a caller could act on. Non-finite values are refused by
+// promapi.Sample.Float, which also keeps Read's documented sort order
+// transitive.
+func userValue(s promapi.Sample) (tenant string, value float64, ok bool) {
 	tenant = s.Metric["user"]
-	if tenant == "" || len(s.Value) != 2 {
+	if tenant == "" {
 		return "", 0, false
 	}
-	var raw string
-	if err := json.Unmarshal(s.Value[1], &raw); err != nil {
+	value, ok = s.Float()
+	if !ok {
 		return "", 0, false
 	}
-	v, err := strconv.ParseFloat(raw, 64)
-	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) {
-		return "", 0, false
-	}
-	return tenant, v, true
+	return tenant, value, true
 }
 
 // vector runs one instant query, labelling any failure with which of the
 // three queries it was — all three hit the same endpoint with the same
 // headers, so without the label a failure is unattributable.
-func (s *Source) vector(ctx context.Context, name, promql string) ([]vectorSample, error) {
-	samples, err := s.instant(ctx, promql)
+func (s *Source) vector(ctx context.Context, name, promql string) ([]promapi.Sample, error) {
+	samples, err := s.api.Instant(ctx, promql)
 	if err != nil {
 		return nil, fmt.Errorf("%s query: %w", name, err)
 	}
 	return samples, nil
-}
-
-func (s *Source) instant(ctx context.Context, promql string) ([]vectorSample, error) {
-	endpoint := strings.TrimRight(s.cfg.BaseURL, "/") + "/prometheus/api/v1/query"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.URL.RawQuery = url.Values{"query": []string{promql}}.Encode()
-	req.Header.Set(s.cfg.Header, s.cfg.MetricsTenant)
-	if s.cfg.BearerToken != "" {
-		req.Header.Set("Authorization", "Bearer "+s.cfg.BearerToken)
-	}
-
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		// Prometheus/Mimir return a JSON error body alongside a 4xx for a
-		// bad query, and it names the actual problem, so echo it rather
-		// than reporting a bare status code.
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-
-	var parsed vectorResponse
-	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
-	}
-	if parsed.Status != "success" {
-		return nil, fmt.Errorf("query API returned status %q (%s): %s", parsed.Status, parsed.ErrorType, parsed.Error)
-	}
-	// A non-vector resultType would decode without error into an empty
-	// Result (a matrix carries "values", not "value"), turning a
-	// misdirected request — an interposed proxy, a range endpoint — into a
-	// silently empty report. Fail instead. An absent resultType is
-	// tolerated because only a non-Prometheus responder omits it.
-	if parsed.Data.ResultType != "" && parsed.Data.ResultType != "vector" {
-		return nil, fmt.Errorf("unexpected resultType %q, want vector", parsed.Data.ResultType)
-	}
-	return parsed.Data.Result, nil
 }
 
 // splitRuleGroup recovers a namespace and a group name from Mimir's
@@ -439,49 +354,4 @@ func splitRuleGroup(value string) (namespace, group string) {
 	// filesystem, always slash-separated, and must not be reinterpreted
 	// against the separator of whichever OS promcost happens to run on.
 	return path.Base(file), group
-}
-
-// promQLUnits is the ladder promQLDuration renders against, largest first.
-// It stops at "d" on purpose. PromQL also accepts "w" and "y", but "y" is
-// a flat 365 days that quietly disagrees with a calendar year, and a
-// window the operator asked for as 7d should come back as 7d, not 1w.
-var promQLUnits = []struct {
-	suffix string
-	size   time.Duration
-}{
-	{"d", 24 * time.Hour},
-	{"h", time.Hour},
-	{"m", time.Minute},
-	{"s", time.Second},
-	{"ms", time.Millisecond},
-}
-
-// promQLDuration renders a Go duration as a PromQL range string.
-//
-// time.Duration.String() cannot be used for this. It has no day unit, so
-// 7 days prints as "168h0m0s", and it pads out lower units even when they
-// are zero, so an exact hour prints as "1h0m0s". Both of those do parse —
-// checked against the real parser, see TestDurationStringIsNotUsable — but
-// they land in a query an operator may have to read back out of an error
-// message, and "168h0m0s" hides the one fact the reader wants, that this
-// is a week. What Duration.String() genuinely gets *wrong* is fractions:
-// "1.5s" is rejected outright, PromQL's grammar being integer terms only.
-//
-// The rule here is: emit a single term in the largest unit that divides
-// the duration exactly. Sub-millisecond remainders are truncated rather
-// than rendered as a decimal, both because a millisecond is the floor of
-// PromQL's grammar and because a decimal would not parse at all.
-func promQLDuration(d time.Duration) (string, error) {
-	if d <= 0 {
-		return "", fmt.Errorf("window must be positive, got %s", d)
-	}
-	if d < time.Millisecond {
-		return "", fmt.Errorf("window %s is below PromQL's smallest unit (1ms)", d)
-	}
-	for _, u := range promQLUnits {
-		if d%u.size == 0 {
-			return strconv.FormatInt(int64(d/u.size), 10) + u.suffix, nil
-		}
-	}
-	return strconv.FormatInt(int64(d/time.Millisecond), 10) + "ms", nil
 }

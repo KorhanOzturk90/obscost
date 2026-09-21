@@ -1,0 +1,63 @@
+# grafana/grafana chart. Anonymous admin, no login: this is a throwaway
+# local rig bound to 127.0.0.1, not something to expose.
+service:
+  type: NodePort
+  nodePort: 30300
+
+grafana.ini:
+  auth.anonymous:
+    enabled: true
+    org_role: Admin
+  auth:
+    disable_login_form: true
+  analytics:
+    reporting_enabled: false
+    check_for_updates: false
+
+persistence:
+  enabled: false
+
+resources:
+  requests: {cpu: 25m, memory: 96Mi}
+
+# One datasource per tenant: Mimir is multi-tenant, and a Grafana
+# datasource carries exactly one X-Scope-OrgID. "Mimir (monitoring)" is
+# the one the mimir-mixin dashboards and the obscost dashboard want.
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      - {name: Mimir (monitoring), uid: mimir-monitoring, type: prometheus, isDefault: true,
+         url: http://mimir-gateway.mimir.svc/prometheus,
+         jsonData: {httpHeaderName1: X-Scope-OrgID, prometheusType: Mimir, timeInterval: 15s},
+         secureJsonData: {httpHeaderValue1: monitoring}}
+      - {name: Mimir (analytics), uid: mimir-analytics, type: prometheus,
+         url: http://mimir-gateway.mimir.svc/prometheus,
+         jsonData: {httpHeaderName1: X-Scope-OrgID, prometheusType: Mimir, timeInterval: 15s},
+         secureJsonData: {httpHeaderValue1: analytics}}
+      - {name: Mimir (infra), uid: mimir-infra, type: prometheus,
+         url: http://mimir-gateway.mimir.svc/prometheus,
+         jsonData: {httpHeaderName1: X-Scope-OrgID, prometheusType: Mimir, timeInterval: 15s},
+         secureJsonData: {httpHeaderValue1: infra}}
+      - {name: Mimir (payments), uid: mimir-payments, type: prometheus,
+         url: http://mimir-gateway.mimir.svc/prometheus,
+         jsonData: {httpHeaderName1: X-Scope-OrgID, prometheusType: Mimir, timeInterval: 15s},
+         secureJsonData: {httpHeaderValue1: payments}}
+      - {name: Mimir (platform), uid: mimir-platform, type: prometheus,
+         url: http://mimir-gateway.mimir.svc/prometheus,
+         jsonData: {httpHeaderName1: X-Scope-OrgID, prometheusType: Mimir, timeInterval: 15s},
+         secureJsonData: {httpHeaderValue1: platform}}
+
+# Dashboards come from ConfigMaps labelled grafana_dashboard=1 in the mimir
+# namespace: the mixin's (rendered by the mimir chart, metaMonitoring.
+# dashboards) and grafana/obscost-dashboard.yaml. The folder annotation
+# the mimir chart sets puts the mixin in its own folder.
+sidecar:
+  dashboards:
+    enabled: true
+    label: grafana_dashboard
+    labelValue: "1"
+    searchNamespace: mimir
+    folderAnnotation: k8s-sidecar-target-directory
+    provider:
+      foldersFromFilesStructure: true
