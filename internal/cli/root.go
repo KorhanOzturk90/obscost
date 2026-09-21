@@ -1,8 +1,5 @@
-// Package cli wires promcost's cobra command tree. `check` (static
-// analysis) and `report` (observed workload attribution, internal/
-// attribution) are implemented; `scan`/`explain`/`rewrite`/`pint-config`
-// reuse the same underlying analyzer.Analyzer with a different
-// loader/reporter later (see internal/cli/check.go's doc comment).
+// Package cli wires promcost's cobra command tree: `report` (observed
+// workload attribution, internal/attribution).
 package cli
 
 import (
@@ -33,20 +30,19 @@ func (e *exitError) Unwrap() error { return e.err }
 func newRootCmd(stdout, stderr io.Writer) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "promcost",
-		Short:         "Cost attribution and load prediction for Prometheus/Mimir rules",
+		Short:         "Cost attribution for multi-tenant Grafana Mimir",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
 	root.SetOut(stdout)
 	root.SetErr(stderr)
-	root.AddCommand(newCheckCmd(stdout))
 	root.AddCommand(newReportCmd(stdout, stderr))
 	root.AddCommand(newCostCmd(stdout))
 	return root
 }
 
 // Run executes the CLI and returns a process exit code (spec §2):
-// 0 clean, 1 config/usage error, 2 findings at or above --fail-on.
+// 0 success, 1 config/usage error.
 func Run(args []string, stdout, stderr io.Writer) int {
 	root := newRootCmd(stdout, stderr)
 	root.SetArgs(args)

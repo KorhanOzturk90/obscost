@@ -1,6 +1,6 @@
 // Package rule defines the shared vocabulary every other promcost package
-// builds on: the annotated rule representation loaders produce and the
-// analyzer consumes, and the Finding type every check emits.
+// builds on: the annotated rule representation loaders produce, and the
+// RuleID/RuleExecution types telemetry sources emit (execution.go).
 package rule
 
 import (
@@ -43,8 +43,8 @@ func ParseKind(s string) (Kind, error) {
 }
 
 // MarshalJSON renders Kind as its string form ("recording"/"alerting")
-// rather than the underlying int — matches Severity's precedent, and keeps
-// the encoding stable even if the iota ordering above ever changes.
+// rather than the underlying int, which keeps the encoding stable even if
+// the iota ordering above ever changes.
 func (k Kind) MarshalJSON() ([]byte, error) {
 	return json.Marshal(k.String())
 }
@@ -100,13 +100,13 @@ func (r Rule) Name() string {
 }
 
 // RuleGroupMeta carries the rule-group-level metadata a rule was loaded
-// from, needed by checks that reason about evaluation cadence.
+// from: its name (part of RuleID) and its evaluation interval.
 type RuleGroupMeta struct {
 	Name     string
 	Interval time.Duration
 }
 
-// AnnotatedRule is what every Loader hands the analyzer: the same shape
+// AnnotatedRule is what every Loader produces: the same shape
 // regardless of source (a directory today; CRD/ruler-API sources later).
 type AnnotatedRule struct {
 	Rule

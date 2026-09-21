@@ -88,7 +88,14 @@ func (l *Loader) Load(_ context.Context) ([]rule.AnnotatedRule, []loader.LoadErr
 		}
 		namespace := syntheticNamespace(relPath)
 		resolvedTenant, resolved := l.cfg.Resolver.Resolve(tenancy.Facts{Namespace: namespace})
-		finalTenant, keep := l.cfg.Policy.Apply(resolvedTenant, resolved)
+		finalTenant, keep, policyErr := l.cfg.Policy.Apply(resolvedTenant, resolved)
+		if policyErr != nil {
+			loadErrs = append(loadErrs, loader.LoadError{
+				File: path,
+				Err:  fmt.Errorf("namespace %q: %w", namespace, policyErr),
+			})
+			continue
+		}
 		if !keep {
 			continue
 		}
