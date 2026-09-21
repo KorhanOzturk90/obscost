@@ -92,6 +92,32 @@ They are shaped to separate the pools: `analytics` has cheap rollups,
 `payments` has few rules but expensive long-range quantiles (ruler / query
 CPU, not memory), `platform` has almost nothing.
 
+## Costing and calibration
+
+```bash
+make podcost                 # what each component costs, derived from node prices
+make calibrate-series        # coefficient: ingester memory per active series (~1h)
+make calibrate-query         # what query load costs ingesters and queriers (~30m)
+```
+
+[`scripts/podcost.py`](scripts/podcost.py) implements [ADR 0006](../../docs/adr/0006-pricing-pools-on-a-shared-cluster.md)
+decision 3 — `price × max(request, usage) / node capacity`, per pod, summed
+per component — because on a shared cluster nobody is billed for
+"ingesters". Idle capacity is printed as its own line and never spread
+across components.
+
+[`scripts/compare-opencost.py`](scripts/compare-opencost.py), after
+`make opencost`, runs the same allocation through OpenCost and prints both
+side by side. OpenCost cannot send a tenancy header, so it reaches Mimir
+through a three-line nginx proxy ([`opencost/proxy.yaml`](opencost/proxy.yaml))
+that adds `X-Scope-OrgID: monitoring`.
+
+[`scripts/calibrate.py`](scripts/calibrate.py) sweeps one input across
+several values and fits a line, where a scenario changes it once and checks
+a prediction. The output is a coefficient and an R²: "ingester memory is
+driven by active series" is only useful once it reads "N KiB per series,
+R² = 0.9x".
+
 ## Scenarios
 
 `./scripts/scenarios.py <path/to/promcost>` runs all three in order and
@@ -156,6 +182,84 @@ tenant for its neighbours' behaviour; data volume fetched does not move
 like this. ADR 0002 decision 8 already prefers fetched volume over wall
 time; this is the first measurement showing why it matters for cost, not
 just for ranking.
+
+**Calibration — ingester memory per active series (E2, 2026-09-21)**
+
+| analytics replicas | raw active series | ingester working set | Go heap |
+|---|---:|---:|---:|
+| 1 | 120,158 | 900 MiB | 711 MiB |
+| 3 | 164,868 | 1,031 MiB | 788 MiB |
+| 5 | 202,199 | 1,168 MiB | 914 MiB |
+| 7 | 250,301 | 1,293 MiB | 1,005 MiB |
+
+Fit: **3.15 KiB of working set per raw active series, R² 0.996** (Go heap
+2.40 KiB/series, R² 0.985), over a **fixed 531 MiB** across the three
+ingesters. So ADR 0003 pool 1's driver holds, and ~40% of ingester memory
+at this scale is fixed cost that a per-series share spreads pro rata. The
+rig runs `GOGC=50`, which makes these coefficients lower than a default Go
+runtime would give — a reason to repeat this on a cloud cluster before
+quoting the number to anyone.
+
+**The first attempt at that sweep was wrong, in an instructive way.** It
+sampled `cortex_ingester_memory_series` instantaneously and fitted
+R² = 0.15. That gauge is a sawtooth: it swung between 104k and 181k within
+half an hour on an unchanged rig, because the TSDB head compacts. Every
+figure in a sweep is now averaged over a 10-minute window, each step
+verifies that it actually landed, and steps are large enough (+16k series)
+to clear the fixed baseline.
+
+**Calibration — what query load costs (E1/E3, 2026-09-21)**
+
+Expensive rules added to `analytics` one at a time, ingestion unchanged:
+
+| rules | data fetched (5m) | query seconds | ingester CPU | querier CPU | ingester time on reads |
+|---:|---:|---:|---:|---:|---:|
+| 0 | 28 MiB | 112.8 | 0.295 | 0.069 | 88% |
+| 1 | 123 MiB | 405.5 | 0.465 | 0.217 | 95% |
+| 2 | 266 MiB | 1,117.2 | 0.840 | 0.457 | 95% |
+| 3 | 345 MiB | 733.8 | 0.722 | 0.379 | 96% |
+
+- **E1: ingester CPU nearly tripled with no extra ingestion** (0.295 → 0.840
+  cores), fitting data fetched at R² 0.83 over a fixed 0.28 cores. Ingester
+  CPU is a read cost. ADR 0003 pool 2 calls it the write path; ADR 0006
+  decision 1 corrects that, and this is the measurement behind it.
+- **E3: querier CPU is predicted better by query *seconds* (R² 0.962) than
+  by bytes fetched (R² 0.832).** That is awkward, and real: querier CPU *is*
+  query time, while bytes drive ingester and store-gateway work. But look
+  at the last row — more data fetched, *less* query time — because time also
+  moves with contention and scheduling, while bytes track what the tenant
+  asked for. So: time predicts the pool's size; volume attributes it fairly.
+- An earlier attempt at this sweep **saturated the rig** (one rule at 61k
+  series took the node past 4 cores and Mimir stopped answering). The sweep
+  now settles first, uses a 1h rather than 6h subquery, and stops when the
+  cluster passes 70% of its CPU budget.
+
+**OpenCost cross-check**
+
+`make opencost` + `scripts/compare-opencost.py`, 30m window:
+
+| | podcost.py | OpenCost |
+|---|---:|---:|
+| node cost basis | 0.2243/h | **identical** (`node_total_hourly_cost` 0.4485/h) |
+| ingester | 0.01506 | 0.01150 |
+| querier | 0.00550 | 0.00387 |
+| idle | 0.18532 | 0.15708 |
+
+The node price agrees exactly, and both use `max(request, usage)`. The gap
+is **observed runtime**: OpenCost reported `minutes: 25` of the 30 and
+prorates by it, where Mimir's data covers the full window. Scaling for that
+leaves agreement within ~10%, OpenCost slightly lower.
+
+That is a design lesson, not a rounding difference: **a pod that ran for
+twenty minutes of an hour costs twenty minutes**, and `avg_over_time`
+cannot tell a short-lived pod from a gap in scraping. `podcost.py` now
+measures each pod's coverage, prorates by it, and prints it as a "seen"
+column — the same missing-versus-zero principle ADR 0001 applies to stats.
+
+Two bugs found while wiring this up: Alloy was overwriting OpenCost's `pod`
+labels (its output is *about* other pods), which made it price everything
+at zero; and pods that cAdvisor still reports after the API has forgotten
+them were each becoming their own component.
 
 **Earlier findings**
 
