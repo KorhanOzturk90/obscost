@@ -172,3 +172,44 @@ func TestLoadInventory_RejectsUnknownPoolField(t *testing.T) {
 		t.Fatal("Load with misspelt pool field: expected error, got nil")
 	}
 }
+
+func TestLoadInventory_ComponentsAndPlatformCost(t *testing.T) {
+	path := writeTemp(t, `inventory:
+  currency: EUR
+  platform_cost_month: 1440
+  pools:
+    query_path:
+      components:
+        querier:
+          replicas: 3
+          cost_per_replica_month: 100
+        query-frontend:
+          replicas: 2
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Inventory.PlatformCostMonth == nil || *cfg.Inventory.PlatformCostMonth != 1440 {
+		t.Errorf("PlatformCostMonth = %v, want 1440", cfg.Inventory.PlatformCostMonth)
+	}
+	qp := cfg.Inventory.Pools["query_path"]
+	if qp.Replicas != nil || qp.CostPerReplicaMonth != nil {
+		t.Errorf("pool-level fields = %v / %v, want nil: only components were given", qp.Replicas, qp.CostPerReplicaMonth)
+	}
+	q := qp.Components["querier"]
+	if q.Replicas == nil || *q.Replicas != 3 || q.CostPerReplicaMonth == nil || *q.CostPerReplicaMonth != 100 {
+		t.Errorf("querier = %+v, want 3 replicas at 100", q)
+	}
+	// A component with a replica count and no price is not a price of 0.
+	if fe := qp.Components["query-frontend"]; fe.CostPerReplicaMonth != nil {
+		t.Errorf("query-frontend price = %v, want nil (not supplied)", *fe.CostPerReplicaMonth)
+	}
+}
+
+func TestLoadInventory_RejectsUnknownComponentField(t *testing.T) {
+	path := writeTemp(t, "inventory:\n  pools:\n    query_path:\n      components:\n        querier:\n          replica: 3\n")
+	if _, err := Load(path); err == nil {
+		t.Fatal("Load with misspelt component field: expected error, got nil")
+	}
+}

@@ -103,6 +103,20 @@ type PintConfig struct {
 type PoolInventory struct {
 	Replicas            *int     `yaml:"replicas,omitempty"`
 	CostPerReplicaMonth *float64 `yaml:"cost_per_replica_month,omitempty"`
+	// Components prices a pool that spans several processes, e.g. the query
+	// path's query-frontend and querier, each with its own replica count
+	// and price. It is the alternative to Replicas and CostPerReplicaMonth
+	// above, not an addition to them (cost.Inventory.Validate rejects both).
+	// A partial list prices what it lists.
+	Components map[string]ComponentInventory `yaml:"components,omitempty"`
+}
+
+// ComponentInventory is one component of a multi-component pool. Both
+// fields are pointers for the same reason as PoolInventory's: "not
+// supplied" and "zero" are different facts.
+type ComponentInventory struct {
+	Replicas            *int     `yaml:"replicas,omitempty"`
+	CostPerReplicaMonth *float64 `yaml:"cost_per_replica_month,omitempty"`
 }
 
 // InventoryConfig is ADR 0003 decision 3's operator inventory: the short
@@ -120,7 +134,13 @@ type InventoryConfig struct {
 	// cortex_distributor_replication_factor, for clusters that don't
 	// expose it to the metrics tenant.
 	ReplicationFactor *int `yaml:"replication_factor,omitempty"`
-	// Pools is keyed by pool ID, e.g. "ingester_memory".
+	// PlatformCostMonth is what the whole Mimir platform costs per month,
+	// if known. It is the only way to say what fraction of platform cost the
+	// priced pools cover; without it that fraction is reported as unknown
+	// rather than guessed (ADR 0003 [A]).
+	PlatformCostMonth *float64 `yaml:"platform_cost_month,omitempty"`
+	// Pools is keyed by pool ID: "ingester_memory", "query_path",
+	// "ruler_cpu".
 	Pools map[string]PoolInventory `yaml:"pools,omitempty"`
 }
 

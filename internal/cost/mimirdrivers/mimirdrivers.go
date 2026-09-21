@@ -8,9 +8,11 @@
 // the `user` label inside it. Read that package's doc comment if this is
 // surprising.
 //
-// Only pool 1 (ingester memory) is implemented. Its query follows ADR 0003
-// "[A] How each driver must be read", which in turn follows the
-// mimir-top-tenants mixin — see ingesterMemoryQuery.
+// Pools 1 (ingester memory), 6 (query path) and 7 (ruler CPU) are
+// implemented. Pool 1's query follows ADR 0003 "[A] How each driver must be
+// read", which in turn follows the mimir-top-tenants mixin — see
+// ingesterMemoryQuery. Pools 6 and 7 are per-tenant counters read by
+// counters.go.
 package mimirdrivers
 
 import (
@@ -111,10 +113,17 @@ func subqueryStep(window time.Duration) time.Duration {
 	return step.Truncate(time.Second)
 }
 
+func (s *Source) requireMetricsTenant() error {
+	if s.cfg.MetricsTenant == "" {
+		return errors.New("MetricsTenant is required: it names the tenant whose TSDB holds Mimir's own cortex_* series (commonly a monitoring tenant), which is not one of the tenants being costed")
+	}
+	return nil
+}
+
 // ReadIngesterMemory measures pool 1 over [now-window, now].
 func (s *Source) ReadIngesterMemory(ctx context.Context, window time.Duration) (cost.Measurement, error) {
-	if s.cfg.MetricsTenant == "" {
-		return cost.Measurement{}, errors.New("MetricsTenant is required: it names the tenant whose TSDB holds Mimir's own cortex_* series (commonly a monitoring tenant), which is not one of the tenants being costed")
+	if err := s.requireMetricsTenant(); err != nil {
+		return cost.Measurement{}, err
 	}
 	rangeStr, err := promapi.Duration(window)
 	if err != nil {

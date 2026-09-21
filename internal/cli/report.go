@@ -311,10 +311,12 @@ func runMetricsReport(ctx context.Context, stdout io.Writer, opts reportOptions,
 		GroupRankMetric: agg.GroupRankMetric,
 		Granularity:     agg.Granularity,
 		SourceLabel:     "Mimir rule metrics (cortex_prometheus_rule_*)",
-		SourceNote:      "counts are PromQL increase() figures, extrapolated at window edges",
-		ObservedStart:   &start,
-		ObservedEnd:     &end,
-		GeneratedAt:     time.Now(),
+		SourceNote: "counts are PromQL increase() figures, extrapolated at window edges; " +
+			"tenants rank by rule-evaluation wall time, which depends on cluster load as well as on the rules, " +
+			"so a tenant's time can rise because a neighbour loads the cluster",
+		ObservedStart: &start,
+		ObservedEnd:   &end,
+		GeneratedAt:   time.Now(),
 	})
 }
 

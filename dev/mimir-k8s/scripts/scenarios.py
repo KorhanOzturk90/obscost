@@ -8,6 +8,11 @@ is plain text meant to be pasted into an issue or PR.
 
 Scenario names: rollout, scale, expensive. Default: all three, in order.
 
+The expensive-rule scenario is also the acceptance test for pools 6 and 7 of
+`promcost cost` (ADR 0003 [A2]): it asserts that two rules writing one series
+each move analytics' shares of the ruler and query-path pools and leave its
+ingester-memory share alone, and exits non-zero if they do not.
+
 Order matters and is deliberate:
 
   1. rollout-ingesters — non-destructive, so it runs on a clean baseline
@@ -51,10 +56,20 @@ def by(result, label):
 
 
 def promcost(since):
+    """Pool 1 only: the rollout and scale scenarios are about ingester memory,
+    and asking for all three pools would add two heavier queries to each read."""
     out = sh(PROMCOST, "cost", "--metrics-tenant", "monitoring", "--config", "promcost.yaml",
-             "--since", since, "--format", "json")
+             "--since", since, "--format", "json", "--pool", "ingester_memory")
     pool = json.loads(out)["pools"][0]
     return pool, {t["tenant"]: t for t in pool["tenants"]}
+
+
+def promcost_pools(since):
+    """Every pool from one `promcost cost` run, keyed by pool id."""
+    out = sh(PROMCOST, "cost", "--metrics-tenant", "monitoring", "--config", "promcost.yaml",
+             "--since", since, "--format", "json")
+    doc = json.loads(out)
+    return {p["pool"]["id"]: p for p in doc["pools"]}
 
 
 def show_cost(since, label):
@@ -201,35 +216,105 @@ def component_cpu(window):
         f'container=~"querier|query-frontend|ruler"}}[{window}]))'), "container")
 
 
+FAILURES = []
+
+
+def contention_note(tenant, time_before, time_after, bytes_before, bytes_after):
+    """What an untouched tenant's query time and fetched bytes did while a
+    neighbour ran expensive rules. The claim it tests is that time follows the
+    neighbour's load and bytes follow the tenant's own queries; it says so only
+    when the numbers show it, because the size of the effect varies run to run
+    (x2.3 on the first run of this scenario, x1.15 and x1.30 on the next two)."""
+    if not time_before.get(tenant) or not bytes_before.get(tenant):
+        return None
+    t = time_after.get(tenant, 0) / time_before[tenant]
+    b = bytes_after.get(tenant, 0) / bytes_before[tenant]
+    head = f"untouched {tenant}: query time x{t:.2f}, fetched bytes x{b:.2f}"
+    if t > 1.5 and b <= 1.1:
+        return head + " — time rose while bytes did not: contention from the neighbour's load, not the tenant's own behaviour"
+    if t <= 1.5:
+        return head + " — no clear contention in this window"
+    return head + " — both rose, so this window cannot separate contention from the tenant's own queries"
+
+
+def expect(name, ok, detail):
+    log(f"    [{'PASS' if ok else 'FAIL'}] {name}: {detail}")
+    if not ok:
+        FAILURES.append(name)
+
+
+def share_of(pools, pool_id, tenant):
+    """A tenant's share of one pool, or None when it is unmeasured there."""
+    for t in pools[pool_id]["tenants"]:
+        if t["tenant"] == tenant:
+            return t.get("share")
+    return None
+
+
 def scenario_expensive_rule():
     log("=" * 72)
     log("SCENARIO 3 — expensive rules on analytics (ADR 0003 [A2])")
     log("Prediction: two recording rules writing one series each, but running a 6h")
     log("quantile and a 1h/15s subquery over every analytics series. Analytics'")
-    log("rule-evaluation and query time jump by a large factor, querier CPU rises,")
-    log("and active series grow by 2 — so promcost cost (pool 1) does not move.")
+    log("rule-evaluation and query time jump by a large factor and querier CPU")
+    log("rises, so its share of pool 7 (ruler) and pool 6 (query path) rises")
+    log("materially; active series grow by 2, so its share of pool 1 (ingester")
+    log("memory) does not move. Untouched infra's query TIME may rise with the")
+    log("contention (x2.3 on the first run of this scenario, x1.15 and x1.30 on the")
+    log("next two), which is the argument for driving pool 6 by bytes and using")
+    log("time only as a flagged fallback.")
     baseline = settle()
     before = show_cost("5m", "before")
+    pools_before = promcost_pools("5m")
     eval_before = increase_by_user("cortex_prometheus_rule_evaluation_duration_seconds_sum", "5m")
     query_before = increase_by_user("cortex_query_seconds_total", "5m")
+    bytes_before = increase_by_user("cortex_query_fetched_chunk_bytes_total", "5m")
     cpu_before = component_cpu("5m")
     sh("./scripts/sync-rules.sh", "analytics", "rules/scenarios/analytics-expensive.yaml")
     wait(7 * 60, "rules evaluate every 1m; one full 5m window after")
     after = show_cost("5m", "expensive rules on")
+    pools_after = promcost_pools("5m")
     eval_after = increase_by_user("cortex_prometheus_rule_evaluation_duration_seconds_sum", "5m")
     query_after = increase_by_user("cortex_query_seconds_total", "5m")
+    bytes_after = increase_by_user("cortex_query_fetched_chunk_bytes_total", "5m")
     cpu_after = component_cpu("5m")
 
     d = after["analytics"]["driver"] - baseline
     log(f"pool 1 — analytics active series delta vs settled baseline: {d:+,.0f} (predicted +2)")
-    log("rule evaluation / query time per tenant over 5m (seconds):")
-    log(f"    {'tenant':<11} {'eval before':>11} {'eval after':>11} {'query before':>12} {'query after':>12}")
+    log("rule evaluation / query time per tenant over 5m (seconds), and fetched volume (MiB):")
+    log(f"    {'tenant':<11} {'eval before':>11} {'eval after':>11} {'query before':>12} {'query after':>12}"
+        f" {'MiB before':>11} {'MiB after':>10}")
+    mib = 1024 * 1024
     for name in sorted(set(eval_before) | set(eval_after)):
         log(f"    {name:<11} {eval_before.get(name, 0):>11.2f} {eval_after.get(name, 0):>11.2f} "
-            f"{query_before.get(name, 0):>12.2f} {query_after.get(name, 0):>12.2f}")
+            f"{query_before.get(name, 0):>12.2f} {query_after.get(name, 0):>12.2f}"
+            f" {bytes_before.get(name, 0) / mib:>11.1f} {bytes_after.get(name, 0) / mib:>10.1f}")
     log("CPU (cores, 5m average):")
     for c in sorted(set(cpu_before) | set(cpu_after)):
         log(f"    {c:<15} {cpu_before.get(c, 0):.3f} -> {cpu_after.get(c, 0):.3f}")
+
+    # The contention observation: infra ran nothing new, so any change in its
+    # query time is its neighbour's load (or noise), not its own behaviour.
+    note = contention_note("infra", query_before, query_after, bytes_before, bytes_after)
+    if note:
+        log(note)
+
+    log("acceptance (promcost cost, all pools; shares of analytics):")
+    for pool_id, label, floor in (("ruler_cpu", "pool 7 ruler CPU", 0.10), ("query_path", "pool 6 query path", 0.10)):
+        b, a = share_of(pools_before, pool_id, "analytics"), share_of(pools_after, pool_id, "analytics")
+        if b is None or a is None:
+            expect(f"{label} rises", False, f"analytics unmeasured (before={b}, after={a})")
+            continue
+        expect(f"{label} rises", a >= b + floor and a >= b * 1.25,
+               f"{b * 100:.1f}% -> {a * 100:.1f}% (needs +{floor * 100:.0f} points and x1.25)")
+    b1, a1 = share_of(pools_before, "ingester_memory", "analytics"), share_of(pools_after, "ingester_memory", "analytics")
+    expect("pool 1 ingester memory holds", abs(a1 - b1) <= 0.01,
+           f"{b1 * 100:.2f}% -> {a1 * 100:.2f}% (needs to move by no more than 1 point)")
+    # Pool 7's driver is time by nature. Pool 6's is time only as a fallback,
+    # and this scenario's claim about contention only holds if it is not.
+    expect("pool 6 is driven by volume, not the time fallback",
+           not pools_after["query_path"].get("fallback", False), pools_after["query_path"]["driver_kind"])
+
     sh("./scripts/sync-rules.sh", "analytics")
     log("expensive rules removed")
 
@@ -245,6 +330,9 @@ def main():
             raise SystemExit(f"unknown scenario {name!r}; pick from {', '.join(SCENARIOS)}")
     for name in chosen:
         SCENARIOS[name]()
+    if FAILURES:
+        log(f"FAILED: {', '.join(FAILURES)}")
+        raise SystemExit(1)
     log("done")
 
 
