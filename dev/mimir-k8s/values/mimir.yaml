@@ -80,7 +80,10 @@ ingester:
     enabled: false
   resources:
     requests: {cpu: 50m, memory: 128Mi}
-    limits: {memory: 768Mi}
+    # 1.5Gi, not 768Mi: the calibration sweep pushes ~240k raw series
+    # through three ingesters, and a limit the sweep runs into would make
+    # the GC, not the series count, the thing being measured.
+    limits: {memory: 1536Mi}
   persistentVolume:
     size: 2Gi
   extraArgs:
