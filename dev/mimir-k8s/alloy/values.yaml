@@ -1,0 +1,8 @@
+# grafana/alloy chart. The pipeline itself is alloy/config.alloy, passed
+# with --set-file alloy.configMap.content (see the Makefile).
+alloy:
+  resources:
+    requests: {cpu: 25m, memory: 128Mi}
+controller:
+  type: deployment
+  replicas: 1

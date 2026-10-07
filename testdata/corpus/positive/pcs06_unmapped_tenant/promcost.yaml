@@ -1,6 +1,0 @@
-tenancy:
-  discovery:
-    - source: static
-      map:
-        team-payments: platform
-  unmapped: error

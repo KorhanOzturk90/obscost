@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -165,14 +163,7 @@ func runTimelineDiff(stdout io.Writer, files []string, tenantsFlag, snapshotDir,
 // newRulerClient builds a ruler API client from config the same way
 // `report`'s ruler-API definitions source does.
 func newRulerClient(cfg config.Config, tenants []string) *rulerapi.Loader {
-	header := cfg.Tenancy.Header
-	if header == "" {
-		header = "X-Scope-OrgID"
-	}
-	var bearerToken string
-	if cfg.Backend.Auth.BearerTokenEnv != "" {
-		bearerToken = os.Getenv(cfg.Backend.Auth.BearerTokenEnv)
-	}
+	header, bearerToken := backendAuth(cfg)
 	return rulerapi.New(rulerapi.Config{
 		BaseURL:     cfg.Backend.URL,
 		Header:      header,
@@ -180,14 +171,4 @@ func newRulerClient(cfg config.Config, tenants []string) *rulerapi.Loader {
 		BearerToken: bearerToken,
 		Timeout:     cfg.Backend.Timeout.Duration(),
 	})
-}
-
-func splitTenants(s string) []string {
-	var out []string
-	for _, t := range strings.Split(s, ",") {
-		if t = strings.TrimSpace(t); t != "" {
-			out = append(out, t)
-		}
-	}
-	return out
 }
