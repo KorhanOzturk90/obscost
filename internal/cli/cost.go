@@ -11,7 +11,9 @@ import (
 	"github.com/KorhanOzturk90/obscost/internal/config"
 	"github.com/KorhanOzturk90/obscost/internal/cost"
 	"github.com/KorhanOzturk90/obscost/internal/cost/mimirdrivers"
+	"github.com/KorhanOzturk90/obscost/internal/promapi"
 	"github.com/KorhanOzturk90/obscost/internal/report"
+	"github.com/KorhanOzturk90/obscost/internal/ruleoutput"
 )
 
 // newCostCmd wires `cost`: config.Load -> inventory -> mimirdrivers (pool
@@ -25,14 +27,19 @@ import (
 //
 // As with `report`, stdout carries only the rendered report, so
 // `--format json | jq` always sees exactly one document.
-func newCostCmd(stdout io.Writer) *cobra.Command {
+//
+// --rule-outputs adds the one step that does need rule definitions: each
+// recording rule joined to the series its record: name writes, counted
+// per tenant (issue #37, internal/ruleoutput). It is a drill-down under
+// pool 1, not a pool of its own.
+func newCostCmd(stdout, stderr io.Writer) *cobra.Command {
 	var opts costOptions
 
 	cmd := &cobra.Command{
 		Use:   "cost",
 		Short: "Split ingester memory across tenants by active series, in replicas and (if priced) currency",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runCost(cmd.Context(), stdout, opts)
+			return runCost(cmd.Context(), stdout, stderr, opts)
 		},
 	}
 
@@ -41,6 +48,9 @@ func newCostCmd(stdout io.Writer) *cobra.Command {
 	cmd.Flags().StringVar(&opts.configPath, "config", "", "path to promcost.yaml (backend.url, and the inventory block for replica counts and prices)")
 	cmd.Flags().StringVar(&opts.format, "format", "md", "output format: md|json")
 	cmd.Flags().StringVar(&opts.since, "since", "", "window to average over (e.g. 1h, 24h, 7d); defaults to 1h")
+	cmd.Flags().BoolVar(&opts.ruleOutputs, "rule-outputs", false, "also count, per tenant, the series each recording rule writes (its record: name), as a point-in-time figure and a share of the tenant's active series. Rule definitions come from --dir, or from the ruler API for --tenant")
+	cmd.Flags().StringVar(&opts.dir, "dir", "", "directory of rule files for --rule-outputs. If omitted, rule definitions are fetched from Mimir's ruler API for --tenant's tenants")
+	cmd.Flags().IntVar(&opts.ruleOutputConcurrency, "rule-output-concurrency", 4, "maximum --rule-outputs count queries in flight at once")
 	return cmd
 }
 
@@ -50,9 +60,13 @@ type costOptions struct {
 	configPath    string
 	format        string
 	since         string
+
+	ruleOutputs           bool
+	dir                   string
+	ruleOutputConcurrency int
 }
 
-func runCost(ctx context.Context, stdout io.Writer, opts costOptions) error {
+func runCost(ctx context.Context, stdout, stderr io.Writer, opts costOptions) error {
 	window := defaultMetricsWindow
 	if opts.since != "" {
 		d, err := parseSinceDuration(opts.since)
@@ -80,6 +94,18 @@ func runCost(ctx context.Context, stdout io.Writer, opts costOptions) error {
 		return fmt.Errorf("--metrics-tenant is required: Mimir's own metrics live in whichever tenant scrapes them, which is usually not a tenant being costed")
 	}
 
+	if opts.dir != "" && !opts.ruleOutputs {
+		return fmt.Errorf("--dir only supplies rule definitions for --rule-outputs, which was not given")
+	}
+	if opts.ruleOutputs {
+		if opts.dir == "" && opts.tenants == "" {
+			return fmt.Errorf("--rule-outputs needs rule definitions: give --dir, or --tenant to fetch them from the ruler API")
+		}
+		if opts.ruleOutputConcurrency < 1 {
+			return fmt.Errorf("--rule-output-concurrency must be at least 1, got %d", opts.ruleOutputConcurrency)
+		}
+	}
+
 	inv := inventoryFromConfig(cfg.Inventory)
 	if err := inv.Validate(); err != nil {
 		return err
@@ -98,10 +124,72 @@ func runCost(ctx context.Context, stdout io.Writer, opts costOptions) error {
 		return err
 	}
 
-	return rep.Render(stdout, report.CostResult{
-		Pools:       []cost.PoolAllocation{cost.Allocate(m, inv, splitTenants(opts.tenants))},
+	pool := cost.Allocate(m, inv, splitTenants(opts.tenants))
+	result := report.CostResult{
+		Pools:       []cost.PoolAllocation{pool},
 		GeneratedAt: time.Now(),
-	})
+	}
+	if opts.ruleOutputs {
+		ro, err := measureRuleOutputs(ctx, stderr, opts, cfg, pool)
+		if err != nil {
+			return err
+		}
+		result.RuleOutputs = &ro
+	}
+	return rep.Render(stdout, result)
+}
+
+// measureRuleOutputs loads rule definitions exactly as `report` does, then
+// counts each recording rule's output series as the rule's own tenant, and
+// joins the counts against pool 1's per-tenant active series. A rule file
+// that fails to load is fatal, as in `report`: silently dropping a tenant's
+// rules would understate its rule output. A count query that fails is not:
+// its rules render as not measured, with the reason, and a warning goes to
+// stderr.
+func measureRuleOutputs(ctx context.Context, stderr io.Writer, opts costOptions, cfg config.Config, pool cost.PoolAllocation) (ruleoutput.Report, error) {
+	defs, err := newDefinitionsSource(reportOptions{dir: opts.dir, tenants: opts.tenants}, cfg)
+	if err != nil {
+		return ruleoutput.Report{}, err
+	}
+	rules, loadErrs, err := defs.Load(ctx)
+	if err != nil {
+		return ruleoutput.Report{}, err
+	}
+	if len(loadErrs) > 0 {
+		for _, le := range loadErrs {
+			_, _ = fmt.Fprintln(stderr, "load error:", le.Error())
+		}
+		return ruleoutput.Report{}, fmt.Errorf("%d rule source(s) failed to load", len(loadErrs))
+	}
+
+	header, bearerToken := backendAuth(cfg)
+	counts := ruleoutput.Count(ctx, ruleoutput.CountConfig{
+		NewQuerier: func(tenant string) ruleoutput.Querier {
+			return promapi.New(promapi.Config{
+				BaseURL:     cfg.Backend.URL,
+				Header:      header,
+				Tenant:      tenant,
+				BearerToken: bearerToken,
+				Timeout:     cfg.Backend.Timeout.Duration(),
+			})
+		},
+		Concurrency: opts.ruleOutputConcurrency,
+	}, ruleoutput.Wanted(rules))
+
+	failed := 0
+	for _, metrics := range counts.Tenants {
+		for _, c := range metrics {
+			if c.Series == nil {
+				failed++
+			}
+		}
+	}
+	if failed > 0 {
+		_, _ = fmt.Fprintf(stderr, "warning: %d output metric(s) could not be counted; they are reported as not measured\n", failed)
+	}
+
+	denom := ruleoutput.DenominatorFromPool(pool)
+	return ruleoutput.Join(rules, counts, &denom), nil
 }
 
 func inventoryFromConfig(c config.InventoryConfig) cost.Inventory {
