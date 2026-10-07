@@ -48,6 +48,30 @@ func ruleOutputFixture(t *testing.T) (*httptest.Server, *[]string) {
 	return srv, &countTenants
 }
 
+// With every pool read, the rule-output drill-down still divides by pool
+// 1 and renders after the cross-pool section.
+func TestCost_RuleOutputsWithAllPools(t *testing.T) {
+	srv, _ := ruleOutputFixture(t)
+	stdout, stderr, code := run("cost",
+		"--metrics-tenant", "monitoring",
+		"--config", writeCostConfig(t, srv.URL, ""),
+		"--tenant", "infra",
+		"--rule-outputs",
+		"--pool", "ruler_cpu,ingester_memory,query_path",
+	)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0. stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, want := range []string{"## Ingester memory", "## Query path", "## Ruler CPU", "## Rule output series (point-in-time)", "10.0% of its 7,743 active series"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("stdout missing %q:\n%s", want, stdout)
+		}
+	}
+	if i, j := strings.Index(stdout, "## Ruler CPU"), strings.Index(stdout, "## Rule output series"); i < 0 || j < i {
+		t.Errorf("rule-output section should follow the pools:\n%s", stdout)
+	}
+}
+
 func TestCost_RuleOutputs(t *testing.T) {
 	srv, countTenants := ruleOutputFixture(t)
 
@@ -148,6 +172,9 @@ func TestCost_RuleOutputsUsageErrors(t *testing.T) {
 		{"no rule source", []string{"--rule-outputs"}, "needs rule definitions"},
 		{"dir without rule-outputs", []string{"--dir", "x"}, "--dir only supplies"},
 		{"zero concurrency", []string{"--rule-outputs", "--tenant", "infra", "--rule-output-concurrency", "0"}, "at least 1"},
+		// The drill-down divides by pool 1, so excluding pool 1 is a usage
+		// error, not a silently added pool.
+		{"pool 1 excluded", []string{"--rule-outputs", "--tenant", "infra", "--pool", "ruler_cpu"}, "add ingester_memory to --pool"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
