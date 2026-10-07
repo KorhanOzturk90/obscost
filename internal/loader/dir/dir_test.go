@@ -2,6 +2,7 @@ package dir_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/KorhanOzturk90/obscost/internal/loader/dir"
@@ -17,9 +18,9 @@ func (s staticResolver) Resolve(f tenancy.Facts) (string, bool) {
 	return t, ok
 }
 
-func errorPolicy(t *testing.T) tenancy.UnmappedPolicy {
+func policy(t *testing.T, raw string) tenancy.UnmappedPolicy {
 	t.Helper()
-	p, err := tenancy.ParseUnmappedPolicy("error")
+	p, err := tenancy.ParseUnmappedPolicy(raw)
 	if err != nil {
 		t.Fatalf("ParseUnmappedPolicy: %v", err)
 	}
@@ -30,7 +31,7 @@ func TestLoadValidDirectory(t *testing.T) {
 	l := dir.New(dir.Config{
 		Dir:      "testdata/valid",
 		Resolver: staticResolver{m: map[string]string{"team-payments": "platform"}},
-		Policy:   errorPolicy(t),
+		Policy:   policy(t, "tenant:fallback"),
 	})
 	rules, loadErrs, err := l.Load(context.Background())
 	if err != nil {
@@ -57,8 +58,8 @@ func TestLoadValidDirectory(t *testing.T) {
 				t.Error("payments rule AST is nil")
 			}
 		}
-		if r.Location.File == "root.yaml" && r.Tenant != "" {
-			t.Errorf("root.yaml rule Tenant = %q, want \"\" (flat file has no namespace, unmapped)", r.Tenant)
+		if r.Location.File == "root.yaml" && r.Tenant != "fallback" {
+			t.Errorf("root.yaml rule Tenant = %q, want \"fallback\" (flat file has no namespace, unmapped)", r.Tenant)
 		}
 	}
 	if !byFile["root.yaml"] || !byFile["team-payments/rules.yaml"] {
@@ -66,11 +67,29 @@ func TestLoadValidDirectory(t *testing.T) {
 	}
 }
 
+func TestLoadUnmappedErrorPolicy(t *testing.T) {
+	l := dir.New(dir.Config{
+		Dir:      "testdata/valid",
+		Resolver: staticResolver{m: map[string]string{"team-payments": "platform"}},
+		Policy:   policy(t, "error"),
+	})
+	rules, loadErrs, err := l.Load(context.Background())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(rules) != 1 || rules[0].Tenant != "platform" {
+		t.Errorf("rules = %+v, want only the mapped team-payments rule", rules)
+	}
+	if len(loadErrs) != 1 || loadErrs[0].File != "testdata/valid/root.yaml" || !errors.Is(loadErrs[0], tenancy.ErrUnmapped) {
+		t.Fatalf("loadErrs = %v, want one ErrUnmapped for root.yaml", loadErrs)
+	}
+}
+
 func TestLoadBadYAML(t *testing.T) {
 	l := dir.New(dir.Config{
 		Dir:      "testdata/badyaml",
-		Resolver: staticResolver{},
-		Policy:   errorPolicy(t),
+		Resolver: staticResolver{m: map[string]string{"": "t"}},
+		Policy:   policy(t, "error"),
 	})
 	rules, loadErrs, err := l.Load(context.Background())
 	if err != nil {
@@ -87,8 +106,8 @@ func TestLoadBadYAML(t *testing.T) {
 func TestLoadBadExpr(t *testing.T) {
 	l := dir.New(dir.Config{
 		Dir:      "testdata/badexpr",
-		Resolver: staticResolver{},
-		Policy:   errorPolicy(t),
+		Resolver: staticResolver{m: map[string]string{"": "t"}},
+		Policy:   policy(t, "error"),
 	})
 	_, loadErrs, err := l.Load(context.Background())
 	if err != nil {
