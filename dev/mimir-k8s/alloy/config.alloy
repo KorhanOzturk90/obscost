@@ -88,7 +88,7 @@ prometheus.scrape "mimir_usage" {
 // cAdvisor through the API server's node proxy: per-container CPU and
 // memory, restricted to a few namespaces and a handful of series so the
 // monitoring tenant stays small. kube-system is included because pricing a
-// pool from node cost (ADR 0006) needs to know what *else* is on the node:
+// pool from node cost (ADR 0007) needs to know what *else* is on the node:
 // without it, everything the cluster runs besides Mimir looks like idle
 // capacity.
 discovery.kubernetes "nodes" {

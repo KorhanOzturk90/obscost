@@ -100,7 +100,7 @@ make calibrate-series        # coefficient: ingester memory per active series (~
 make calibrate-query         # what query load costs ingesters and queriers (~30m)
 ```
 
-[`scripts/podcost.py`](scripts/podcost.py) implements [ADR 0006](../../docs/adr/0006-pricing-pools-on-a-shared-cluster.md)
+[`scripts/podcost.py`](scripts/podcost.py) implements [ADR 0007](../../docs/adr/0007-pricing-pools-on-a-shared-cluster.md)
 decision 3 — `price × max(request, usage) / node capacity`, per pod, summed
 per component — because on a shared cluster nobody is billed for
 "ingesters". Idle capacity is printed as its own line and never spread
@@ -221,7 +221,7 @@ Expensive rules added to `analytics` one at a time, ingestion unchanged:
 
 - **E1: ingester CPU nearly tripled with no extra ingestion** (0.295 → 0.840
   cores), fitting data fetched at R² 0.83 over a fixed 0.28 cores. Ingester
-  CPU is a read cost. ADR 0003 pool 2 calls it the write path; ADR 0006
+  CPU is a read cost. ADR 0003 pool 2 calls it the write path; ADR 0007
   decision 1 corrects that, and this is the measurement behind it.
 - **E3: querier CPU is predicted better by query *seconds* (R² 0.962) than
   by bytes fetched (R² 0.832).** That is awkward, and real: querier CPU *is*

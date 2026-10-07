@@ -84,7 +84,7 @@ cost:
 	$(PROMCOST) cost --metrics-tenant monitoring --config promcost.yaml \
 	  --tenant analytics,infra,payments,platform,monitoring --since $(or $(SINCE),1h)
 
-# OpenCost, as a cross-check on podcost.py's arithmetic (ADR 0006). Not part
+# OpenCost, as a cross-check on podcost.py's arithmetic (ADR 0007). Not part
 # of `make up`: one more pod, and only useful when comparing.
 opencost:
 	helm repo add opencost https://opencost.github.io/opencost-helm-chart >/dev/null 2>&1 || true
@@ -96,7 +96,7 @@ opencost:
 	@echo "OpenCost installed; compare with: ./scripts/compare-opencost.py"
 
 # What the components cost, derived from node prices the way an operator on
-# a shared cluster has to derive them (ADR 0006 decision 3), with idle
+# a shared cluster has to derive them (ADR 0007 decision 3), with idle
 # capacity on its own line.
 podcost:
 	./scripts/podcost.py --window $(or $(WINDOW),1h)

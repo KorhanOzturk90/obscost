@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Price Mimir's components from node cost, per ADR 0006 decision 3.
+"""Price Mimir's components from node cost, per ADR 0007 decision 3.
 
     ./scripts/podcost.py [--window 1h] [--cpu-hour 0.04] [--gib-hour 0.005]
 
@@ -19,7 +19,7 @@ pool's cost, and what promcost's inventory asks the operator to supply.
 Whatever the nodes cost that is *not* claimed by any pod is idle capacity.
 It is printed as its own line and never spread across components: a cluster
 kept at 40% utilisation for headroom has cost that no tenant caused (ADR
-0006 decision 4).
+0007 decision 4).
 
 Default prices are a made-up but plausible on-demand shape (~$0.04 per
 vCPU-hour, ~$0.005 per GiB-hour). Replace them with real ones before
@@ -168,7 +168,7 @@ def component_of(namespace, workload):
 
 
 def allocate(window, cpu_hour, gib_hour):
-    """The ADR 0006 decision 3 allocation, shared with compare-opencost.py.
+    """The ADR 0007 decision 3 allocation, shared with compare-opencost.py.
 
     Returns (node_cost_per_hour, {component: {...}}, idle_cost_per_hour).
     """
@@ -225,7 +225,7 @@ def main():
     print(f"  {'-' * 75}")
     print(f"  {'allocated':<28} {'':>4} {'':>7} {'':>7} {'':>6} {allocated:>9.4f} {allocated / node_cost_hour * 100:>6.1f}%")
     print(f"  {'idle / headroom':<28} {'':>4} {'':>7} {'':>7} {'':>6} {idle:>9.4f} {idle / node_cost_hour * 100:>6.1f}%")
-    print("\nIdle is reported, never spread across components (ADR 0006 decision 4).")
+    print("\nIdle is reported, never spread across components (ADR 0007 decision 4).")
     print("Mimir's own pools are the 'mimir' rows; the rest is what shares the cluster.")
 
 

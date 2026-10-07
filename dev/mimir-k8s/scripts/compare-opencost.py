@@ -3,7 +3,7 @@
 
     ./scripts/compare-opencost.py [--window 1h]
 
-ADR 0006 decision 3 says a pool's cost on a shared cluster is derived:
+ADR 0007 decision 3 says a pool's cost on a shared cluster is derived:
 `price × max(request, usage) / node capacity`, per pod, summed per
 component. OpenCost is the de-facto reference implementation of exactly
 that idea, so running both over the same window against the same synthetic

@@ -156,7 +156,7 @@ def sweep_query(steps):
     log("=" * 72)
     log("SWEEP E1/E3 — what query load actually costs")
     log("Adds 0..N expensive recording rules to analytics at constant ingestion,")
-    log("then fits: ingester CPU vs bytes fetched (ADR 0006 decisions 1-2 — is")
+    log("then fits: ingester CPU vs bytes fetched (ADR 0007 decisions 1-2 — is")
     log("ingester CPU really a write-path cost?) and querier CPU vs bytes fetched")
     log("against querier CPU vs query seconds (which driver predicts pool 6?).")
     os.makedirs(CACHE, exist_ok=True)

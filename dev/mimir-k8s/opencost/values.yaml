@@ -1,4 +1,4 @@
-# OpenCost as a cross-check on ADR 0006 decision 3: it prices pods from
+# OpenCost as a cross-check on ADR 0007 decision 3: it prices pods from
 # node cost the same way scripts/podcost.py does, so agreement is evidence
 # our arithmetic is right, and disagreement is a finding either way.
 #
