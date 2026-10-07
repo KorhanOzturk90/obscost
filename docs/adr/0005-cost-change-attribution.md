@@ -47,9 +47,10 @@ their shapes:**
   change reached Mimir in `(prev_snapshot, curr_snapshot]`. The evidence
   bar below uses that interval as given and never collapses it to a point.
 - **The PromQL client** in `internal/promapi` (PR #40). The sub-tenant
-  driver queries below go through it. `Meter.SeriesCount`, which ADR 0003
-  and issue #37 name as the home for `count({__name__="<record>"})`, is
-  removed by PR #42 and is not used here.
+  driver queries below go through it. `Meter.SeriesCount`, which issue #37
+  originally planned to use for `count({__name__="<record>"})`, was removed
+  with the static analyzer ([ADR 0006](0006-remove-static-analysis.md),
+  PR #42) and is not used here.
 
 ---
 
@@ -284,7 +285,7 @@ Candidate sub-tenant drivers, in order of what they can name:
 
 | source | names | history | pools | status |
 |---|---|---|---|---|
-| **Recording-rule output**: `count({__name__="<record>"})` per rule, as a window average through `internal/promapi` (issue #37) | **a rule** | yes: it is a range query over the tenant's own data | 1 (series); 2 (series ÷ group interval = samples/s) | the only source that names a rule; no other tool can do this (ADR 0003 [A]) |
+| **Recording-rule output**: `count({__name__="<record>"})` per rule, as a window average through `internal/promapi` (issue #37) | **a rule** | yes: it is a range query over the tenant's own data | 1 (series); 2 (series ÷ group interval = samples/s) | the only source that names a rule; no other tool can do this (ADR 0003 [A2]) |
 | **Active-series custom trackers** (`cortex_ingester_active_series_custom_tracker{user,name}`), and Mimir's cost-attribution trackers (ADR 0004) | an operator-defined slice (team, app, label value) | yes: they are metrics | 1, 2 | labels, not rules: rule output lands under whatever labels the expression produced |
 | **Mimir cardinality API** (`/api/v1/cardinality/label_values` on `__name__`, `/api/v1/cardinality/active_series`) | a metric name | **no**: current head only | 1 | a snapshot, like the ruler API; only comparable if captured at both ends; not yet verified on the rig |
 | **Per-rule evaluation cost**: ruler API `evaluationTime`, the query-stats log (ADRs 0001–0002) | a rule | log: only if captured; API: snapshot only | 7 (ruler CPU), 6 | the existing drill-down layer |
@@ -294,7 +295,7 @@ Three rules follow:
 - **`RuleIngestionRate` vs `APIIngestionRate` is corroboration, never a
   location or a cause.** It is a two-way split of one scalar. It can
   support *"the growth came from rule output"*, but it can never say which
-  rule (ADR 0003 [A]). `/distributor/all_user_stats` is also an
+  rule (ADR 0003 [A2]). `/distributor/all_user_stats` is also an
   instant-only endpoint, so the split can only be compared if both windows
   were captured. Where it appears, it is an annotation on a location line.
 - **Recording-rule output is counted after deduplication.** A query-path
@@ -322,7 +323,7 @@ flowchart TD
     E["Change event (issue #33)\ntenant, rule identity, kind,\nchanged in (prev, curr]"] --> SPAN{"Is curr after window A's start?"}
     SPAN -->|no| OLD["Not a candidate: too old.\nIts effect is already in A."]
     SPAN -->|yes| T{"Timing: could it precede the step?\nprev < step_onset_hi"}
-    T -->|"no: it definitely came after"| X["Not a cause"]
+    T -->|"no: it definitely came after"| X["Listed as after the step,\nwith both intervals. Not coincident,\nnever 'due to'."]
     T -->|yes| MAG{"Is its magnitude measurable in this pool's units?\n(a location driver it names, decision 4)"}
     MAG -->|no| CO["Listed as a coincident change,\nmagnitude not measurable. Never 'due to'."]
     MAG -->|yes| M{"Magnitude: same sign as the volume line,\nat least 20% of it, and above the noise floor?"}
@@ -371,9 +372,17 @@ tested as **one** event. A group change of 14 rules that together explain
   tenants' volume lines, which are named by tenant (*"infra −1,000
   series"*) and not re-derived. A price line is explained by the inventory
   change itself.
-- An event that fails the bar is still listed, as a *coincident change*
-  with its magnitude when known. A reader can see what was ruled out, and
-  why.
+- An event that fails the bar is still listed, so a reader can see what
+  was ruled out and why. It is listed under the test it failed, matching
+  the diagram's terminals:
+  - **coincident change**: it passed timing but failed on magnitude, or
+    its magnitude is not measurable in this pool. It is printed with its
+    magnitude when known. "Coincident" means exactly this: timing alone.
+  - **after the step**: it definitely came after the step began
+    (`prev ≥ onset_hi`). It is printed with both intervals and gets no
+    magnitude test, because it cannot have caused this step.
+  - An event from before window A's start is not a candidate and is not
+    listed: its effect is already in A.
 
 **What the event needs to carry.** This ADR consumes only: tenant, rule
 identity (ADR 0001's `RuleID`), rule type, `record:` name before/after,
@@ -484,7 +493,7 @@ coverage 99.8% / 99.6% · order: volume → mix → membership → price
 
 - **Most volume lines will read "unexplained" at first.** The only event
   source is ruler-API diffs, and rule output is a small share of ingestion
-  on a mixin-shaped corpus (3.6% on the rig, ADR 0003 [A]). This is the
+  on a mixin-shaped corpus (3.6% on the rig, ADR 0003 [A2]). This is the
   honest output. It shows that the next event source to build is scrape
   targets, not better heuristics.
 - **ADR 0003 decision 5 [A] is refined, not contradicted.** Its first item
@@ -520,7 +529,8 @@ coverage 99.8% / 99.6% · order: volume → mix → membership → price
   before/after methodology
 - [ADR 0003](0003-cost-model-pool-driver-mappings.md) — the snapshot model
   this differences; its [A] amendments on driver aggregation, measured-set
-  stability, cross-pool coverage and the rule-vs-API ingestion split
+  stability and cross-pool coverage, and its [A2] amendment on rules
+  (evaluation cost first, and the rule-vs-API ingestion split)
 - [ADR 0004](0004-finops-pivot-scope-and-sequencing.md) — decision 6 (the
   change timeline), decision 4 (write-once records, which fixed windows
   serve), step 3 of the build order
@@ -529,6 +539,7 @@ coverage 99.8% / 99.6% · order: volume → mix → membership → price
 - GitHub issues #31 (this ADR), #33 (change timeline; the event shape
   consumed by decision 5), #37 (rule → output series; the location driver
   that names a rule), #36 (ADR 0003 review)
-- PR #40 (`internal/promapi`, the `inventory:` block), PR #42 (removes
-  `Meter.SeriesCount`), PR #41 (microservices rig, for tuning the noise
-  floor)
+- [ADR 0006](0006-remove-static-analysis.md) — removed the static
+  analyzer and, with it, `Meter.SeriesCount` (PR #42)
+- PR #40 (`internal/promapi`, the `inventory:` block), PR #41
+  (microservices rig, for tuning the noise floor)
