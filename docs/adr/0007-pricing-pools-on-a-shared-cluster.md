@@ -1,4 +1,4 @@
-# 0006: Pricing pools on a shared cluster — from one bill to per-pool cost
+# 0007: Pricing pools on a shared cluster — from one bill to per-pool cost
 
 **Status:** Proposed
 
