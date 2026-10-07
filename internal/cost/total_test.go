@@ -179,3 +179,47 @@ func TestAllocateAll_OneMeasurementPerPoolInOrder(t *testing.T) {
 		t.Errorf("Pools = %v, want the caller's order kept", r.Pools)
 	}
 }
+
+// A pool --pool left out is neither priced, unpriced nor unmeasured: it
+// was not read. The total must still name it, or "of the X% of platform
+// cost we can price" would silently leave out a pool promcost can price.
+func TestAllocateAll_PoolsNotReadAreNamed(t *testing.T) {
+	r := AllocateAll([]Measurement{ingesterMeasurement(), rulerMeasurement()}, pricedInventory(), nil)
+	if got := poolIDs(r.CrossPool.NotRead); got != "query_path" {
+		t.Errorf("NotRead = %q, want query_path", got)
+	}
+	r = AllocateAll([]Measurement{ingesterMeasurement(), queryPathMeasurement(), rulerMeasurement()}, pricedInventory(), nil)
+	if len(r.CrossPool.NotRead) != 0 {
+		t.Errorf("NotRead = %v, want none when every pool was read", r.CrossPool.NotRead)
+	}
+	if _, ok := r.Pool(PoolQueryPath); !ok {
+		t.Error("Report.Pool(query_path) not found")
+	}
+}
+
+// Under remote evaluation the same rule queries drive a tenant's share of
+// pools 6 and 7 (ADR 0003 [V]). The total over both must say so; it must
+// not say so under local evaluation, or when only one of them is priced.
+func TestAllocateAll_RemoteEvaluationCaveatWhenBothRulePoolsArePriced(t *testing.T) {
+	inv := pricedInventory()
+	inv.Pools[PoolRulerCPU] = PoolInventory{Replicas: intp(1), CostPerReplicaMonth: floatp(100)}
+	const caveat = "weighs the same queries in both"
+	read := func(mode RuleEvaluation, inv Inventory) string {
+		qp, rl := queryPathMeasurement(), rulerMeasurement()
+		qp.RuleEvaluation, rl.RuleEvaluation = mode, mode
+		r := AllocateAll([]Measurement{ingesterMeasurement(), qp, rl}, inv, nil)
+		if a, _ := r.Pool(PoolRulerCPU); a.RuleEvaluation != mode {
+			t.Errorf("PoolAllocation.RuleEvaluation = %q, want %q", a.RuleEvaluation, mode)
+		}
+		return strings.Join(r.CrossPool.Notes, "\n")
+	}
+	if !strings.Contains(read(RuleEvaluationRemote, inv), caveat) {
+		t.Error("remote evaluation with pools 6 and 7 priced: caveat missing")
+	}
+	if strings.Contains(read(RuleEvaluationLocal, inv), caveat) {
+		t.Error("local evaluation: rule work is in pool 7 only, no caveat")
+	}
+	if strings.Contains(read(RuleEvaluationRemote, pricedInventory()), caveat) {
+		t.Error("ruler unpriced: the total does not include it, no caveat")
+	}
+}

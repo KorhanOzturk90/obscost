@@ -63,6 +63,19 @@ func (s *Source) ReadQueryPath(ctx context.Context, window time.Duration) (cost.
 		Value:  "fetched volume over time: " + chainNames() + "; the first with data is used",
 		Source: "ADR 0003 pool 6, ADR 0002 decision 8",
 	})
+	// Whether rule queries are inside this pool's driver depends on how the
+	// ruler evaluates them (ADR 0003 [V]), and nothing in cortex_query_*
+	// says so, so the trail must.
+	mode, err := s.ruleEvaluation(ctx, rangeStr)
+	if err != nil {
+		return cost.Measurement{}, err
+	}
+	m.RuleEvaluation = mode.mode
+	m.Assumptions = append(m.Assumptions, cost.Assumption{
+		Name:   "rule queries",
+		Value:  queryPathRuleQueries[mode.mode] + " (" + mode.evidence + ")",
+		Source: m.Source,
+	})
 
 	type answer struct {
 		driver  queryPathDriver
@@ -146,68 +159,140 @@ const (
 	rulerQueryMetric     = "cortex_ruler_query_seconds_total"
 )
 
+// queryPathRuleQueries says, per evaluation mode, whether pool 6's driver
+// contains rule work. Measured on Mimir 3.2.0 (ADR 0003 [V], E6): under
+// local evaluation 1,376 rule evaluations moved cortex_query_* by zero;
+// under remote evaluation the query-frontend records every rule query,
+// with no label separating it from user queries.
+var queryPathRuleQueries = map[cost.RuleEvaluation]string{
+	cost.RuleEvaluationLocal: "not included — rules are evaluated inside the ruler, so this pool is user and API queries only; rule work is in the ruler CPU pool",
+	cost.RuleEvaluationRemote: "included — rules are evaluated remotely, so every tenant's rule queries are in this pool alongside its user queries, " +
+		"and no label separates the two",
+	cost.RuleEvaluationUnknown: "unknown — whether rule queries are in this pool depends on the ruler's evaluation mode, which could not be inferred",
+}
+
+// ruleEvaluation is the ruler's evaluation mode as inferred for one
+// window, with the evidence for it.
+type ruleEvaluation struct {
+	mode     cost.RuleEvaluation
+	evidence string
+	// evalSeconds is the pool-7 driver, read on the way.
+	evalSeconds map[string]float64
+	evalQuery   string
+}
+
+// ruleEvaluation infers whether the ruler evaluates rules locally or
+// through the query-frontend (-ruler.query-frontend.address), from which
+// of its metrics exist. On Mimir 3.2.0 (ADR 0003 [V], E7)
+// cortex_ruler_query_seconds_total is recorded only for queries the ruler
+// runs itself, and is absent under remote evaluation, while
+// cortex_prometheus_rule_evaluation_duration_seconds exists in both modes.
+// So:
+//
+//   - query seconds present: local;
+//   - query seconds absent, evaluations present: remote;
+//   - neither present: unknown. No tenant has rules, or the metrics tenant
+//     does not scrape the ruler; either way there is no evidence of a
+//     mode, and claiming one would be the inference ADR 0003 [V] warns
+//     against.
+//
+// This is inference from metric presence, not configuration, and the
+// trail says so. A ruler switched between modes inside the window has
+// query seconds for part of it and reads as local.
+func (s *Source) ruleEvaluation(ctx context.Context, rangeStr string) (ruleEvaluation, error) {
+	if r, ok := s.evalModes[rangeStr]; ok {
+		return r, nil
+	}
+	r := ruleEvaluation{evalQuery: fmt.Sprintf(counterQuery, ruleEvaluationMetric, rangeStr)}
+	var err error
+	r.evalSeconds, err = s.readDrivers(ctx, r.evalQuery)
+	if err != nil {
+		return ruleEvaluation{}, fmt.Errorf("rule evaluation query: %w", err)
+	}
+	local, err := s.readDrivers(ctx, fmt.Sprintf(counterQuery, rulerQueryMetric, rangeStr))
+	if err != nil {
+		return ruleEvaluation{}, fmt.Errorf("ruler query-time query: %w", err)
+	}
+	switch {
+	case len(local) > 0:
+		r.mode = cost.RuleEvaluationLocal
+		r.evidence = "inferred: " + rulerQueryMetric + " has data, and the ruler records it only for queries it runs itself"
+	case len(r.evalSeconds) > 0:
+		r.mode = cost.RuleEvaluationRemote
+		r.evidence = "inferred: rules were evaluated, but " + rulerQueryMetric + " has no data, which is what a ruler sending its queries to the query-frontend reports"
+	default:
+		r.mode = cost.RuleEvaluationUnknown
+		r.evidence = "neither " + ruleEvaluationMetric + " nor " + rulerQueryMetric +
+			" has data in this window: no tenant evaluated rules, or the metrics tenant does not scrape the ruler"
+	}
+	if s.evalModes == nil {
+		s.evalModes = map[string]ruleEvaluation{}
+	}
+	s.evalModes[rangeStr] = r
+	return r, nil
+}
+
 // ReadRulerCPU measures pool 7, the ruler, over [now-window, now]: the
 // time each tenant's rules spent evaluating.
 //
 // The driver is the same in both evaluation modes; what differs is what
-// the time is, and the trail says which mode the cluster is in. That is
-// decided by cortex_ruler_query_seconds_total, which the ruler only
-// records for queries it runs itself:
+// the time is, and the trail says which mode the cluster is in (see
+// ruleEvaluation for how it is inferred):
 //
-//   - Local evaluation: it has data. The ruler ran the rule queries in its
-//     own process, so every evaluation second is ruler CPU and none of it
-//     shows up in the query path (the cortex_query_* metrics are recorded
-//     by the query-frontend, which a local ruler never calls). The
-//     query seconds are *nested inside* the evaluation seconds — a rule's
+//   - Local evaluation: the ruler ran the rule queries in its own process,
+//     so every evaluation second is ruler CPU and none of it shows up in
+//     the query path (the cortex_query_* metrics are recorded by the
+//     query-frontend, which a local ruler never calls). The ruler's query
+//     seconds are *nested inside* the evaluation seconds — a rule's
 //     evaluation contains its query — so they must not be subtracted:
 //     doing so would remove the ruler's main cost and leave only its
 //     bookkeeping.
-//   - Remote evaluation: it is absent. The queries ran in the query path
-//     and are priced as pool 6. The evaluation time still includes the
-//     ruler waiting for them, so it measures how long a tenant's rules
-//     occupy the ruler more than CPU, and the measurement says so instead
-//     of pretending otherwise. Nothing per-tenant separates the waiting
-//     out, which is why this is a note and not a subtraction.
+//   - Remote evaluation: the queries ran in the query path and are priced
+//     as pool 6. The evaluation time still includes the ruler waiting for
+//     them, so it measures how long a tenant's rules occupy the ruler more
+//     than CPU, and the measurement says so instead of pretending
+//     otherwise. Nothing per-tenant separates the waiting out, which is
+//     why this is a note and not a subtraction.
 func (s *Source) ReadRulerCPU(ctx context.Context, window time.Duration) (cost.Measurement, error) {
 	m, rangeStr, err := s.counterMeasurement(cost.RulerCPU, window)
+	if err != nil {
+		return cost.Measurement{}, err
+	}
+	mode, err := s.ruleEvaluation(ctx, rangeStr)
 	if err != nil {
 		return cost.Measurement{}, err
 	}
 	m.DriverMetric = ruleEvaluationMetric
 	m.DriverKind = "rule-evaluation seconds"
 	m.Unit = cost.UnitSeconds
-	m.DriverQuery = fmt.Sprintf(counterQuery, ruleEvaluationMetric, rangeStr)
+	m.DriverQuery = mode.evalQuery
+	m.Drivers = mode.evalSeconds
+	m.RuleEvaluation = mode.mode
 
-	m.Drivers, err = s.readDrivers(ctx, m.DriverQuery)
-	if err != nil {
-		return cost.Measurement{}, fmt.Errorf("rule evaluation query: %w", err)
-	}
-	localQuery := fmt.Sprintf(counterQuery, rulerQueryMetric, rangeStr)
-	local, err := s.readDrivers(ctx, localQuery)
-	if err != nil {
-		return cost.Measurement{}, fmt.Errorf("ruler query-time query: %w", err)
-	}
-
-	if len(local) > 0 {
+	switch mode.mode {
+	case cost.RuleEvaluationLocal:
 		m.Assumptions = append(m.Assumptions, cost.Assumption{
 			Name: "rule evaluation",
-			Value: "local — " + rulerQueryMetric + " has data, so the ruler ran its rule queries itself: " +
-				"all of this time is ruler CPU, and none of it is in the query path (its query time is part of it, not added to it)",
+			Value: "local (" + mode.evidence + "): all of this time is ruler CPU, and none of it is in the query path " +
+				"(the ruler's query time is part of it, not added to it)",
 			Source: m.Source,
 		})
-		return m, nil
-	}
-	m.Assumptions = append(m.Assumptions, cost.Assumption{
-		Name: "rule evaluation",
-		Value: "remote — " + rulerQueryMetric + " has no data, so the ruler sends its rule queries to the query-frontend " +
-			"and their work is priced in the query path",
-		Source: m.Source,
-	})
-	if len(m.Drivers) > 0 {
+	case cost.RuleEvaluationRemote:
+		m.Assumptions = append(m.Assumptions, cost.Assumption{
+			Name:   "rule evaluation",
+			Value:  "remote (" + mode.evidence + "): the rule queries' work is priced in the query path",
+			Source: m.Source,
+		})
 		m.Notes = append(m.Notes,
 			"rules are evaluated remotely, so this time is mostly the ruler waiting on the query path, not ruler CPU: "+
 				"it shows how long each tenant's rules occupy the ruler, and the work behind it is already in the query path pool. "+
 				"It also depends on load — a tenant's rules run slower when a neighbour loads the cluster")
+	default:
+		m.Assumptions = append(m.Assumptions, cost.Assumption{
+			Name:   "rule evaluation",
+			Value:  "unknown (" + mode.evidence + ")",
+			Source: m.Source,
+		})
 	}
 	return m, nil
 }

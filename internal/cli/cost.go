@@ -20,7 +20,7 @@ import (
 
 // newCostCmd wires `cost`: config.Load -> inventory -> mimirdrivers (pool
 // driver values from Mimir's own metrics) -> cost.AllocateAll -> cost
-// reporter. It is ADR 0004 build steps 1 and 3, tenant showback, for
+// reporter. It is ADR 0004 build step 1, tenant showback, for ADR 0003's
 // pools 1 (ingester memory), 6 (query path) and 7 (ruler CPU).
 //
 // It is a separate command from `report` rather than a mode of it because

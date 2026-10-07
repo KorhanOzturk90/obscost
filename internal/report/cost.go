@@ -317,8 +317,15 @@ func costMDCrossPool(result CostResult) mdCrossPool {
 		return out
 	}
 	names := map[cost.PoolID]string{}
+	allocs := map[cost.PoolID]cost.PoolAllocation{}
 	for _, a := range result.Pools {
 		names[a.Pool.ID] = a.Pool.Name
+		allocs[a.Pool.ID] = a
+	}
+	for _, id := range cp.NotRead {
+		if p, ok := cost.KnownPool(id); ok {
+			names[id] = p.Name
+		}
 	}
 	list := func(ids []cost.PoolID) []string {
 		var l []string
@@ -334,8 +341,18 @@ func costMDCrossPool(result CostResult) mdCrossPool {
 	for _, n := range list(cp.Unpriced) {
 		left = append(left, n+" not costed")
 	}
-	for _, n := range list(cp.Unmeasured) {
-		left = append(left, n+" not measured")
+	for _, id := range cp.Unmeasured {
+		// A pool where every tenant reported 0 was measured; it just has no
+		// share to give anyone. Calling it "not measured" would be the
+		// mirror image of rendering a missing driver as 0.
+		if len(allocs[id].Tenants) > 0 {
+			left = append(left, names[id]+" has no share (every tenant measured 0)")
+			continue
+		}
+		left = append(left, names[id]+" not measured")
+	}
+	for _, n := range list(cp.NotRead) {
+		left = append(left, n+" not read in this run")
 	}
 
 	if len(cp.Priced) == 0 {

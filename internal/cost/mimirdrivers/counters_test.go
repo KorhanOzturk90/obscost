@@ -88,8 +88,8 @@ func TestReadQueryPath_PrefersFetchedBytes(t *testing.T) {
 	if m.Fallback {
 		t.Error("Fallback set although the preferred volume driver answered")
 	}
-	if len(queries) != 1 {
-		t.Errorf("issued %d queries, want 1: the chain stops at the first driver with data", len(queries))
+	if len(queries) != 3 {
+		t.Errorf("issued %d queries, want 3: one driver (the chain stops at the first with data) and the two-query evaluation-mode probe", len(queries))
 	}
 	if want := "sum by (user) (increase(cortex_query_fetched_chunk_bytes_total[10m]))"; m.DriverQuery != want {
 		t.Errorf("DriverQuery = %q, want %q", m.DriverQuery, want)
@@ -328,7 +328,7 @@ func TestCounterReaders_QueriesAreValidPromQL(t *testing.T) {
 		}
 		srv.Close()
 		if len(queries) != 6 {
-			t.Errorf("window %v: issued %d queries, want 6 (four query-path drivers, two ruler)", w, len(queries))
+			t.Errorf("window %v: issued %d queries, want 6 (four query-path drivers, and the two-query evaluation-mode probe shared by both pools)", w, len(queries))
 		}
 		for _, q := range queries {
 			if _, err := p.ParseExpr(q); err != nil {
@@ -390,5 +390,88 @@ func TestExpensiveRulesMoveRulerAndQueryPathShares(t *testing.T) {
 	}
 	if !qpAfter.Fallback {
 		t.Error("only query seconds were served, so pool 6 must be flagged as the time fallback")
+	}
+}
+
+// ADR 0003 [V]: with no rule-evaluation data at all there is no evidence of
+// either mode. The old reader called that "remote" because the local-only
+// metric was absent, which is also what an unscraped ruler looks like.
+func TestReadRulerCPU_NoRuleDataIsUnknownNotRemote(t *testing.T) {
+	srv := metricServer(t, nil, nil)
+	defer srv.Close()
+
+	m, err := source(srv).ReadRulerCPU(context.Background(), time.Hour)
+	if err != nil {
+		t.Fatalf("ReadRulerCPU: %v", err)
+	}
+	if m.RuleEvaluation != cost.RuleEvaluationUnknown {
+		t.Errorf("RuleEvaluation = %q, want unknown", m.RuleEvaluation)
+	}
+	mode := assumption(m, "rule evaluation")
+	if !strings.HasPrefix(mode, "unknown") || !strings.Contains(mode, "does not scrape the ruler") {
+		t.Errorf("rule evaluation = %q, want unknown with the reason", mode)
+	}
+	if strings.Contains(strings.Join(m.Notes, "\n"), "remotely") {
+		t.Errorf("Notes = %q: no remote-evaluation caveat without evidence of remote evaluation", m.Notes)
+	}
+	if a := cost.Allocate(m, cost.Inventory{}, []string{"infra"}); len(a.Unmeasured) != 1 {
+		t.Errorf("Unmeasured = %v, want infra: no data is not zero", a.Unmeasured)
+	}
+}
+
+// Pool 6 has to say whether rule queries are inside its driver, because
+// nothing in cortex_query_* does (ADR 0003 [V], E6). The probe is shared
+// with pool 7, so reading both pools asks Mimir once.
+func TestReadQueryPath_StatesWhetherRuleQueriesAreIncluded(t *testing.T) {
+	tests := []struct {
+		name      string
+		responses map[string]string
+		mode      cost.RuleEvaluation
+		want      string
+	}{
+		{"remote", map[string]string{
+			"cortex_query_fetched_chunk_bytes_total":                 rigFetchedBytes,
+			"cortex_prometheus_rule_evaluation_duration_seconds_sum": rigEvalSeconds,
+		}, cost.RuleEvaluationRemote, "included"},
+		{"local", map[string]string{
+			"cortex_query_fetched_chunk_bytes_total":                 rigFetchedBytes,
+			"cortex_prometheus_rule_evaluation_duration_seconds_sum": vec("infra", "292.05"),
+			"cortex_ruler_query_seconds_total":                       vec("infra", "221.65"),
+		}, cost.RuleEvaluationLocal, "not included"},
+		{"unknown", map[string]string{
+			"cortex_query_fetched_chunk_bytes_total": rigFetchedBytes,
+		}, cost.RuleEvaluationUnknown, "unknown"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var queries []string
+			srv := metricServer(t, tt.responses, &queries)
+			defer srv.Close()
+			src := source(srv)
+			qp, err := src.ReadQueryPath(context.Background(), time.Hour)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if qp.RuleEvaluation != tt.mode {
+				t.Errorf("RuleEvaluation = %q, want %q", qp.RuleEvaluation, tt.mode)
+			}
+			if got := assumption(qp, "rule queries"); !strings.HasPrefix(got, tt.want) {
+				t.Errorf("rule queries = %q, want it to start %q", got, tt.want)
+			}
+			if a := cost.Allocate(qp, cost.Inventory{}, nil); a.RuleEvaluation != tt.mode {
+				t.Errorf("PoolAllocation.RuleEvaluation = %q, want %q", a.RuleEvaluation, tt.mode)
+			}
+			n := len(queries)
+			ruler, err := src.ReadRulerCPU(context.Background(), time.Hour)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(queries) != n {
+				t.Errorf("ReadRulerCPU issued %d more queries, want 0: the probe is cached per window", len(queries)-n)
+			}
+			if ruler.RuleEvaluation != tt.mode {
+				t.Errorf("pool 7 RuleEvaluation = %q, pool 6 = %q: one run must see one mode", ruler.RuleEvaluation, tt.mode)
+			}
+		})
 	}
 }

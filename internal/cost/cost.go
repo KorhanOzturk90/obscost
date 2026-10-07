@@ -243,6 +243,18 @@ const (
 	UnitSeconds Unit = "seconds"
 )
 
+// RuleEvaluation is how the ruler evaluates rules: in its own process
+// (local, Mimir's default) or through the query-frontend (remote,
+// -ruler.query-frontend.address). It decides where rule work lands — pool
+// 7 or pool 6 — so pools 6 and 7 record it (ADR 0003 [V]).
+type RuleEvaluation string
+
+const (
+	RuleEvaluationLocal   RuleEvaluation = "local"
+	RuleEvaluationRemote  RuleEvaluation = "remote"
+	RuleEvaluationUnknown RuleEvaluation = "unknown"
+)
+
 // Measurement is one pool's driver values over one window, as read from
 // Mimir. Drivers holds each tenant's value summed across every replica
 // that reported it — i.e. *before* dividing by the replication factor,
@@ -282,6 +294,9 @@ type Measurement struct {
 	// to the "read before quoting" list — what it tried, what it detected.
 	Assumptions []Assumption
 	Notes       []string
+	// RuleEvaluation is the ruler's evaluation mode as the reader found it,
+	// for the pools it affects (6 and 7); empty for any other pool.
+	RuleEvaluation RuleEvaluation
 	// ReplicationFactor is the value of
 	// cortex_distributor_replication_factor, nil if Mimir did not return
 	// one. RFQuery is the PromQL that was asked.
@@ -350,6 +365,9 @@ type PoolAllocation struct {
 	Unit         Unit   `json:"unit"`
 	Fallback     bool   `json:"fallback,omitempty"`
 	FallbackNote string `json:"fallback_note,omitempty"`
+	// RuleEvaluation is copied from the Measurement: for pools 6 and 7, it
+	// says whether rule work is in this pool.
+	RuleEvaluation RuleEvaluation `json:"rule_evaluation,omitempty"`
 	// Tenants is every measured tenant, sorted by DriverRaw descending,
 	// ties broken by name. It is never truncated.
 	Tenants []TenantShare `json:"tenants"`
@@ -411,15 +429,16 @@ func Allocate(m Measurement, inv Inventory, expected []string) PoolAllocation {
 		unit = UnitCount
 	}
 	a := PoolAllocation{
-		Pool:         m.Pool,
-		Window:       m.Window,
-		WindowText:   windowString(m.Window),
-		End:          m.End,
-		Currency:     inv.Currency,
-		DriverKind:   kind,
-		Unit:         unit,
-		Fallback:     m.Fallback,
-		FallbackNote: m.FallbackNote,
+		Pool:           m.Pool,
+		Window:         m.Window,
+		WindowText:     windowString(m.Window),
+		End:            m.End,
+		Currency:       inv.Currency,
+		DriverKind:     kind,
+		Unit:           unit,
+		Fallback:       m.Fallback,
+		FallbackNote:   m.FallbackNote,
+		RuleEvaluation: m.RuleEvaluation,
 	}
 
 	aggregation := "averaged"

@@ -158,14 +158,14 @@ func TestCostMD_CrossPoolNeverStatesABareBlendedPercentage(t *testing.T) {
 		{
 			name:     "nothing priced: shares only, no total at all",
 			inv:      cost.Inventory{},
-			want:     []string{"No pool is priced, so there is no cross-pool total", "Left out: ingester memory not costed; ruler CPU not costed"},
+			want:     []string{"No pool is priced, so there is no cross-pool total", "Left out: ingester memory not costed; ruler CPU not costed; query path not read in this run"},
 			wantNone: []string{"Share of priced cost", "of platform cost", "of the cost of the priced pools"},
 		},
 		{
 			name: "priced, platform cost unknown: the fraction is not invented",
 			inv:  cost.Inventory{Currency: "EUR", Pools: priced},
 			want: []string{
-				"**`analytics` is 60.0% of the cost of the priced pools** (ingester memory; ruler CPU not costed)",
+				"**`analytics` is 60.0% of the cost of the priced pools** (ingester memory; ruler CPU not costed; query path not read in this run)",
 				"unknown until `inventory.platform_cost_month` is set",
 				"| Share of priced cost |",
 			},
@@ -174,7 +174,7 @@ func TestCostMD_CrossPoolNeverStatesABareBlendedPercentage(t *testing.T) {
 		{
 			name: "priced, platform cost known: the fraction is computed",
 			inv:  cost.Inventory{Currency: "EUR", PlatformCostMonth: &platform, Pools: priced},
-			want: []string{"**`analytics` is 60.0% of the 25.0% of platform cost we can price** (ingester memory; ruler CPU not costed)"},
+			want: []string{"**`analytics` is 60.0% of the 25.0% of platform cost we can price** (ingester memory; ruler CPU not costed; query path not read in this run)"},
 		},
 	}
 	for _, tt := range tests {
@@ -268,5 +268,32 @@ func TestMoneyAndThousands(t *testing.T) {
 		if got := money(in); got != want {
 			t.Errorf("money(%v) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// A pool where every tenant measured 0 was measured: the coverage line must
+// not call it "not measured", any more than a missing driver may be shown
+// as 0. A pool with no data at all is "not measured".
+func TestCostMD_CrossPoolSeparatesAllZeroFromNotMeasured(t *testing.T) {
+	price, replicas := 100.0, 1
+	inv := cost.Inventory{Currency: "EUR", Pools: map[cost.PoolID]cost.PoolInventory{
+		cost.PoolIngesterMemory: {Replicas: &replicas, CostPerReplicaMonth: &price},
+		cost.PoolRulerCPU:       {Replicas: &replicas, CostPerReplicaMonth: &price},
+	}}
+	end := goldenMultiPoolResult().GeneratedAt
+	read := func(ruler map[string]float64) string {
+		r := cost.AllocateAll([]cost.Measurement{
+			{Pool: cost.IngesterMemory, Window: time.Hour, End: end, Source: "s", Unreplicated: true,
+				Drivers: map[string]float64{"analytics": 60, "infra": 40}},
+			{Pool: cost.RulerCPU, Window: time.Hour, End: end, Source: "s", Unreplicated: true, Unit: cost.UnitSeconds,
+				Drivers: ruler},
+		}, inv, nil)
+		return renderCostMD(t, CostResult{Pools: r.Pools, CrossPool: r.CrossPool, GeneratedAt: end})
+	}
+	if out := read(map[string]float64{"analytics": 0, "infra": 0}); !strings.Contains(out, "ruler CPU has no share (every tenant measured 0)") {
+		t.Errorf("all-zero pool not described as measured zero:\n%s", out)
+	}
+	if out := read(map[string]float64{}); !strings.Contains(out, "ruler CPU not measured") {
+		t.Errorf("empty pool not described as not measured:\n%s", out)
 	}
 }

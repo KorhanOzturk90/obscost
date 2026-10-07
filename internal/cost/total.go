@@ -37,6 +37,11 @@ type CrossPool struct {
 	Partial    []PartialPool `json:"partially_priced,omitempty"`
 	Unpriced   []PoolID      `json:"unpriced_pools,omitempty"`
 	Unmeasured []PoolID      `json:"unmeasured_pools,omitempty"`
+	// NotRead names the pools promcost can read but this run did not
+	// (--pool left them out). Without it a total over the pools that were
+	// read would look like a total over every pool promcost models, and
+	// the priced fraction would read as all promcost "can price".
+	NotRead []PoolID `json:"not_read_pools,omitempty"`
 	// NotModelled names the ADR 0003 pools promcost has no reader for yet
 	// (2–5). They are part of the platform's cost whether or not anyone
 	// prices them, so a total that omitted them would claim a completeness
@@ -107,7 +112,22 @@ func AllocateAll(ms []Measurement, inv Inventory, expected []string) Report {
 		r.Pools = append(r.Pools, Allocate(m, inv, expected))
 	}
 	r.CrossPool = crossPool(r.Pools, inv, expected)
+	read := map[PoolID]bool{}
+	for _, a := range r.Pools {
+		read[a.Pool.ID] = true
+	}
+	for _, id := range PoolOrder {
+		if !read[id] {
+			r.CrossPool.NotRead = append(r.CrossPool.NotRead, id)
+		}
+	}
 	return r
+}
+
+// KnownPool returns the pool promcost reads for id.
+func KnownPool(id PoolID) (Pool, bool) {
+	p, ok := knownPools[id]
+	return p, ok
 }
 
 // notModelled is ADR 0003's pools 2–5, by name, until they are built.
@@ -134,6 +154,26 @@ func crossPool(pools []PoolAllocation, inv Inventory, expected []string) CrossPo
 	}
 	if len(priced) == 0 {
 		return cp
+	}
+
+	// Under remote evaluation a rule's queries are the query path's work,
+	// and the ruler's evaluation time is mostly spent waiting for them
+	// (ADR 0003 [V]). Each pool's cost is still split once, so no cost is
+	// counted twice, but the same rule queries drive a tenant's share of
+	// both pools, and a total over both should say so.
+	pricedIDs := map[PoolID]bool{}
+	remote := false
+	for _, a := range priced {
+		pricedIDs[a.Pool.ID] = true
+		if a.RuleEvaluation == RuleEvaluationRemote {
+			remote = true
+		}
+	}
+	if remote && pricedIDs[PoolQueryPath] && pricedIDs[PoolRulerCPU] {
+		cp.Notes = append(cp.Notes,
+			"rules are evaluated remotely, so a tenant's rule queries drive its share of both the query path (the work) and the ruler "+
+				"(the time spent waiting for it). Each pool's cost is split once, so nothing is counted twice, "+
+				"but a rule-heavy tenant's total weighs the same queries in both")
 	}
 
 	if cp.PlatformCostMonth != nil {

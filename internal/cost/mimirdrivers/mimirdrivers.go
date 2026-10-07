@@ -40,6 +40,10 @@ type Source struct {
 	cfg Config
 	api *promapi.Client
 	now func() time.Time
+
+	// evalModes caches ruleEvaluation by window, so reading pools 6 and 7
+	// in one run asks Mimir once. A Source is used by one run.
+	evalModes map[string]ruleEvaluation
 }
 
 func New(cfg Config) *Source {
