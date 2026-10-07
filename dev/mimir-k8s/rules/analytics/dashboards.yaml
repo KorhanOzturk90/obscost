@@ -1,0 +1,19 @@
+# Cheap, low-output rules: per-team rollups a dashboard would read.
+namespace: dashboards
+groups:
+  - name: analytics_rollups
+    interval: 1m
+    rules:
+      - record: team:avalanche_gauge_metric_mmmmm_0_0:sum
+        expr: sum by (team) (avalanche_gauge_metric_mmmmm_0_0)
+      - record: team:avalanche_gauge_metric_mmmmm_1_0:avg
+        expr: avg by (team) (avalanche_gauge_metric_mmmmm_1_0)
+      - record: team:avalanche_series:count
+        expr: count by (team) ({__name__=~"avalanche_gauge_metric_.*"})
+  - name: analytics_alerts
+    interval: 1m
+    rules:
+      - alert: AnalyticsGaugeHigh
+        expr: avg by (team) (avalanche_gauge_metric_mmmmm_0_0) > 1000
+        for: 5m
+        labels: {severity: warning}

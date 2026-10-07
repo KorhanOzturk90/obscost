@@ -1,0 +1,12 @@
+# Small tenant, expensive queries: long-range quantiles over every series.
+# Few output series, a lot of ruler/query CPU — the case where the ruler
+# pool (7) and query pool (6) disagree with the ingester pool (1).
+namespace: slo
+groups:
+  - name: payments_slo
+    interval: 1m
+    rules:
+      - record: payments:gauge:p99_1h
+        expr: quantile_over_time(0.99, avalanche_gauge_metric_mmmmm_0_0[1h])
+      - record: payments:gauge:p50_6h_max
+        expr: max(quantile_over_time(0.5, {__name__=~"avalanche_gauge_metric_.*"}[6h]))
