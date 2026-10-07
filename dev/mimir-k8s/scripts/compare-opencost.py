@@ -84,11 +84,12 @@ def main():
     args = ap.parse_args()
 
     hours = window_hours(args.window)
-    node_cost_hour, ours, idle = allocate(args.window, args.cpu_hour, args.gib_hour)
+    ours = allocate(args.window, args.cpu_hour, args.gib_hour)
+    node_cost_hour = ours["node_cost_hour"]
     theirs = opencost_allocation(args.window)
 
-    mine = {name: row["cost"] * hours for name, row in ours.items()}
-    mine["idle / headroom"] = idle * hours
+    mine = {name: row["cost_hour"] * hours for name, row in ours["components"].items()}
+    mine["idle / headroom"] = ours["idle_cost_hour"] * hours
 
     print(f"Window {args.window}; node basis {node_cost_hour * hours:.4f} at "
           f"{args.cpu_hour}/vCPU-h, {args.gib_hour}/GiB-h\n")
@@ -104,6 +105,8 @@ def main():
     total_theirs = sum(v for k, v in theirs.items() if k != "idle / headroom")
     print(f"\n  {'allocated (excl. idle)':<30} {total_mine:>11.5f} {total_theirs:>11.5f} "
           f"{(total_theirs - total_mine) / total_mine * 100 if total_mine else 0:>8.1f}%")
+    if ours["unobserved"]:
+        print(f"\n  podcost.py left {len(ours['unobserved'])} pod(s) uncosted: no usage samples in the window.")
     print("\nA few percent apart is agreement. Larger gaps are a finding: check whether")
     print("OpenCost is weighting requests against usage differently, or counting")
     print("pods this script groups elsewhere.")

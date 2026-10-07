@@ -255,6 +255,10 @@ twenty minutes of an hour costs twenty minutes**, and `avg_over_time`
 cannot tell a short-lived pod from a gap in scraping. `podcost.py` now
 measures each pod's coverage, prorates by it, and prints it as a "seen"
 column — the same missing-versus-zero principle ADR 0001 applies to stats.
+A pod with no samples at all in the window (pending, or its scrapes lost)
+is not costed: it is listed under "Not observed" with its requests, and
+whatever it used stays inside idle, rather than being charged a window it
+may not have run for.
 
 Two bugs found while wiring this up: Alloy was overwriting OpenCost's `pod`
 labels (its output is *about* other pods), which made it price everything

@@ -170,7 +170,19 @@ def component_of(namespace, workload):
 def allocate(window, cpu_hour, gib_hour):
     """The ADR 0007 decision 3 allocation, shared with compare-opencost.py.
 
-    Returns (node_cost_per_hour, {component: {...}}, idle_cost_per_hour).
+    Every cost is per hour, prorated: a pod's hourly price times the
+    fraction of the window it was observed. So `cost_hour` × the window's
+    length in hours is the cost over the window, and a component's
+    `coverage` is the sum of its pods' observed fractions.
+
+    A pod with no usage sample in the window has no observed fraction, so
+    it is not costed at all: neither a full window, which it may not have
+    run for, nor a measured zero. Pending pods and pods whose scrapes were
+    lost both land here. They are returned in `unobserved` with their
+    requests, and whatever capacity they used stays inside idle.
+
+    Returns {"cap_cpu", "cap_mem", "node_cost_hour", "components",
+    "idle_cost_hour", "unobserved"}.
     """
     cap_cpu, cap_mem = node_capacity()
     node_cost_hour = cap_cpu * cpu_hour + cap_mem / GIB * gib_hour
@@ -178,21 +190,29 @@ def allocate(window, cpu_hour, gib_hour):
     used = usage(window)
     seen = coverage(window)
 
-    by_component = defaultdict(lambda: {"cost": 0.0, "cpu": 0.0, "mem": 0.0, "pods": 0, "coverage": 0.0})
-    for key in set(facts) | set(used):
+    by_component = defaultdict(lambda: {"cost_hour": 0.0, "cpu": 0.0, "mem": 0.0, "pods": 0, "coverage": 0.0})
+    unobserved = []
+    for key in sorted(set(facts) | set(used)):
         req_cpu, req_mem, workload = facts.get(key, (0.0, 0.0, workload_from_pod_name(key[1])))
+        component = component_of(key[0], workload)
+        share = seen.get(key)
+        if share is None:
+            unobserved.append({"namespace": key[0], "pod": key[1], "component": component,
+                               "cpu_request": req_cpu, "mem_request": req_mem})
+            continue
         use_cpu, use_mem = used.get(key, (0.0, 0.0))
         cpu, mem = max(req_cpu, use_cpu), max(req_mem, use_mem)
-        share = seen.get(key, 1.0)
-        row = by_component[component_of(key[0], workload)]
+        row = by_component[component]
         row["coverage"] += share
-        row["cost"] += (cpu * cpu_hour + mem / GIB * gib_hour) * share
+        row["cost_hour"] += (cpu * cpu_hour + mem / GIB * gib_hour) * share
         row["cpu"] += cpu
         row["mem"] += mem
         row["pods"] += 1
 
-    allocated = sum(row["cost"] for row in by_component.values())
-    return node_cost_hour, dict(by_component), node_cost_hour - allocated
+    allocated = sum(row["cost_hour"] for row in by_component.values())
+    return {"cap_cpu": cap_cpu, "cap_mem": cap_mem, "node_cost_hour": node_cost_hour,
+            "components": dict(by_component), "idle_cost_hour": node_cost_hour - allocated,
+            "unobserved": unobserved}
 
 
 def main():
@@ -203,28 +223,37 @@ def main():
     ap.add_argument("--json", action="store_true", help="emit JSON instead of a table")
     args = ap.parse_args()
 
-    cap_cpu, cap_mem = node_capacity()
-    node_cost_hour, by_component, idle = allocate(args.window, args.cpu_hour, args.gib_hour)
+    result = allocate(args.window, args.cpu_hour, args.gib_hour)
+    node_cost_hour, idle = result["node_cost_hour"], result["idle_cost_hour"]
     allocated = node_cost_hour - idle
 
-
     if args.json:
-        json.dump({"window": args.window, "node_cost_hour": node_cost_hour,
-                   "idle_cost_hour": idle, "components": by_component}, sys.stdout, indent=2)
+        json.dump({"window": args.window, **result}, sys.stdout, indent=2)
         print()
         return
 
-    print(f"Node cost basis: {cap_cpu:.1f} cores, {cap_mem / GIB:.1f} GiB allocatable"
+    print(f"Node cost basis: {result['cap_cpu']:.1f} cores, {result['cap_mem'] / GIB:.1f} GiB allocatable"
           f" -> {node_cost_hour:.4f}/hour at {args.cpu_hour}/vCPU-h and {args.gib_hour}/GiB-h")
-    print(f"Allocation over the last {args.window}, by max(request, usage):\n")
+    print(f"Allocation over the last {args.window}, by max(request, usage), prorated by time seen:\n")
     print(f"  {'component':<28} {'pods':>4} {'cores':>7} {'GiB':>7} {'seen':>6} {'cost/h':>9} {'share':>7}")
-    for name, row in sorted(by_component.items(), key=lambda kv: -kv[1]["cost"]):
+    for name, row in sorted(result["components"].items(), key=lambda kv: -kv[1]["cost_hour"]):
         seen_pct = row["coverage"] / row["pods"] * 100 if row["pods"] else 0
         print(f"  {name:<28} {row['pods']:>4} {row['cpu']:>7.2f} {row['mem'] / GIB:>7.2f} {seen_pct:>5.0f}% "
-              f"{row['cost']:>9.4f} {row['cost'] / node_cost_hour * 100:>6.1f}%")
+              f"{row['cost_hour']:>9.4f} {row['cost_hour'] / node_cost_hour * 100:>6.1f}%")
     print(f"  {'-' * 75}")
     print(f"  {'allocated':<28} {'':>4} {'':>7} {'':>7} {'':>6} {allocated:>9.4f} {allocated / node_cost_hour * 100:>6.1f}%")
     print(f"  {'idle / headroom':<28} {'':>4} {'':>7} {'':>7} {'':>6} {idle:>9.4f} {idle / node_cost_hour * 100:>6.1f}%")
+
+    unobserved = result["unobserved"]
+    if unobserved:
+        cores = sum(pod["cpu_request"] for pod in unobserved)
+        gib = sum(pod["mem_request"] for pod in unobserved) / GIB
+        print(f"\nNot observed: {len(unobserved)} pod(s) ({cores:.2f} cores, {gib:.2f} GiB requested)")
+        print("had no usage samples in the window and are not costed; any capacity")
+        print("they used is inside idle.")
+        for pod in unobserved:
+            print(f"  {pod['namespace']}/{pod['pod']} ({pod['component']})")
+
     print("\nIdle is reported, never spread across components (ADR 0007 decision 4).")
     print("Mimir's own pools are the 'mimir' rows; the rest is what shares the cluster.")
 
