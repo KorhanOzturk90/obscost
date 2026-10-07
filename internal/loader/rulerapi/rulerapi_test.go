@@ -215,3 +215,33 @@ func TestLoad_BearerTokenSent(t *testing.T) {
 		t.Fatalf("loadErrs = %+v, want none (bearer token should have been accepted)", loadErrs)
 	}
 }
+
+func TestFetch_KeepsDefinitionFields(t *testing.T) {
+	srv := newMockRulerServer(t, map[string]string{"infra": realResponseFixture})
+	defer srv.Close()
+
+	groups, err := New(Config{BaseURL: srv.URL}).Fetch(context.Background(), "infra")
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if len(groups) != 2 || len(groups[0].Rules) != 1 {
+		t.Fatalf("groups = %+v, want 2 groups, the first with 1 rule", groups)
+	}
+	alert := groups[0].Rules[0]
+	if alert.Duration != 1800 || alert.Labels["severity"] != "critical" {
+		t.Errorf("alert = %+v, want duration 1800 and severity=critical", alert)
+	}
+	if groups[0].File != "alerts.yaml" || groups[0].Interval != 60 {
+		t.Errorf("group = %+v, want file alerts.yaml, interval 60", groups[0])
+	}
+}
+
+func TestFetch_FailureIsAnErrorNotEmpty(t *testing.T) {
+	srv := newMockRulerServer(t, map[string]string{})
+	defer srv.Close()
+
+	groups, err := New(Config{BaseURL: srv.URL}).Fetch(context.Background(), "unknown")
+	if err == nil {
+		t.Fatalf("Fetch for a rejected tenant = %+v, nil; want an error", groups)
+	}
+}
