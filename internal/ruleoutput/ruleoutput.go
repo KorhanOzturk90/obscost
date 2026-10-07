@@ -291,7 +291,7 @@ func assumptions(counts Counts, denom *Denominator) []cost.Assumption {
 		},
 		{
 			Name:   "series count",
-			Value:  fmt.Sprintf("point-in-time, at %s; not an average over the cost window", counts.At.UTC().Format(time.RFC3339)),
+			Value:  fmt.Sprintf("point-in-time, at %s; not an average over the cost window, so shares divide it by a window average (see notes)", counts.At.UTC().Format(time.RFC3339)),
 			Source: src,
 		},
 		{Name: "count query", Value: counts.QueryShape, Source: src},
@@ -322,7 +322,12 @@ func notes(r Report, denom *Denominator) []string {
 		n = append(n, denom.Withheld)
 	}
 	if denom != nil {
-		n = append(n, "a share compares a point-in-time count with pool 1's window-average active series; for a rule added or changed during the window, read it as indicative")
+		// Seen live on the k3d rig (PR #44): straight after an Alloy
+		// restart a tenant's rule output read 1,137 series, then 2,418 a
+		// minute later, against an unchanged window average. Which
+		// denominator a sub-tenant share should use is open (PR #44, open
+		// question 1); until it is settled, the report says so.
+		n = append(n, "a share compares a point-in-time count with pool 1's window-average active series, so the two diverge whenever series are changing: a rule added or edited, or series repopulating after a restart or rollout. Read the share as indicative then, and re-run once the count has settled")
 	}
 	shared := 0
 	incomplete := 0

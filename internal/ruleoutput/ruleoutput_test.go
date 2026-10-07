@@ -146,6 +146,11 @@ func TestJoin_StatusesAndRFDividedShare(t *testing.T) {
 	if !strings.Contains(joined, "lower bounds") {
 		t.Errorf("notes should flag the incomplete total: %v", r.Notes)
 	}
+	// Open question 1: the share mixes a point-in-time count with a window
+	// average, and the report must say when that makes it unreliable.
+	if !strings.Contains(joined, "window-average") || !strings.Contains(joined, "restart") {
+		t.Errorf("notes should flag the point-in-time vs window-average mismatch: %v", r.Notes)
+	}
 }
 
 func TestJoin_InventoryRFOverrideIsUsed(t *testing.T) {
