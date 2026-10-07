@@ -1,0 +1,24 @@
+# Scenario rule, NOT synced by default: `make scenario-expensive-rule`.
+#
+# Two recording rules that write almost nothing — one output series each —
+# but are expensive to evaluate: a 6h quantile over every analytics series,
+# and a 1h subquery at 15s resolution. This is the case ADR 0003 [A2] puts
+# first: a rule's cost is the query it runs every interval, not the series
+# it writes. Expected: analytics' rule-evaluation and query time jump,
+# querier/query-frontend CPU rises, and pool 1 (active series) — and so
+# `promcost cost` as it stands — does not move at all.
+namespace: expensive
+groups:
+  - name: analytics_expensive
+    interval: 1m
+    rules:
+      # A subquery rather than a plain [6h] range: quantile_over_time drops
+      # __name__, and the 30 avalanche metrics share label sets, so the
+      # plain form fails with "same labelset". label_replace keeps them
+      # apart and, as a subquery, is if anything more expensive — which is
+      # the point. Its cost grows with the rig's age until 6h of data exist
+      # (~1.1s per evaluation 40 minutes after `make up`).
+      - record: analytics:gauge:p99_6h_max
+        expr: max(quantile_over_time(0.99, label_replace({__name__=~"avalanche_gauge_metric_.*"}, "src", "$1", "__name__", "(.*)")[6h:1m]))
+      - record: analytics:gauge:team_stddev_1h_max
+        expr: max(max_over_time((stddev by (team) ({__name__=~"avalanche_gauge_metric_.*"}))[1h:15s]))

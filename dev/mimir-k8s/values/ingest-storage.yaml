@@ -1,0 +1,27 @@
+# Overlay: switch the rig to Mimir 3.x's default ingest-storage
+# architecture (distributors write to Kafka; ingesters consume partitions).
+# Apply on top of values/mimir.yaml:  make up ARCH=ingest
+#
+# This matters to promcost directly: under ingest storage there is no
+# distributor->ingester replication, each ingester owns a partition, and
+# the mixin counts per-tenant active series with a different query (max
+# per partition owner, no replication divisor). A cost query written only
+# for classic storage silently returns nothing here.
+
+kafka:
+  enabled: true
+  resources:
+    requests: {cpu: 50m, memory: 384Mi}
+
+mimir:
+  structuredConfig:
+    ingest_storage:
+      enabled: true
+      kafka:
+        address: mimir-kafka.mimir.svc.cluster.local.:9092
+        topic: mimir-ingest
+        auto_create_topic_default_partitions: 3
+    distributor:
+      remote_timeout: 5s
+    ingester:
+      push_grpc_method_enabled: false
