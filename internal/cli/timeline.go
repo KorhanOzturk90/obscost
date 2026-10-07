@@ -71,9 +71,12 @@ func runTimelineCapture(ctx context.Context, stdout, stderr io.Writer, tenantsFl
 	for _, tenant := range tenants {
 		snap, err := timeline.Capture(ctx, fetcher, cfg.Backend.URL, tenant, now)
 		if err == nil {
-			var changes []timeline.Change
-			if changes, err = timeline.Record(ctx, store, snap); err == nil {
-				_, _ = fmt.Fprintln(stdout, captureSummary(snap, changes, store.SnapshotPath(snap)))
+			var (
+				changes   []timeline.Change
+				unchanged bool
+			)
+			if changes, unchanged, err = timeline.Record(ctx, store, snap); err == nil {
+				_, _ = fmt.Fprintln(stdout, captureSummary(snap, changes, unchanged, store))
 				continue
 			}
 		}
@@ -86,13 +89,16 @@ func runTimelineCapture(ctx context.Context, stdout, stderr io.Writer, tenantsFl
 	return nil
 }
 
-func captureSummary(snap timeline.Snapshot, changes []timeline.Change, path string) string {
+func captureSummary(snap timeline.Snapshot, changes []timeline.Change, unchanged bool, store timeline.DirStore) string {
 	rules := 0
 	for _, g := range snap.Groups {
 		rules += len(g.Rules)
 	}
-	return fmt.Sprintf("tenant %s: %d rule(s) in %d group(s), %d change(s) since the previous snapshot, wrote %s",
-		snap.Tenant, rules, len(snap.Groups), len(changes), path)
+	prefix := fmt.Sprintf("tenant %s: %d rule(s) in %d group(s)", snap.Tenant, rules, len(snap.Groups))
+	if unchanged {
+		return prefix + ", unchanged since the previous snapshot, no new snapshot written"
+	}
+	return fmt.Sprintf("%s, %d change(s) since the previous snapshot, wrote %s", prefix, len(changes), store.SnapshotPath(snap))
 }
 
 func newTimelineDiffCmd(stdout io.Writer) *cobra.Command {
@@ -100,6 +106,12 @@ func newTimelineDiffCmd(stdout io.Writer) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "diff [SNAPSHOT.json...]",
 		Short: "Build a change timeline from snapshot files, or from every snapshot under --snapshot-dir",
+		Long: `Build a change timeline from snapshot files, or from every snapshot under --snapshot-dir.
+
+An unchanged capture stores no snapshot, only a <snapshot>.seen.json next to
+the snapshot it matched. Give those files too (a shell glob of *.json does) so
+a change's window starts at the last capture that saw the old rules; without
+them the windows are still correct, just wider.`,
 		RunE: func(_ *cobra.Command, args []string) error {
 			return runTimelineDiff(stdout, args, tenants, snapshotDir, format)
 		},
@@ -125,12 +137,9 @@ func runTimelineDiff(stdout io.Writer, files []string, tenantsFlag, snapshotDir,
 			return err
 		}
 	case len(files) > 0:
-		for _, f := range files {
-			snap, err := timeline.ReadSnapshotFile(f)
-			if err != nil {
-				return err
-			}
-			snaps = append(snaps, snap)
+		var err error
+		if snaps, err = timeline.ReadSnapshotFiles(files); err != nil {
+			return err
 		}
 	default:
 		return errors.New("give snapshot files (two or more to see changes), or --snapshot-dir")

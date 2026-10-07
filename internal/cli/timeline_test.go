@@ -127,6 +127,44 @@ func TestTimeline_CaptureThenDiff(t *testing.T) {
 	}
 }
 
+func TestTimeline_UnchangedCaptureWritesNoSnapshot(t *testing.T) {
+	ruler := &mutableRuler{bodies: map[string]string{"team-a": rulesBody("up")}}
+	srv := httptest.NewServer(ruler)
+	defer srv.Close()
+	cfg := writeReportConfig(t, srv.URL)
+	snapDir := t.TempDir()
+
+	for i := 0; i < 3; i++ {
+		stdout, stderr, code := run("timeline", "capture", "--tenant", "team-a", "--snapshot-dir", snapDir, "--config", cfg)
+		if code != 0 {
+			t.Fatalf("capture %d: exit %d, stderr=%s", i, code, stderr)
+		}
+		if i > 0 && !strings.Contains(stdout, "unchanged since the previous snapshot, no new snapshot written") {
+			t.Errorf("capture %d stdout:\n%s", i, stdout)
+		}
+	}
+	snaps, _ := filepath.Glob(filepath.Join(snapDir, "team-a", "*Z.json"))
+	seen, _ := filepath.Glob(filepath.Join(snapDir, "team-a", "*.seen.json"))
+	if len(snaps) != 1 || len(seen) != 1 {
+		t.Fatalf("snapshots=%v seen=%v; want one of each after three identical captures", snaps, seen)
+	}
+
+	stdout, stderr, code := run("timeline", "diff", "--snapshot-dir", snapDir)
+	if code != 0 {
+		t.Fatalf("diff: exit %d, stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stdout, "3 captures stored as 1 snapshot(s)") || !strings.Contains(stdout, "(3 captures).") || !strings.Contains(stdout, "No rule changes.") {
+		t.Errorf("diff markdown:\n%s", stdout)
+	}
+
+	// Files named on the command line, as a *.json glob gives them, pick up
+	// the .seen.json too.
+	stdout, stderr, code = run("timeline", "diff", snaps[0], seen[0])
+	if code != 0 || !strings.Contains(stdout, "3 captures stored as 1 snapshot(s)") {
+		t.Errorf("diff of named files: exit %d, stderr=%s, stdout:\n%s", code, stderr, stdout)
+	}
+}
+
 func TestTimeline_CaptureFailedTenantWritesNothing(t *testing.T) {
 	ruler := &mutableRuler{bodies: map[string]string{"team-a": rulesBody("up")}}
 	srv := httptest.NewServer(ruler)
@@ -146,6 +184,28 @@ func TestTimeline_CaptureFailedTenantWritesNothing(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(snapDir, "ghost")); !os.IsNotExist(err) {
 		t.Errorf("a snapshot directory exists for the failed tenant (err=%v)", err)
+	}
+}
+
+func TestTimeline_FailedFetchRecordsNoLastSeen(t *testing.T) {
+	ruler := &mutableRuler{bodies: map[string]string{"team-a": rulesBody("up")}}
+	srv := httptest.NewServer(ruler)
+	defer srv.Close()
+	cfg := writeReportConfig(t, srv.URL)
+	snapDir := t.TempDir()
+
+	if _, stderr, code := run("timeline", "capture", "--tenant", "team-a", "--snapshot-dir", snapDir, "--config", cfg); code != 0 {
+		t.Fatalf("baseline capture: exit %d, stderr=%s", code, stderr)
+	}
+	ruler.mu.Lock()
+	delete(ruler.bodies, "team-a")
+	ruler.mu.Unlock()
+	if _, _, code := run("timeline", "capture", "--tenant", "team-a", "--snapshot-dir", snapDir, "--config", cfg); code == 0 {
+		t.Fatal("capture with a failing fetch exited 0")
+	}
+	entries, _ := os.ReadDir(filepath.Join(snapDir, "team-a"))
+	if len(entries) != 1 {
+		t.Errorf("tenant dir after a failed capture = %v, want only the baseline: a failure is neither a change nor \"seen unchanged\"", entries)
 	}
 }
 

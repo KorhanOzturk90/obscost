@@ -52,8 +52,9 @@ type RuleState struct {
 }
 
 // Window is the interval (After, NotAfter] in which a change became visible
-// in the ruler API. After is the previous snapshot's RequestedAt and is
-// exclusive. NotAfter is the current snapshot's ObservedAt and is
+// in the ruler API. After is when the last capture that still saw the old
+// definitions was requested (the previous snapshot's LastSeen if it has
+// one, else its RequestedAt) and is exclusive. NotAfter is the current snapshot's ObservedAt and is
 // inclusive. See the package doc for why a change can't be dated more
 // precisely than this.
 type Window struct {
@@ -103,17 +104,18 @@ type Change struct {
 // Rule order within a group is ignored.
 //
 // Diff returns an error if the snapshots are for different tenants, or if
-// curr's request started before prev's response was read: the two could
-// then describe the ruler in either order.
+// curr's request started before the response of prev's last capture (its
+// LastSeen, if set) was read: the two could then describe the ruler in
+// either order.
 func Diff(prev, curr Snapshot) ([]Change, error) {
 	if prev.Tenant != curr.Tenant {
 		return nil, fmt.Errorf("cannot diff snapshots of different tenants %q and %q", prev.Tenant, curr.Tenant)
 	}
-	if curr.RequestedAt.Before(prev.ObservedAt) {
-		return nil, fmt.Errorf("tenant %s: snapshot requested at %s overlaps or precedes the one observed at %s",
-			curr.Tenant, curr.RequestedAt.Format(time.RFC3339Nano), prev.ObservedAt.Format(time.RFC3339Nano))
+	if curr.RequestedAt.Before(prev.lastObservedAt()) {
+		return nil, fmt.Errorf("tenant %s: snapshot requested at %s overlaps or precedes the capture observed at %s",
+			curr.Tenant, curr.RequestedAt.Format(time.RFC3339Nano), prev.lastObservedAt().Format(time.RFC3339Nano))
 	}
-	window := Window{After: prev.RequestedAt, NotAfter: curr.ObservedAt}
+	window := Window{After: prev.lastRequestedAt(), NotAfter: curr.ObservedAt}
 
 	before, after := flatten(prev), flatten(curr)
 

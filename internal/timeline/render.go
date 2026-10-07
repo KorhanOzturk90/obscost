@@ -29,11 +29,21 @@ func WriteMarkdown(w io.Writer, tl Timeline) error {
 	}
 	for _, t := range tl.Tenants {
 		fmt.Fprintf(&b, "\n## Tenant `%s`\n\n", t.Tenant)
-		if t.Snapshots == 1 {
-			fmt.Fprintf(&b, "1 snapshot, observed %s. That is a baseline: changes need a second snapshot.\n", formatTime(t.FirstObserved))
+		if t.Snapshots == 1 && t.Captures == 1 {
+			fmt.Fprintf(&b, "1 snapshot, observed %s. That is a baseline: changes need a second capture.\n", formatTime(t.FirstObserved))
 			continue
 		}
-		fmt.Fprintf(&b, "%d snapshots, first observed %s, last observed %s.\n\n", t.Snapshots, formatTime(t.FirstObserved), formatTime(t.LastObserved))
+		count := fmt.Sprintf("%d snapshots", t.Snapshots)
+		if t.Captures != t.Snapshots {
+			count = fmt.Sprintf("%d captures stored as %d snapshot(s)", t.Captures, t.Snapshots)
+		}
+		fmt.Fprintf(&b, "%s, first observed %s, last observed %s.\n\n", count, formatTime(t.FirstObserved), formatTime(t.LastObserved))
+		for _, u := range t.Unchanged {
+			fmt.Fprintf(&b, "- Unchanged from %s through %s (%d captures).\n", formatTime(u.From), formatTime(u.Through), u.Captures)
+		}
+		if len(t.Unchanged) > 0 {
+			b.WriteString("\n")
+		}
 		if len(t.Changes) == 0 {
 			b.WriteString("No rule changes.\n")
 			continue
