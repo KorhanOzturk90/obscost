@@ -14,10 +14,12 @@ Both sweeps restore the rig when they finish, and wait for Mimir's 20
 minute active-series idle timeout where that matters.
 """
 import argparse
+import http.client
 import os
 import subprocess
 import sys
-import time  # noqa: F401
+import time
+import urllib.error
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from scenarios import by, kubectl, log, query, settle, sh  # noqa: E402
@@ -46,23 +48,49 @@ def fit(points):
     return a, b, r2
 
 
-def scalar(promql, attempts=5):
-    """One number out of Mimir, retrying while the rig is busy.
+def transient(err):
+    """Whether asking again could get a different answer.
+
+    Timeouts, dropped connections, 5xx (Mimir's own query timeouts) and 429
+    (too many outstanding requests) all clear once the rig catches up. Any
+    other 4xx — bad PromQL, auth, a 422 query limit — answers the same way
+    on every attempt, so retrying it only delays the failure.
+    """
+    if isinstance(err, urllib.error.HTTPError):
+        return err.code == 429 or err.code >= 500
+    return True
+
+
+def query_retrying(promql, attempts=5):
+    """Mimir's result rows, retrying while the rig is busy.
 
     A sweep deliberately loads the cluster, and a loaded Mimir answers
     slowly — the first run of the query sweep died on a read timeout
-    mid-measurement and threw away the steps it had already taken.
+    mid-measurement and threw away the steps it had already taken. Every
+    query a sweep makes goes through here.
     """
     for attempt in range(attempts):
         try:
-            rows = query(promql)
-            return float(rows[0]["value"][1]) if rows else 0.0
-        except OSError as err:
+            return query(promql)
+        except (OSError, http.client.HTTPException) as err:
+            if isinstance(err, urllib.error.HTTPError) and not transient(err):
+                try:
+                    detail = err.read().decode(errors="replace").strip()
+                except OSError:
+                    detail = ""
+                raise RuntimeError(f"Mimir rejected the query with HTTP {err.code}: "
+                                   f"{detail or err.reason}\n  query: {promql}") from err
             if attempt == attempts - 1:
                 raise
-            log(f"    query timed out ({err}); retrying in 20s")
+            log(f"    query failed ({err}); retrying in 20s")
             time.sleep(20)
-    return 0.0
+    return []
+
+
+def scalar(promql):
+    """One number out of Mimir."""
+    rows = query_retrying(promql)
+    return float(rows[0]["value"][1]) if rows else 0.0
 
 
 def node_cpu_used():
@@ -186,7 +214,7 @@ def sweep_query(steps):
             query_seconds = scalar(f"sum(increase(cortex_query_seconds_total[{w}]))")
             ingester_cpu = scalar(f'sum(rate(container_cpu_usage_seconds_total{{namespace="mimir", container="ingester"}}[{w}]))')
             querier_cpu = scalar(f'sum(rate(container_cpu_usage_seconds_total{{namespace="mimir", container="querier"}}[{w}]))')
-            routes = by(query(f'sum by (route) (increase(cortex_request_duration_seconds_sum{{job="mimir/ingester"}}[{w}]))'), "route")
+            routes = by(query_retrying(f'sum by (route) (increase(cortex_request_duration_seconds_sum{{job="mimir/ingester"}}[{w}]))'), "route")
             push = routes.get("/cortex.Ingester/Push", 0.0)
             read = routes.get("/cortex.Ingester/QueryStream", 0.0)
             rows.append({"n": n, "bytes": bytes_fetched, "seconds": query_seconds,
