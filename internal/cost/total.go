@@ -62,6 +62,16 @@ type CrossPool struct {
 	Notes   []string      `json:"notes,omitempty"`
 }
 
+// Pool returns the allocation for id, if it was read.
+func (r Report) Pool(id PoolID) (PoolAllocation, bool) {
+	for _, a := range r.Pools {
+		if a.Pool.ID == id {
+			return a, true
+		}
+	}
+	return PoolAllocation{}, false
+}
+
 // PartialPool is a priced pool whose inventory left some components out.
 type PartialPool struct {
 	Pool     PoolID   `json:"pool"`
