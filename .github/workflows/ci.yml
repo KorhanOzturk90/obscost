@@ -42,42 +42,16 @@ jobs:
       - name: build promcost
         run: go build -o bin/promcost ./cmd/promcost
 
-      # Every positive fixture under testdata/corpus/positive carries at
-      # least one finding; --fail-on info means any of them (info/warn/
-      # error) fails the gate, so this asserts exit 2 across the whole set
-      # regardless of each fixture's own severity. This is the concrete
-      # demonstration of spec §8.1's "parser + static tier at 100% on
-      # golden tests ... already a shippable GitHub Action" claim.
-      - name: positive fixtures fail the gate
+      # End-to-end run of the built binary against a checked-in fixture:
+      # rule definitions from --dir, executions from ndjson, rendered to
+      # json and asserted non-empty.
+      - name: report smoke run
         run: |
           set -e
-          for fixture in testdata/corpus/positive/*/; do
-            echo "checking $fixture"
-            args=(--dir "${fixture}rules" --fail-on info)
-            if [ -f "${fixture}promcost.yaml" ]; then
-              args+=(--config "${fixture}promcost.yaml")
-            fi
-            set +e
-            ./bin/promcost check "${args[@]}"
-            code=$?
-            set -e
-            if [ "$code" -ne 2 ]; then
-              echo "expected exit 2 for $fixture, got $code" >&2
-              exit 1
-            fi
-          done
-
-      # The Sloth-style negative-control fixture is the "good" pattern and
-      # must pass cleanly (exit 0) — spec §8.1's explicit zero-PC-S01/PC-S02
-      # requirement.
-      - name: negative-control fixtures pass the gate
-        run: |
-          set -e
-          for fixture in testdata/corpus/negative/*/; do
-            echo "checking $fixture"
-            args=(--dir "${fixture}rules")
-            if [ -f "${fixture}promcost.yaml" ]; then
-              args+=(--config "${fixture}promcost.yaml")
-            fi
-            ./bin/promcost check "${args[@]}"
-          done
+          fixture=internal/cli/testdata/report/clean
+          ./bin/promcost report \
+            --dir "$fixture/rules" \
+            --config "$fixture/promcost.yaml" \
+            --telemetry "$fixture/executions.ndjson" \
+            --format json > report.json
+          jq -e '.tenants | length > 0' report.json

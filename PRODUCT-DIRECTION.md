@@ -11,6 +11,11 @@
 > component pool's cost split by the driver that makes it grow, never a
 > weight fitted by regression.
 >
+>
+> Milestones B and D, which depended on the static analyzer (`promcost
+> check`, PC-S01–PC-S06), were dropped when it was removed
+> ([ADR 0006](docs/adr/0006-remove-static-analysis.md)).
+>
 > Where this document and the ADRs disagree, **the ADRs win** — they are
 > dated, numbered and reviewed. Read `docs/adr/` first.
 
@@ -171,16 +176,13 @@ infrastructure economics
 
 ## Architecture direction
 
-The current static analyzer is a foundation, not the final product.
-
 Target logical layers:
 
 ```text
 internal/
-  analyzer/          # PromQL AST/static analysis
   loader/            # rule discovery
   tenancy/           # tenant and ownership attribution
-  meter/             # execution + ingestion telemetry ingestion
+  telemetry/         # execution + ingestion telemetry ingestion
   attribution/       # map observations → rule/metric → tenant → team
   cost/              # workload/resource/economic model
   recommendation/    # remediation suggestions
@@ -277,7 +279,7 @@ When available, retain both:
 - exact query text
 - stable query hash / source correlation identifier
 
-The exact query is valuable for explanation, static AST analysis, and remediation. A query hash is useful for correlating frontend and downstream/querier observations without relying solely on timestamps or string matching.
+The exact query is valuable for explanation and remediation. A query hash is useful for correlating frontend and downstream/querier observations without relying solely on timestamps or string matching.
 
 ### Be precise about "estimated bytes"
 
@@ -396,35 +398,9 @@ The report should answer:
 
 > **Which tenants and rules consume the most ruler/query workload?**
 
-### Milestone B — join observed workload with static analysis
+### Milestone B — join observed workload with static analysis (dropped)
 
-For each rule, combine:
-
-```text
-actual observed workload
-+
-AST-derived characteristics
-```
-
-Current PC-S01–PC-S06 checks become explanatory features rather than the product itself.
-
-Example:
-
-```text
-customer_activity:7d
-
-Observed:
-  45B samples/day
-  3,800 execution-sec/day
-
-Contributing factors:
-  HIGH  7d range
-  HIGH  1m evaluation interval
-  MED   high-cardinality output
-  MED   regex matcher
-```
-
-A major validation goal is to discover which static signals actually predict observed workload. Some existing heuristics may prove weak; that is valuable calibration data.
+Dropped with the static analyzer; see [ADR 0006](docs/adr/0006-remove-static-analysis.md).
 
 ### Milestone C — deterministic recommendations
 
@@ -449,43 +425,9 @@ Reason
 
 Do not claim guaranteed euro savings.
 
-### Milestone D — PR forecasting / GitHub Action
+### Milestone D — PR forecasting / GitHub Action (dropped)
 
-A pull request that changes rules should receive a workload impact estimate based on observed production characteristics.
-
-Conceptually:
-
-```diff
-+ customer_activity:7d
-+ evaluate every 1m
-```
-
-becomes:
-
-```text
-PROMCOST
-
-New workload:
-  +43B samples/day
-  +3,100 execution-sec/day
-
-Tenant impact:
-  analytics +17%
-
-Cluster impact:
-  +4.8%
-
-Risk:
-  HIGH
-
-Reason:
-  wide range evaluated frequently
-
-Suggested alternative:
-  ...
-```
-
-This is likely more valuable than a standalone dashboard because it moves cost governance into the engineering workflow.
+Dropped with the static analyzer; see [ADR 0006](docs/adr/0006-remove-static-analysis.md). If this comes back, it should be designed against the cost model, not built on `check`.
 
 ### Milestone E — before/after verification
 
@@ -604,9 +546,9 @@ Economic numbers should therefore be labelled as estimates and backed by observe
 
 ## What the product is not
 
-### Not just a PromQL linter
+### Not a PromQL linter
 
-Static linting remains useful, but existing ecosystem tooling already covers rule hygiene. The differentiator is attribution against observed workload.
+Static linting remains useful, but existing ecosystem tooling (pint) already covers rule hygiene, which is why promcost's own static analyzer was removed (ADR 0006). The differentiator is attribution against observed workload.
 
 ### Not a standalone cardinality manager
 
@@ -679,7 +621,7 @@ Build attribution and daily aggregation. Ship the first `report`-style output sh
 
 ### Weeks 5–6
 
-Join observed workload with the existing AST analyzer. Measure which PC-S01–PC-S06 signals correlate with expensive rules.
+~~Join observed workload with the existing AST analyzer.~~ Dropped; see ADR 0006.
 
 ### Weeks 7–8
 
@@ -687,7 +629,7 @@ Add only a few high-confidence recommendations with explicit confidence and expe
 
 ### Weeks 9–10
 
-Build the GitHub Action / PR report for changed rules.
+~~Build the GitHub Action / PR report for changed rules.~~ Dropped; see ADR 0006.
 
 ### Weeks 11–12
 
@@ -697,9 +639,7 @@ Raw metric/cardinality attribution should begin only after the query/ruler attri
 
 ## Success metric for the next phase
 
-The most important near-term milestone is not adding PC-S07.
-
-It is being able to reliably produce:
+The most important near-term milestone is being able to reliably produce:
 
 > **Tenant X accounts for 37% of ruler workload, and these 12 rules explain 82% of it.**
 

@@ -11,9 +11,9 @@ import (
 )
 
 // LoadError is a per-file/per-rule problem (bad YAML, unparseable PromQL).
-// The CLI treats any non-empty LoadError list as a hard failure (exit 1) —
-// a rule that doesn't parse can't be meaningfully analyzed, so it isn't
-// routed through the Finding/severity system like a check result.
+// The CLI treats any non-empty LoadError list as a hard failure (exit 1):
+// a rule that doesn't parse, or can't be assigned a tenant, can't be
+// meaningfully attributed.
 type LoadError struct {
 	File string
 	Err  error
