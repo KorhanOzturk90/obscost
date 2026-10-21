@@ -212,7 +212,10 @@ func TestInventoryValidate(t *testing.T) {
 	}{
 		{"price without currency", Inventory{Pools: map[PoolID]PoolInventory{PoolIngesterMemory: {CostPerReplicaMonth: floatp(1)}}}, "currency"},
 		{"zero replicas", Inventory{Pools: map[PoolID]PoolInventory{PoolIngesterMemory: {Replicas: intp(0)}}}, "replicas"},
-		{"negative price", Inventory{Currency: "EUR", Pools: map[PoolID]PoolInventory{PoolIngesterMemory: {CostPerReplicaMonth: floatp(-1)}}}, "negative"},
+		{"negative price", Inventory{Currency: "EUR", Pools: map[PoolID]PoolInventory{PoolIngesterMemory: {CostPerReplicaMonth: floatp(-1)}}}, "must be positive"},
+		// #57: a zero price made every share of priced cost 0/0 (NaN% in md,
+		// a json encoding error).
+		{"zero price", Inventory{Currency: "EUR", Pools: map[PoolID]PoolInventory{PoolRulerCPU: {Replicas: intp(1), CostPerReplicaMonth: floatp(0)}}}, "omit cost_per_replica_month"},
 		{"zero RF", Inventory{ReplicationFactor: intp(0)}, "replication_factor"},
 		{"unknown pool", Inventory{Pools: map[PoolID]PoolInventory{"ingesters": {Replicas: intp(8)}}}, "unknown pool"},
 	}
@@ -427,6 +430,7 @@ func TestInventoryValidate_Components(t *testing.T) {
 			Components: map[string]ComponentInventory{"ruler": {Replicas: intp(1)}}}}}, "single component"},
 		{"component price without currency", Inventory{Pools: map[PoolID]PoolInventory{PoolQueryPath: {
 			Components: map[string]ComponentInventory{"querier": {CostPerReplicaMonth: floatp(1)}}}}}, "currency"},
+		{"zero component price", queryPathInv(map[string]ComponentInventory{"querier": {Replicas: intp(1), CostPerReplicaMonth: floatp(0)}}), "must be positive"},
 		{"zero component replicas", queryPathInv(map[string]ComponentInventory{"querier": {Replicas: intp(0)}}), "replicas"},
 		{"zero platform cost", Inventory{Currency: "EUR", PlatformCostMonth: floatp(0)}, "platform_cost_month"},
 		{"platform cost without currency", Inventory{PlatformCostMonth: floatp(100)}, "currency"},

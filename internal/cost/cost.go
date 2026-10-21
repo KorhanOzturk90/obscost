@@ -161,8 +161,7 @@ type ComponentInventory struct {
 
 // Validate rejects inventories that would produce a figure nobody could
 // defend: a price with no currency to print it in, or a non-positive
-// replica count or replication factor. A negative price is rejected for
-// the same reason. None of these are defaulted — the whole point of the
+// replica count, replication factor or price. None of these are defaulted — the whole point of the
 // inventory is that promcost never invents a coefficient.
 func (inv Inventory) Validate() error {
 	if inv.ReplicationFactor != nil && *inv.ReplicationFactor < 1 {
@@ -222,8 +221,16 @@ func validatePrice(path string, replicas *int, price *float64, currency string) 
 		return fmt.Errorf("%s.replicas must be at least 1, got %d", path, *replicas)
 	}
 	if price != nil {
-		if *price < 0 {
-			return fmt.Errorf("%s.cost_per_replica_month must not be negative, got %g", path, *price)
+		// Zero is rejected along with negatives, as platform_cost_month
+		// is: a pool priced at 0 would be counted as priced coverage in
+		// the cross-pool total while contributing nothing to it, and with
+		// every priced pool at 0 a share of priced cost is 0/0 (#57). A
+		// pool whose cost is already inside another pool's price is not
+		// free, it is not costed separately — which is what omitting the
+		// price says.
+		if *price <= 0 {
+			return fmt.Errorf("%s.cost_per_replica_month must be positive, got %g: to leave a pool or component uncosted "+
+				"(for example because its cost is already in another pool's price), omit cost_per_replica_month instead of setting it to 0", path, *price)
 		}
 		if currency == "" {
 			return fmt.Errorf("%s has a price but inventory.currency is empty: a cost figure is never rendered without its unit", path)
