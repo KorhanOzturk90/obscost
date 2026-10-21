@@ -241,3 +241,53 @@ func TestCost_RuleOutputsFromDir(t *testing.T) {
 		t.Errorf("stderr should warn about the failed count, got %q", stderr)
 	}
 }
+
+// Issue #61 (known issue, not redesigned): the count queries are charged
+// to each tenant's query path. Within one run, pool 6 is read before any
+// count query, and the section and its trail say so.
+func TestCost_RuleOutputsReadPool6FirstAndSaySo(t *testing.T) {
+	var order []string
+	inner, _ := ruleOutputFixture(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query().Get("query")
+		switch {
+		case strings.Contains(q, "cortex_query_"):
+			order = append(order, "pool6")
+		case strings.HasPrefix(q, "count by (__name__)"):
+			order = append(order, "count")
+		}
+		inner.Config.Handler.ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+
+	stdout, stderr, code := run("cost",
+		"--metrics-tenant", "monitoring",
+		"--config", writeCostConfig(t, srv.URL, ""),
+		"--tenant", "infra",
+		"--rule-outputs",
+	)
+	if code != 0 {
+		t.Fatalf("exit code = %d. stderr=%s", code, stderr)
+	}
+	last6, firstCount := -1, -1
+	for i, o := range order {
+		if o == "pool6" {
+			last6 = i
+		}
+		if o == "count" && firstCount < 0 {
+			firstCount = i
+		}
+	}
+	if last6 < 0 || firstCount < 0 || last6 > firstCount {
+		t.Errorf("query order = %v, want every pool-6 query before the first count query", order)
+	}
+	section := stdout[strings.Index(stdout, "## Rule output series"):]
+	for _, want := range []string{
+		"appear in that tenant's query-path (pool 6) figures for any window that includes a --rule-outputs run",
+		"| count queries in pool 6 |",
+	} {
+		if !strings.Contains(section, want) {
+			t.Errorf("rule-output section missing %q:\n%s", want, section)
+		}
+	}
+}

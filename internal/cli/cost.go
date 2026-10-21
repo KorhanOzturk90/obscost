@@ -52,7 +52,7 @@ func newCostCmd(stdout, stderr io.Writer) *cobra.Command {
 	cmd.Flags().StringVar(&opts.format, "format", "md", "output format: md|json")
 	cmd.Flags().StringVar(&opts.since, "since", "", "window to average or total over (e.g. 1h, 24h, 7d); defaults to 1h")
 	cmd.Flags().StringVar(&opts.pools, "pool", "", "comma-separated pools to cost: "+poolList()+" (default: all)")
-	cmd.Flags().BoolVar(&opts.ruleOutputs, "rule-outputs", false, "also count, per tenant, the series each recording rule writes (its record: name), as a point-in-time figure and a share of the tenant's active series. Rule definitions come from --dir, or from the ruler API for --tenant")
+	cmd.Flags().BoolVar(&opts.ruleOutputs, "rule-outputs", false, "also count, per tenant, the series each recording rule writes (its record: name), as a point-in-time figure and a share of the tenant's active series. Rule definitions come from --dir, or from the ruler API for --tenant. The count queries run through the query path as each tenant, so they show up in pool 6 for any later window that includes this run")
 	cmd.Flags().StringVar(&opts.dir, "dir", "", "directory of rule files for --rule-outputs. If omitted, rule definitions are fetched from Mimir's ruler API for --tenant's tenants")
 	cmd.Flags().StringVar(&opts.selector, "selector", "", `label matchers added to every query of Mimir's own metrics, e.g. '{cluster="prod-eu"}', when the metrics tenant holds several Mimir clusters. Overrides backend.selector in the config`)
 	cmd.Flags().IntVar(&opts.ruleOutputConcurrency, "rule-output-concurrency", 4, "maximum --rule-outputs count queries in flight at once")

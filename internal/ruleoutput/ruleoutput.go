@@ -296,6 +296,14 @@ func assumptions(counts Counts, denom *Denominator) []cost.Assumption {
 		},
 		{Name: "count query", Value: counts.QueryShape, Source: src},
 		{
+			// #61: the count queries are ordinary API queries, so Mimir
+			// records them against each tenant's query path. A real fix is
+			// post-launch.
+			Name:   "count queries in pool 6",
+			Value:  "the count queries run through the query path as each tenant, so they are recorded in that tenant's query-path (pool 6) counters, like any other API query. This run read pool 6 before counting; a later run whose window includes this one charges them to each tenant counted",
+			Source: src,
+		},
+		{
 			Name:   "what is counted",
 			Value:  "every series named after the rule's record: name in the tenant, including any written by something other than this rule",
 			Source: "PromQL semantics",
@@ -317,7 +325,7 @@ func assumptions(counts Counts, denom *Denominator) []cost.Assumption {
 }
 
 func notes(r Report, denom *Denominator) []string {
-	var n []string
+	n := []string{"these counts are queries run as each tenant through the query path, so they appear in that tenant's query-path (pool 6) figures for any window that includes a --rule-outputs run: a tenant that never queries can turn from not measured into measured there. This run read pool 6 before counting, so its own pool-6 figures are unaffected"}
 	if denom != nil && denom.Withheld != "" {
 		n = append(n, denom.Withheld)
 	}
