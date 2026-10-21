@@ -1,1 +1,1 @@
-{}
+{"observer": {"issue": "#61", "title": "promcost --rule-outputs charges its own count queries to tenants in pool 6"}}
