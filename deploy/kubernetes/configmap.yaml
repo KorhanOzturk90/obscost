@@ -1,0 +1,43 @@
+# promcost.yaml, mounted at /etc/promcost/promcost.yaml by job.yaml and
+# cronjob.yaml. Every key below is optional except backend.url.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promcost
+  labels:
+    app.kubernetes.io/name: promcost
+data:
+  promcost.yaml: |
+    backend:
+      # Mimir's HTTP API, reachable from this namespace: the gateway (or
+      # nginx) service of the mimir-distributed chart, or the
+      # query-frontend. promcost appends /prometheus/api/v1/... itself.
+      url: http://mimir-gateway.mimir.svc.cluster.local:80
+      # timeout: 2m
+      # If Mimir sits behind auth, name the env var holding a bearer token
+      # (job.yaml reads it from the optional Secret "promcost").
+      # auth:
+      #   bearer_token_env: MIMIR_BEARER_TOKEN
+
+    # tenancy:
+    #   header: X-Scope-OrgID   # the default
+
+    # What you know about your cluster; promcost never guesses it. Without
+    # replica counts each pool is reported as shares only; without prices
+    # it is "not costed" rather than free.
+    inventory:
+      pools:
+        ingester_memory:
+          replicas: 3
+          # cost_per_replica_month: 120
+        ruler_cpu:
+          replicas: 1
+        query_path:
+          components:
+            query-frontend:
+              replicas: 1
+            querier:
+              replicas: 2
+      # Required only once a pool has a price:
+      # currency: EUR
+      # platform_cost_month: 1440

@@ -1,0 +1,115 @@
+# GoReleaser v2 config: binaries, archives, checksums, changelog, GitHub
+# Release and a multi-arch image on ghcr.io. Run by
+# .github/workflows/release.yml on v* tags; `make release-snapshot`
+# reproduces the PR dry run locally.
+#
+# RENAME: the product name is project_name below, and every archive,
+# binary and image name derives from it. The only other line naming the
+# product is builds[0].main, the path of its main package.
+version: 2
+
+project_name: promcost
+
+builds:
+  - id: cli
+    main: ./cmd/promcost
+    binary: "{{ .ProjectName }}"
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+    # Reproducible: no local paths, no build ID, and both the embedded
+    # date and the file mtime come from the tagged commit, not the clock.
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -buildid=
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .FullCommit }}
+      - -X main.date={{ .CommitDate }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: cli
+    ids: [cli]
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - src: LICENSE
+        info: &commit_mtime
+          mtime: "{{ .CommitDate }}"
+      - src: README.md
+        info: *commit_mtime
+    builds_info: *commit_mtime
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+# dockers_v2 builds one multi-platform image with buildx from the binaries
+# above (no second Go build inside Docker); see the Dockerfile.
+dockers_v2:
+  - id: image
+    ids: [cli]
+    dockerfile: Dockerfile
+    platforms: [linux/amd64, linux/arm64]
+    images:
+      - "ghcr.io/korhanozturk90/{{ .ProjectName }}"
+    tags:
+      - "{{ .Version }}"
+      # A release candidate must never move latest.
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    build_args:
+      BINARY: "{{ .ProjectName }}"
+    labels:
+      org.opencontainers.image.title: "{{ .ProjectName }}"
+      org.opencontainers.image.description: "Tenant cost showback for self-hosted Grafana Mimir"
+      org.opencontainers.image.source: https://github.com/KorhanOzturk90/obscost
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.created: "{{ .CommitDate }}"
+      org.opencontainers.image.licenses: Apache-2.0
+
+changelog:
+  use: git
+  sort: asc
+  abbrev: 7
+  # Commits here are "area: summary" (see git log), not conventional
+  # commits, so groups follow the areas a user cares about.
+  groups:
+    - title: Cost
+      regexp: '^cost[:(]'
+      order: 0
+    - title: Workload report
+      regexp: '^(report|telemetry|mimirlogs|mimirmetrics|attribution)[:(]'
+      order: 1
+    - title: Fixes
+      regexp: '^fix[:(]'
+      order: 2
+    - title: Other changes
+      order: 999
+  filters:
+    exclude:
+      - '^docs[:(]'
+      - '^chore[:(]'
+      - '^ci[:(]'
+      - '^test[:(]'
+      - '^dev[/:(]'
+      - '^Merge '
+      - '^fix\((ci|mimir-local)\)'
+
+release:
+  # v0.1.0-rc.1 and friends are published as pre-releases.
+  prerelease: auto
+  footer: |
+    **Container image:** `ghcr.io/korhanozturk90/{{ .ProjectName }}:{{ .Version }}`
+
+    Verify a download with `sha256sum --ignore-missing -c checksums.txt`.
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot-{{ .ShortCommit }}"

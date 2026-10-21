@@ -1,0 +1,64 @@
+# One-off cost report, in Markdown, to the pod's log:
+#   kubectl apply -f configmap.yaml -f job.yaml
+#   kubectl wait --for=condition=complete job/promcost-cost --timeout=5m
+#   kubectl logs job/promcost-cost
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: promcost-cost
+  labels:
+    app.kubernetes.io/name: promcost
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: promcost
+    spec:
+      restartPolicy: Never
+      # promcost talks to Mimir only, never to the Kubernetes API.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: promcost
+          image: ghcr.io/korhanozturk90/promcost:0.1.0
+          args:
+            - cost
+            - --config=/etc/promcost/promcost.yaml
+            # The tenant whose TSDB holds Mimir's own scraped metrics
+            # (usually a monitoring tenant), NOT a tenant being costed.
+            - --metrics-tenant=meta-monitoring
+            - --since=24h
+            - --format=md
+          env:
+            - name: MIMIR_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: promcost
+                  key: bearer-token
+                  optional: true
+          volumeMounts:
+            - name: config
+              mountPath: /etc/promcost
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: config
+          configMap:
+            name: promcost

@@ -6,8 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime/debug"
 
 	"github.com/spf13/cobra"
+
+	"github.com/KorhanOzturk90/obscost/internal/buildinfo"
 )
 
 // exitError lets a subcommand's RunE communicate a specific process exit
@@ -27,13 +30,17 @@ func (e *exitError) Error() string {
 
 func (e *exitError) Unwrap() error { return e.err }
 
-func newRootCmd(stdout, stderr io.Writer) *cobra.Command {
+func newRootCmd(stdout, stderr io.Writer, info buildinfo.Info) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "promcost",
 		Short:         "Cost attribution for multi-tenant Grafana Mimir",
+		Version:       info.Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	// cobra's --version prints only Version by default; a bug report needs
+	// the commit and build date too.
+	root.SetVersionTemplate("{{.Name}} " + info.String() + "\n")
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	root.AddCommand(newReportCmd(stdout, stderr))
@@ -42,9 +49,16 @@ func newRootCmd(stdout, stderr io.Writer) *cobra.Command {
 }
 
 // Run executes the CLI and returns a process exit code (spec §2):
-// 0 success, 1 config/usage error.
+// 0 success, 1 config/usage error. Its --version reports only what the Go
+// toolchain recorded in the binary; RunWithBuildInfo takes ldflags values.
 func Run(args []string, stdout, stderr io.Writer) int {
-	root := newRootCmd(stdout, stderr)
+	return RunWithBuildInfo(args, stdout, stderr, buildinfo.Resolve("", "", "", debug.ReadBuildInfo))
+}
+
+// RunWithBuildInfo is Run with the version, commit and date --version
+// prints.
+func RunWithBuildInfo(args []string, stdout, stderr io.Writer, info buildinfo.Info) int {
+	root := newRootCmd(stdout, stderr, info)
 	root.SetArgs(args)
 
 	err := root.Execute()
