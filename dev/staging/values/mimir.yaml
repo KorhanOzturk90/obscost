@@ -1,0 +1,93 @@
+# mimir-distributed 6.2.0 (Mimir 3.2.0): ONLY the deviations from the
+# chart's defaults. Everything not set here is the chart's own default -
+# ingest storage (Kafka), zone-aware ingesters and store-gateways (3 zones),
+# the rollout-operator, alertmanager, the overrides-exporter, the nginx
+# gateway, 2 queriers and 2 query-schedulers.
+#
+# Every key below is a row in README.md's "Deviations from chart defaults"
+# table; keep the two in step.
+
+# --- Object storage: an external bucket, as in production.
+# The chart's bundled MinIO is a demo convenience (its own docs say so),
+# and its images are no longer published to Docker Hub. A real operator
+# points Mimir at S3/GCS; here manifests/object-store.yaml stands in for
+# that bucket. Credentials come from a Secret via env, the chart's
+# documented pattern (-config.expand-env=true is on by default).
+minio:
+  enabled: false
+
+global:
+  extraEnvFrom:
+    - secretRef:
+        name: mimir-bucket
+
+mimir:
+  structuredConfig:
+    common:
+      storage:
+        backend: s3
+        s3:
+          endpoint: object-store.object-store.svc:9000
+          insecure: true
+          access_key_id: ${BUCKET_ACCESS_KEY_ID}
+          secret_access_key: ${BUCKET_SECRET_ACCESS_KEY}
+    blocks_storage:
+      s3:
+        bucket_name: mimir-blocks
+    ruler_storage:
+      s3:
+        bucket_name: mimir-ruler
+    alertmanager_storage:
+      s3:
+        bucket_name: mimir-alertmanager
+
+# --- Ruler: remote evaluation through the chart's dedicated read path
+# (ruler-query-frontend -> ruler-query-scheduler -> ruler-querier), the
+# way the chart deploys remote evaluation. Off by default in the chart;
+# large production clusters run it, and promcost's pool 7 behaves
+# differently under it (#50), so it is the mode staging must exercise.
+ruler:
+  remoteEvaluationDedicatedQueryPath: true
+
+# --- Kafka: CPU request only. The chart requests a whole core for a
+# production broker; on a 4-vCPU node that core is a quarter of the node
+# reserved for a broker that measures well under 0.1 core at staging
+# traffic, and it is what stops the event scripts' ingester scale-up from
+# scheduling. Memory and everything else stay at the chart default.
+kafka:
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+
+# --- Meta-monitoring (README: "Meta-monitoring"). The chart's
+# ServiceMonitors and the mimir-mixin's rules and alerts, for the
+# kube-prometheus-stack Prometheus in namespace `monitoring` to pick up;
+# dashboards as ConfigMaps for Grafana's sidecar. All off by default in the
+# chart, because they need a Prometheus Operator it does not install.
+metaMonitoring:
+  dashboards:
+    enabled: true
+    namespace: monitoring
+  serviceMonitor:
+    enabled: true
+    # The mixin keys every query on `cluster`; this is its value for
+    # Mimir's own series. Prometheus' externalLabels sets the same value on
+    # everything else it scrapes (cAdvisor, kube-state-metrics).
+    clusterLabel: staging
+  prometheusRule:
+    enabled: true
+    mimirAlerts: true
+    mimirRules: true
+
+# --- Per-tenant limits, the way an operator raises them: runtime
+# overrides for the one tenant that needs it. `monitoring` holds every
+# series kube-prometheus-stack scrapes (cAdvisor, kubelet, API server,
+# kube-state-metrics, Mimir itself), well past the 150k default. Simulated
+# tenants keep the defaults.
+runtimeConfig:
+  overrides:
+    monitoring:
+      max_global_series_per_user: 1000000
+      ingestion_rate: 100000
+      ingestion_burst_size: 1000000
