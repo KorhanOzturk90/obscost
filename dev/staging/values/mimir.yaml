@@ -91,3 +91,11 @@ runtimeConfig:
       max_global_series_per_user: 1000000
       ingestion_rate: 100000
       ingestion_burst_size: 1000000
+
+# --- Gateway: no IPv6 listener. The cloud container's kernel has no IPv6
+# (nginx: "socket() [::]:8080 failed (97: Address family not supported)").
+# Environment-forced; on a dual-stack cluster drop this.
+gateway:
+  nginx:
+    config:
+      enableIPv6: false
