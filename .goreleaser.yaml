@@ -75,6 +75,9 @@ dockers_v2:
       org.opencontainers.image.created: "{{ .CommitDate }}"
       org.opencontainers.image.licenses: Apache-2.0
 
+# A hand-written .github/release-notes/<tag>.md replaces this changelog
+# for that tag (release.yml passes it as --release-notes); v0.1.0's
+# generated one would cover the whole history.
 changelog:
   use: git
   sort: asc
@@ -102,6 +105,10 @@ changelog:
       - '^dev[/:(]'
       - '^Merge '
       - '^fix\((ci|mimir-local)\)'
+      # The static analyzer was removed before the first release (ADR 0006).
+      - 'PC-S0'
+      - '^fix\(pcs'
+      - '^(Initial|first) commit'
 
 release:
   # v0.1.0-rc.1 and friends are published as pre-releases.
