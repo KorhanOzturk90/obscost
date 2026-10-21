@@ -28,6 +28,11 @@ jobs:
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.13.2
+          # Build golangci-lint with this job's Go rather than download the
+          # release binary: that binary is built with an older Go and can't
+          # read the export data of the Go setup-go installs (1.27.3), so
+          # every changed package failed typecheck.
+          install-mode: goinstall
 
   smoke:
     runs-on: ubuntu-latest
