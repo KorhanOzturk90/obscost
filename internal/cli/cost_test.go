@@ -361,3 +361,52 @@ func TestCost_PoolUsageErrors(t *testing.T) {
 		})
 	}
 }
+
+// emptyMimir answers every query with an empty vector: what a wrong
+// --metrics-tenant (one that holds no cortex_* series) looks like.
+func emptyMimir(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+	}))
+}
+
+// Issue #52, end to end: with no driver data, every pool's Total reads
+// "not measured", in md and in json.
+func TestCost_NoDataTotalsAreNotMeasured(t *testing.T) {
+	srv := emptyMimir(t)
+	defer srv.Close()
+	cfg := writeCostConfig(t, srv.URL, "")
+
+	stdout, stderr, code := run("cost", "--metrics-tenant", "analytics", "--config", cfg, "--tenant", "analytics,infra")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0. stderr=%s", code, stderr)
+	}
+	if n := strings.Count(stdout, "| **Total** | **not measured** |"); n != 3 {
+		t.Errorf("want 3 Total rows reading not measured, got %d:\n%s", n, stdout)
+	}
+	for _, bad := range []string{"**0 B**", "**0.0**", "withheld (no RF)"} {
+		if strings.Contains(stdout, bad) {
+			t.Errorf("stdout contains %q for an unmeasured pool:\n%s", bad, stdout)
+		}
+	}
+
+	stdout, stderr, code = run("cost", "--metrics-tenant", "analytics", "--config", cfg, "--format", "json")
+	if code != 0 {
+		t.Fatalf("json exit code = %d, want 0. stderr=%s", code, stderr)
+	}
+	var doc struct {
+		Pools []map[string]any `json:"pools"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	for _, p := range doc.Pools {
+		for _, k := range []string{"total", "total_raw"} {
+			if v, ok := p[k]; ok {
+				t.Errorf("pool %v: %s = %v, want it absent", p["pool"], k, v)
+			}
+		}
+	}
+}

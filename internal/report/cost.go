@@ -244,7 +244,11 @@ func costMDPool(a cost.PoolAllocation) mdCostPool {
 	}
 
 	p.Total = mdCostRow{Tenant: "Total", Driver: driverCell(a.Total, a.Unit), Share: "100%", Replicas: "—"}
-	if a.TotalRaw <= 0 {
+	if a.TotalRaw == nil {
+		// No tenant was measured: there is no total to withhold or show.
+		p.Total.Driver = "not measured"
+	}
+	if !a.HasShares() {
 		p.Total.Share = "—"
 	}
 	if a.Replicas != nil {

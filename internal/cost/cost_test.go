@@ -59,7 +59,7 @@ func TestAllocate_ReplicationFactorDividesAbsoluteFigures(t *testing.T) {
 	if got := a.Tenants[0].Driver; got == nil || !approx(*got, 15005) {
 		t.Errorf("analytics Driver = %v, want 15005", got)
 	}
-	if !approx(a.TotalRaw, 24058*3) {
+	if !(a.TotalRaw != nil && approx(*a.TotalRaw, 24058*3)) {
 		t.Errorf("TotalRaw = %v, want the undivided sum %v", a.TotalRaw, 24058*3)
 	}
 }
@@ -286,7 +286,7 @@ func TestAllocate_UnreplicatedCounterHasNoReplicationFactor(t *testing.T) {
 	if a.ReplicationFactor != nil {
 		t.Errorf("ReplicationFactor = %v, want nil: a counter counted once has no divisor", *a.ReplicationFactor)
 	}
-	if a.Total == nil || !approx(*a.Total, a.TotalRaw) {
+	if a.Total == nil || a.TotalRaw == nil || !approx(*a.Total, *a.TotalRaw) {
 		t.Errorf("Total = %v, want the raw sum %v undivided even though the inventory says RF=3", a.Total, a.TotalRaw)
 	}
 	for _, as := range a.Assumptions {

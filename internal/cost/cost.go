@@ -313,6 +313,12 @@ type Measurement struct {
 	Architecture string
 }
 
+// HasShares reports whether the pool can be split: some tenant was
+// measured, and the measured total is positive.
+func (a PoolAllocation) HasShares() bool {
+	return a.TotalRaw != nil && *a.TotalRaw > 0
+}
+
 // Assumption is one line of a figure's assumption trail: what was assumed,
 // the value used, and where that value came from — so an operator who
 // disputes a number knows which input to change.
@@ -375,7 +381,11 @@ type PoolAllocation struct {
 	// They are not in the denominator (ADR 0003 decision 5).
 	Unmeasured []string `json:"unmeasured,omitempty"`
 
-	TotalRaw          float64  `json:"total_raw"`
+	// TotalRaw and Total are nil when no tenant was measured at all: a
+	// pool with no driver data has no total, and a 0 there would be the
+	// fabricated zero decision 5 forbids. Every tenant measuring 0 is a
+	// measured total of 0, and is kept.
+	TotalRaw          *float64 `json:"total_raw,omitempty"`
 	Total             *float64 `json:"total,omitempty"`
 	ReplicationFactor *float64 `json:"replication_factor,omitempty"`
 
@@ -482,8 +492,9 @@ func Allocate(m Measurement, inv Inventory, expected []string) PoolAllocation {
 		a.Assumptions = append(a.Assumptions, Assumption{Name: AssumptionReplicationFactor, Value: rf.display(), Source: rf.source})
 	}
 
+	var totalRaw float64
 	for tenant, v := range m.Drivers {
-		a.TotalRaw += v
+		totalRaw += v
 		a.Tenants = append(a.Tenants, TenantShare{Tenant: tenant, DriverRaw: v})
 	}
 	sort.Slice(a.Tenants, func(i, j int) bool {
@@ -502,9 +513,12 @@ func Allocate(m Measurement, inv Inventory, expected []string) PoolAllocation {
 	}
 	sort.Strings(a.Unmeasured)
 
-	if rf.value != nil {
-		total := a.TotalRaw / *rf.value
-		a.Total = &total
+	if len(a.Tenants) > 0 {
+		a.TotalRaw = &totalRaw
+		if rf.value != nil {
+			total := totalRaw / *rf.value
+			a.Total = &total
+		}
 	}
 
 	pinv := inv.Pools[m.Pool.ID]
@@ -514,7 +528,7 @@ func Allocate(m Measurement, inv Inventory, expected []string) PoolAllocation {
 		priceFlat(&a, m.Pool, inv, pinv)
 	}
 
-	if a.TotalRaw <= 0 {
+	if totalRaw <= 0 {
 		if len(a.Tenants) > 0 {
 			a.Notes = append(a.Notes, fmt.Sprintf(
 				"every measured tenant reported 0 %s, so shares are undefined rather than 0%%", kind))
@@ -531,7 +545,7 @@ func Allocate(m Measurement, inv Inventory, expected []string) PoolAllocation {
 		// The replication factor is deliberately absent here: a uniform
 		// divisor cancels in a ratio, which is why shares survive an
 		// unknown replication factor and absolute figures do not.
-		share := t.DriverRaw / a.TotalRaw
+		share := t.DriverRaw / totalRaw
 		t.Share = &share
 		if a.Replicas != nil {
 			eq := share * float64(*a.Replicas)
