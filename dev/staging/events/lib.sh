@@ -63,8 +63,9 @@ wait_settled() { # <component> [timeout seconds]
         want=$(jq '.spec.replicas' <<<"$s"); ready=$(jq '.status.readyReplicas // 0' <<<"$s")
         upd=$(jq -r '.status.updateRevision' <<<"$s")
         # every pod of this StatefulSet on the update revision
-        cur=$(kubectl -n "$MIMIR_NS" get pods -l "name=${obj#statefulset.apps/}" \
-          -o jsonpath='{range .items[*]}{.metadata.labels.controller-revision-hash}{"\n"}{end}' | grep -cvx "$upd" || true)
+        cur=$(kubectl -n "$MIMIR_NS" get pods -o json | jq --arg o "${obj#statefulset.apps/}" --arg u "$upd" \
+          '[.items[] | select(.metadata.ownerReferences[0].name == $o)
+             | select(.metadata.labels["controller-revision-hash"] != $u or .metadata.deletionTimestamp != null)] | length')
         [[ $want == "$ready" && $cur == 0 ]] || settled=0
       fi
     done

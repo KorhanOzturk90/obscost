@@ -6,7 +6,7 @@
 STAGING_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 REPO_ROOT=$(cd "$STAGING_DIR/../.." && pwd)
 : "${STATE:=$STAGING_DIR/.state}"
-: "${PROFILE:=ingest}" "${DOCKERHUB_ONLY:=1}"
+: "${PROFILE:=ingest}" "${RULER_EVAL:=remote}" "${DOCKERHUB_ONLY:=1}"
 : "${MIMIR_CHART_VERSION:=6.2.0}" "${KPS_CHART_VERSION:=77.0.0}" "${ALLOY_CHART_VERSION:=1.12.1}"
 : "${MIMIR_PORT:=8091}" "${GRAFANA_PORT:=3091}"
 CHARTS=$STATE/charts
@@ -18,6 +18,11 @@ MIMIR_GATEWAY=http://mimir-gateway.$MIMIR_NS.svc
 
 log() { printf '%s %s\n' "$(date -u +%H:%M:%S)" "$*" >&2; }
 
+case $RULER_EVAL in
+  remote | local) ;;
+  *) echo "RULER_EVAL must be remote or local, not '$RULER_EVAL'" >&2; exit 2 ;;
+esac
+
 case $PROFILE in
   ingest | classic) ;;
   *) echo "PROFILE must be ingest or classic, not '$PROFILE'" >&2; exit 2 ;;
@@ -28,6 +33,7 @@ esac
 mimir_release() {
   local args=(mimir "$MIMIR_NS" "$CHARTS/mimir-distributed-$MIMIR_CHART_VERSION.tgz" -f "$STAGING_DIR/values/mimir.yaml")
   [[ $PROFILE == classic ]] && args+=(-f "$STAGING_DIR/values/profile-classic.yaml")
+  [[ $RULER_EVAL == local ]] && args+=(-f "$STAGING_DIR/values/ruler-local.yaml")
   printf '%s\n' "${args[@]}"
 }
 

@@ -31,6 +31,9 @@ CLI_REF  ?= origin/pools-6-7-cost
 # ingest  - Mimir 3.x / chart default: distributors write to Kafka (primary)
 # classic - distributors replicate to ingesters (RF=3) over gRPC
 PROFILE ?= ingest
+# remote - rules evaluated through the chart's dedicated ruler read path (default)
+# local  - the ruler evaluates rules itself; switchable in place (`make mimir`)
+RULER_EVAL ?= remote
 
 CLUSTER     ?= staging
 K3S_IMAGE   ?= rancher/k3s:v1.33.4-k3s1
@@ -60,7 +63,7 @@ endif
 # through this container's egress proxy); auto-detected.
 PRELOAD ?= $(if $(wildcard $(STATE)/kubeconfig),$(if $(filter $(STATE)/kubeconfig,$(KUBECONFIG)),1,),)
 
-export CLUSTER K3S_IMAGE STATE PROFILE DOCKERHUB_ONLY MIMIR_PORT GRAFANA_PORT \
+export CLUSTER K3S_IMAGE STATE PROFILE RULER_EVAL DOCKERHUB_ONLY MIMIR_PORT GRAFANA_PORT \
        MIMIR_CHART_VERSION KPS_CHART_VERSION ALLOY_CHART_VERSION CLI CLI_NAME
 
 .PHONY: help tools cluster down deploy undeploy charts images object-store monitoring-crds \
