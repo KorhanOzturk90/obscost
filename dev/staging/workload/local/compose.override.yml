@@ -1,0 +1,57 @@
+# Overlay for dev/mimir-local, used by ./up.sh: the same monolithic Mimir,
+# with three changes for validation runs.
+#
+# 1. Filesystem object storage instead of MinIO. minio/minio and minio/mc are
+#    no longer published on Docker Hub (or its mirror.gcr.io cache), so the
+#    stock rig cannot start in an environment without quay.io. promcost reads
+#    nothing from object storage, so this changes nothing it measures.
+# 2. Ruler storage on a writable backend, so tenants' rules are pushed
+#    through the ruler API — the same path as on the staging cluster — rather
+#    than mounted as files. The mixin's rules go to `infra` the same way.
+# 3. Grafana is left out: nothing here needs it, and it costs memory.
+#
+# Everything else (multi-tenancy, RF=1, local rule evaluation, query stats,
+# Alloy remote-writing Mimir's own metrics into `infra`) is unchanged.
+services:
+  minio:
+    profiles: [disabled]
+  minio-setup:
+    profiles: [disabled]
+  grafana:
+    profiles: [disabled]
+  mimir:
+    image: grafana/mimir:3.2.0
+    depends_on: !reset {}
+    command: !override
+      - -target=all,alertmanager
+      - -auth.multitenancy-enabled=true
+      - -server.http-listen-port=8080
+      - -server.grpc-listen-port=9095
+      - -blocks-storage.backend=filesystem
+      - -blocks-storage.filesystem.dir=/data/blocks
+      - -blocks-storage.tsdb.dir=/data/tsdb
+      - -blocks-storage.bucket-store.sync-dir=/data/tsdb-sync
+      - -alertmanager-storage.backend=filesystem
+      - -alertmanager-storage.filesystem.dir=/data/alertmanager-storage
+      - -alertmanager.enable-api=true
+      - -alertmanager.storage.path=/data/alertmanager
+      - -alertmanager.configs.fallback=/etc/mimir/alertmanager-fallback.yaml
+      - -ruler-storage.backend=filesystem
+      - -ruler-storage.filesystem.dir=/data/ruler-storage
+      - -ruler.enable-api=true
+      - -ruler.rule-path=/data/ruler
+      - -ruler.alertmanager-url=http://localhost:8080/alertmanager
+      - -ruler.query-stats-enabled=true
+      # The mixin has groups of up to 25 rules; the default limit is 20.
+      - -ruler.max-rules-per-rule-group=0
+      - -ruler.max-rule-groups-per-tenant=0
+      - -compactor.data-dir=/data/compactor
+      - -ingester.ring.replication-factor=1
+      - -store-gateway.sharding-ring.replication-factor=1
+      # Stated explicitly because the harness's ground-truth model depends on
+      # it: a series stays "active" for 20m after its last sample (Mimir's
+      # default).
+      - -ingester.active-series-metrics-idle-timeout=20m
+    volumes: !override
+      - mimir-data:/data
+      - ./config/alertmanager-fallback.yaml:/etc/mimir/alertmanager-fallback.yaml:ro
