@@ -143,10 +143,12 @@ promcost-config: forward
 cli:
 	./scripts/build-cli.sh $(CLI_REF)
 
-TENANTS ?= $(shell ./scripts/tenants.sh)
+# TENANTS defaults to scripts/tenants.sh: the running loadgen's tenants,
+# else the interim ones, plus `monitoring`.
+TENANTS ?=
 SINCE   ?= 1h
 cost: promcost-config
-	./scripts/cost.sh "$(TENANTS)" "$(SINCE)"
+	./scripts/cost.sh "$(or $(TENANTS),$$(./scripts/tenants.sh))" "$(SINCE)"
 
 # ---------------------------------------------------------------- operational events
 

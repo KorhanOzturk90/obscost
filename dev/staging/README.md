@@ -226,7 +226,10 @@ workaround below is scripted and only applies where it is needed:
 - Mimir's own metrics, cAdvisor and kube-state-metrics are in tenant
   `monitoring` (`cluster="staging"`, `job="mimir/<component>"`).
 - Interim tenants are in namespace `tenants`. `make deploy INTERIM_TENANTS=0`
-  leaves them out for a loadgen run (`workload/`, namespace `loadgen`), and
-  `make cost TENANTS=steady,cardinal,…` names the tenants to cost.
+  leaves them out for a loadgen run (`workload/`, namespace `loadgen`).
+  `make cost` then costs exactly the tenants in loadgen's own ground truth
+  (`steady`, `cardinal`, `dashboards`, …, read through the API server's
+  service proxy), plus `monitoring`. Nothing needs remapping, and
+  `TENANTS=` overrides the list.
 - Events: `make -C dev/staging event-<name>`. `make events-json` writes
   `.state/events.json` in `validate.py --events` format (`[{name, start, end, …}]`).
