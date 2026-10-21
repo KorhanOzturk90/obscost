@@ -60,7 +60,7 @@ On a shared Mimir cluster, the ingesters, queriers and rulers serve every tenant
 | **OpenCost / Kubecost** | What each pod, namespace or label costs in Kubernetes | They can tell you the ingester StatefulSet costs X a month. They can't tell you which Mimir tenant uses those ingesters, because every tenant shares the same pods. promcost takes that pod cost as an input and splits it. |
 | **Grafana Cloud's cost management and attribution** | Usage and spend on Grafana Cloud, attributed by label | It's for Grafana Cloud's own billing, not for a Mimir you run yourself. |
 
-promcost does one thing: it splits the cost of **shared** Mimir components per tenant, by the physical driver of each component. It reads that driver from metrics Mimir already exposes. [How it works](docs/how-it-works.md) explains the model and what it refuses to do, such as fitting weights by regression or spreading idle capacity across tenants.
+promcost does one thing: it splits the cost of **shared** Mimir components per tenant, by the physical driver of each component. It reads that driver from metrics Mimir already exposes. [How it works](docs/how-it-works.md) explains the model, including what it refuses to do: fit weights by regression, or spread the cost of unpriced and unmodelled components across tenants.
 
 ### Install
 
