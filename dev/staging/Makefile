@@ -67,7 +67,7 @@ export CLUSTER K3S_IMAGE STATE PROFILE RULER_EVAL DOCKERHUB_ONLY MIMIR_PORT GRAF
        MIMIR_CHART_VERSION KPS_CHART_VERSION ALLOY_CHART_VERSION CLI CLI_NAME
 
 .PHONY: help tools cluster down deploy undeploy charts images object-store monitoring-crds \
-        mimir monitoring tenants rules status forward promcost-config cli cost events
+        mimir monitoring tenants rules status forward promcost-config cli cost events events-json
 
 help:
 	@sed -n '2,15p' Makefile | sed 's/^# \{0,1\}//'
@@ -86,7 +86,11 @@ down:
 
 # ---------------------------------------------------------------- deploy (any cluster)
 
-deploy: tools charts $(if $(PRELOAD),images,) object-store monitoring-crds mimir monitoring tenants rules status
+# INTERIM_TENANTS=0 leaves out the dev/mimir-k8s tenants, for runs that
+# use the validation lane's loadgen (workload/) instead.
+INTERIM_TENANTS ?= 1
+
+deploy: tools charts $(if $(PRELOAD),images,) object-store monitoring-crds mimir monitoring $(if $(filter 1,$(INTERIM_TENANTS)),tenants rules,) status
 
 charts:
 	./scripts/fetch-charts.sh
@@ -149,3 +153,8 @@ events:
 
 event-%:
 	./events/$*.sh $(ARGS)
+
+# The event log in the validation harness's --events format.
+events-json:
+	./scripts/events-json.sh > $(STATE)/events.json
+	@echo "wrote $(STATE)/events.json"

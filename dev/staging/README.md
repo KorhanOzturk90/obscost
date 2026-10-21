@@ -189,9 +189,8 @@ workaround below is scripted and only applies where it is needed:
   after `make forward`. Inside the cluster, use `http://mimir-gateway.mimir.svc`.
 - Mimir's own metrics, cAdvisor and kube-state-metrics are in tenant
   `monitoring` (`cluster="staging"`, `job="mimir/<component>"`).
-- Interim tenants are in namespace `tenants`. To replace them, drop
-  `tenants rules` from `deploy`'s prerequisites in the Makefile and deploy
-  `workload/` instead. `scripts/tenants.sh` is the list `make cost` uses
-  (or pass `TENANTS=`).
-- Events: `make event-<name>` from any directory with `-C dev/staging`, and
-  read `$EVENT_LOG`.
+- Interim tenants are in namespace `tenants`. `make deploy INTERIM_TENANTS=0`
+  leaves them out for a loadgen run (`workload/`, namespace `loadgen`), and
+  `make cost TENANTS=steady,cardinal,…` names the tenants to cost.
+- Events: `make -C dev/staging event-<name>`. `make events-json` writes
+  `.state/events.json` in `validate.py --events` format (`[{name, start, end, …}]`).
