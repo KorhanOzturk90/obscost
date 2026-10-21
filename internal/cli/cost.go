@@ -164,12 +164,16 @@ func runCost(ctx context.Context, stdout, stderr io.Writer, opts costOptions) er
 		return err
 	}
 
-	header, bearerToken := backendAuth(cfg)
+	creds, err := backendAuth(cfg)
+	if err != nil {
+		return err
+	}
 	src := mimirdrivers.New(mimirdrivers.Config{
 		BaseURL:       cfg.Backend.URL,
-		Header:        header,
+		Header:        creds.header,
 		MetricsTenant: opts.metricsTenant,
-		BearerToken:   bearerToken,
+		BearerToken:   creds.bearerToken,
+		BasicAuth:     creds.basicAuth,
 		Timeout:       cfg.Backend.Timeout.Duration(),
 	})
 	readers := map[cost.PoolID]func(context.Context, time.Duration) (cost.Measurement, error){
@@ -198,7 +202,7 @@ func runCost(ctx context.Context, stdout, stderr io.Writer, opts costOptions) er
 			// Unreachable: --rule-outputs without pool 1 is rejected above.
 			return fmt.Errorf("--rule-outputs needs pool %s", cost.PoolIngesterMemory)
 		}
-		ro, err := measureRuleOutputs(ctx, stderr, opts, cfg, pool)
+		ro, err := measureRuleOutputs(ctx, stderr, opts, cfg, creds, pool)
 		if err != nil {
 			return err
 		}
@@ -214,7 +218,7 @@ func runCost(ctx context.Context, stdout, stderr io.Writer, opts costOptions) er
 // rules would understate its rule output. A count query that fails is not:
 // its rules render as not measured, with the reason, and a warning goes to
 // stderr.
-func measureRuleOutputs(ctx context.Context, stderr io.Writer, opts costOptions, cfg config.Config, pool cost.PoolAllocation) (ruleoutput.Report, error) {
+func measureRuleOutputs(ctx context.Context, stderr io.Writer, opts costOptions, cfg config.Config, creds backendCreds, pool cost.PoolAllocation) (ruleoutput.Report, error) {
 	defs, err := newDefinitionsSource(reportOptions{dir: opts.dir, tenants: opts.tenants}, cfg)
 	if err != nil {
 		return ruleoutput.Report{}, err
@@ -230,14 +234,14 @@ func measureRuleOutputs(ctx context.Context, stderr io.Writer, opts costOptions,
 		return ruleoutput.Report{}, fmt.Errorf("%d rule source(s) failed to load", len(loadErrs))
 	}
 
-	header, bearerToken := backendAuth(cfg)
 	counts := ruleoutput.Count(ctx, ruleoutput.CountConfig{
 		NewQuerier: func(tenant string) ruleoutput.Querier {
 			return promapi.New(promapi.Config{
 				BaseURL:     cfg.Backend.URL,
-				Header:      header,
+				Header:      creds.header,
 				Tenant:      tenant,
-				BearerToken: bearerToken,
+				BearerToken: creds.bearerToken,
+				BasicAuth:   creds.basicAuth,
 				Timeout:     cfg.Backend.Timeout.Duration(),
 			})
 		},

@@ -59,10 +59,11 @@ import (
 // rulerapi analogue, and the package doc explains why it is not just
 // "the tenant to report on".
 type Config struct {
-	BaseURL       string // Mimir's HTTP API address, e.g. http://localhost:8080
-	Header        string // tenancy header name; defaults to X-Scope-OrgID
-	MetricsTenant string // required; the tenant whose TSDB holds Mimir's own cortex_prometheus_rule_* series
-	BearerToken   string // optional; sent as "Authorization: Bearer <token>" if set
+	BaseURL       string             // Mimir's HTTP API address, e.g. http://localhost:8080
+	Header        string             // tenancy header name; defaults to X-Scope-OrgID
+	MetricsTenant string             // required; the tenant whose TSDB holds Mimir's own cortex_prometheus_rule_* series
+	BearerToken   string             // optional; sent as "Authorization: Bearer <token>" if set
+	BasicAuth     *promapi.BasicAuth // optional; sent as HTTP basic auth if set
 	Timeout       time.Duration
 	HTTPClient    *http.Client // optional; a default client with Timeout is used if nil
 }
@@ -121,6 +122,7 @@ func New(cfg Config) *Source {
 		Header:      cfg.Header,
 		Tenant:      cfg.MetricsTenant,
 		BearerToken: cfg.BearerToken,
+		BasicAuth:   cfg.BasicAuth,
 		Timeout:     cfg.Timeout,
 		HTTPClient:  cfg.HTTPClient,
 	})}

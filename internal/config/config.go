@@ -16,8 +16,23 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// BackendAuth is how promcost authenticates to Mimir: a bearer token or
+// HTTP basic auth, never both. Secrets are named (an environment variable
+// or a file), never written inline, so promcost.yaml can be committed.
 type BackendAuth struct {
-	BearerTokenEnv string `yaml:"bearer_token_env,omitempty"`
+	BearerTokenEnv string     `yaml:"bearer_token_env,omitempty"`
+	BasicAuth      *BasicAuth `yaml:"basic_auth,omitempty"`
+}
+
+// BasicAuth is backend.auth.basic_auth. The password comes from exactly one
+// of PasswordEnv or PasswordFile. Password exists only so an inline
+// password is rejected with a message saying why, rather than with yaml's
+// generic unknown-field error.
+type BasicAuth struct {
+	Username     string `yaml:"username,omitempty"`
+	PasswordEnv  string `yaml:"password_env,omitempty"`
+	PasswordFile string `yaml:"password_file,omitempty"`
+	Password     string `yaml:"password,omitempty"`
 }
 
 type BackendConfig struct {

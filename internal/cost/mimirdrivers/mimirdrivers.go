@@ -32,6 +32,7 @@ type Config struct {
 	Header        string
 	MetricsTenant string
 	BearerToken   string
+	BasicAuth     *promapi.BasicAuth
 	Timeout       time.Duration
 	HTTPClient    *http.Client
 }
@@ -54,6 +55,7 @@ func New(cfg Config) *Source {
 			Header:      cfg.Header,
 			Tenant:      cfg.MetricsTenant,
 			BearerToken: cfg.BearerToken,
+			BasicAuth:   cfg.BasicAuth,
 			Timeout:     cfg.Timeout,
 			HTTPClient:  cfg.HTTPClient,
 		}),

@@ -16,6 +16,7 @@ import (
 	"github.com/KorhanOzturk90/obscost/internal/loader"
 	"github.com/KorhanOzturk90/obscost/internal/loader/dir"
 	"github.com/KorhanOzturk90/obscost/internal/loader/rulerapi"
+	"github.com/KorhanOzturk90/obscost/internal/promapi"
 	"github.com/KorhanOzturk90/obscost/internal/report"
 	"github.com/KorhanOzturk90/obscost/internal/rule"
 	"github.com/KorhanOzturk90/obscost/internal/telemetry"
@@ -258,13 +259,17 @@ func runMetricsReport(ctx context.Context, stdout io.Writer, opts reportOptions,
 		window = defaultMetricsWindow
 	}
 
-	header, bearerToken := backendAuth(cfg)
+	creds, err := backendAuth(cfg)
+	if err != nil {
+		return err
+	}
 
 	src := mimirmetrics.New(mimirmetrics.Config{
 		BaseURL:       cfg.Backend.URL,
-		Header:        header,
+		Header:        creds.header,
 		MetricsTenant: opts.metricsTenant,
-		BearerToken:   bearerToken,
+		BearerToken:   creds.bearerToken,
+		BasicAuth:     creds.basicAuth,
 		Timeout:       cfg.Backend.Timeout.Duration(),
 	})
 	workload, err := src.Read(ctx, window)
@@ -355,13 +360,17 @@ func newDefinitionsSource(opts reportOptions, cfg config.Config) (loader.Loader,
 		return nil, fmt.Errorf("--tenant was given but contained no tenant IDs")
 	}
 
-	header, bearerToken := backendAuth(cfg)
+	creds, err := backendAuth(cfg)
+	if err != nil {
+		return nil, err
+	}
 
 	return rulerapi.New(rulerapi.Config{
 		BaseURL:     cfg.Backend.URL,
-		Header:      header,
+		Header:      creds.header,
 		Tenants:     tenants,
-		BearerToken: bearerToken,
+		BearerToken: creds.bearerToken,
+		BasicAuth:   creds.basicAuth,
 		Timeout:     cfg.Backend.Timeout.Duration(),
 	}), nil
 }
@@ -414,17 +423,75 @@ func windowLabel(since string) string {
 	return "last " + since
 }
 
-// backendAuth resolves the tenancy header name and bearer token every
-// Mimir HTTP API client needs, from config's tenancy and backend blocks.
-func backendAuth(cfg config.Config) (header, bearerToken string) {
-	header = cfg.Tenancy.Header
-	if header == "" {
-		header = "X-Scope-OrgID"
+// backendCreds is what every Mimir HTTP API client needs besides a URL:
+// the tenancy header name and at most one of a bearer token or basic auth.
+type backendCreds struct {
+	header      string
+	bearerToken string
+	basicAuth   *promapi.BasicAuth
+}
+
+// backendAuth resolves backendCreds from config's tenancy and backend
+// blocks. A credential that is configured but resolves to nothing is an
+// error, not an anonymous request: otherwise an unset variable surfaces
+// later as a bare 401 (#55). Errors name the variable or file, never its
+// contents.
+func backendAuth(cfg config.Config) (backendCreds, error) {
+	c := backendCreds{header: cfg.Tenancy.Header}
+	if c.header == "" {
+		c.header = "X-Scope-OrgID"
 	}
-	if cfg.Backend.Auth.BearerTokenEnv != "" {
-		bearerToken = os.Getenv(cfg.Backend.Auth.BearerTokenEnv)
+	auth := cfg.Backend.Auth
+	if auth.BearerTokenEnv != "" && auth.BasicAuth != nil {
+		return backendCreds{}, fmt.Errorf("backend.auth sets both bearer_token_env and basic_auth: use one")
 	}
-	return header, bearerToken
+	if auth.BearerTokenEnv != "" {
+		c.bearerToken = os.Getenv(auth.BearerTokenEnv)
+		if c.bearerToken == "" {
+			return backendCreds{}, fmt.Errorf("backend.auth.bearer_token_env names %s, which is unset or empty", auth.BearerTokenEnv)
+		}
+	}
+	if b := auth.BasicAuth; b != nil {
+		password, err := basicAuthPassword(*b)
+		if err != nil {
+			return backendCreds{}, err
+		}
+		c.basicAuth = &promapi.BasicAuth{Username: b.Username, Password: password}
+	}
+	return c, nil
+}
+
+func basicAuthPassword(b config.BasicAuth) (string, error) {
+	const path = "backend.auth.basic_auth"
+	switch {
+	case b.Password != "":
+		return "", fmt.Errorf("%s.password is not supported: never put a password in promcost.yaml; use password_env or password_file", path)
+	case b.Username == "":
+		return "", fmt.Errorf("%s.username is empty", path)
+	case b.PasswordEnv != "" && b.PasswordFile != "":
+		return "", fmt.Errorf("%s sets both password_env and password_file: use one", path)
+	case b.PasswordEnv != "":
+		p := os.Getenv(b.PasswordEnv)
+		if p == "" {
+			return "", fmt.Errorf("%s.password_env names %s, which is unset or empty", path, b.PasswordEnv)
+		}
+		return p, nil
+	case b.PasswordFile != "":
+		data, err := os.ReadFile(b.PasswordFile)
+		if err != nil {
+			// The os error names the file and the reason, never its contents.
+			return "", fmt.Errorf("%s.password_file: %w", path, err)
+		}
+		// A trailing newline is an editor's, not the password's, as in
+		// Prometheus' own password_file.
+		p := strings.TrimRight(string(data), "\r\n")
+		if p == "" {
+			return "", fmt.Errorf("%s.password_file %s is empty", path, b.PasswordFile)
+		}
+		return p, nil
+	default:
+		return "", fmt.Errorf("%s needs password_env or password_file", path)
+	}
 }
 
 // splitTenants parses a comma-separated --tenant value, dropping blanks.
