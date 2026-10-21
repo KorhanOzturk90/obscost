@@ -186,3 +186,28 @@ func TestReadIngesterMemory_ClassicDataSkipsIngestQuery(t *testing.T) {
 		}
 	}
 }
+
+// Issue #53: with no data from either query there is no evidence of a
+// write path, so the trail must not claim "classic — detected".
+func TestReadIngesterMemory_NoDataClaimsNoWritePath(t *testing.T) {
+	srv := serverWithIngest(t, empty, empty, empty, nil)
+	defer srv.Close()
+
+	m, err := New(Config{BaseURL: srv.URL, MetricsTenant: "monitoring"}).ReadIngesterMemory(context.Background(), time.Hour)
+	if err != nil {
+		t.Fatalf("ReadIngesterMemory: %v", err)
+	}
+	a := cost.Allocate(m, cost.Inventory{}, []string{"analytics"})
+	var writePath []cost.Assumption
+	for _, as := range a.Assumptions {
+		if as.Name == "write path" {
+			writePath = append(writePath, as)
+		}
+	}
+	if len(writePath) != 1 || writePath[0].Value != "unknown (no data)" || strings.Contains(writePath[0].Source, "detected") {
+		t.Errorf("write path assumptions = %+v, want exactly one, unknown (no data), not detected", writePath)
+	}
+	if !strings.Contains(strings.Join(a.Notes, "\n"), "--metrics-tenant") {
+		t.Errorf("notes = %q, want a hint that --metrics-tenant may be wrong", a.Notes)
+	}
+}

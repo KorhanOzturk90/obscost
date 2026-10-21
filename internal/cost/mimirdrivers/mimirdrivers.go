@@ -153,12 +153,13 @@ func (s *Source) ReadIngesterMemory(ctx context.Context, window time.Duration) (
 	// finds nothing is the ingest-storage form tried — running both and
 	// adding would double-count a cluster mid-migration, where the mixin's
 	// own query also picks one branch per cluster.
-	m.Architecture = "classic"
 	samples, err := s.api.Instant(ctx, m.DriverQuery)
 	if err != nil {
 		return cost.Measurement{}, fmt.Errorf("active series query: %w", err)
 	}
-	if len(samples) == 0 {
+	if len(samples) > 0 {
+		m.Architecture = "classic"
+	} else {
 		ingestQuery := fmt.Sprintf(ingestStorageMemoryQuery, rangeStr, stepStr)
 		samples, err = s.api.Instant(ctx, ingestQuery)
 		if err != nil {
@@ -169,6 +170,17 @@ func (s *Source) ReadIngesterMemory(ctx context.Context, window time.Duration) (
 			m.Architecture = "ingest storage"
 			m.Deduplicated = true
 		}
+	}
+	if m.Architecture == "" {
+		// Neither query returned data, so there is no evidence of either
+		// write path, and the trail claims none — as the ruler's
+		// evaluation mode reports "unknown" with no rule data.
+		m.Assumptions = append(m.Assumptions, cost.Assumption{
+			Name:   "write path",
+			Value:  "unknown (no data)",
+			Source: "neither the classic nor the ingest-storage driver query returned data",
+		})
+		m.Notes = append(m.Notes, "Mimir returned no data for cortex_ingester_active_series: the metrics tenant may not be the one that scrapes Mimir's ingesters (check --metrics-tenant)")
 	}
 	for _, smp := range samples {
 		tenant := smp.Metric["user"]
