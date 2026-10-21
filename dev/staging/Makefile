@@ -3,10 +3,12 @@
 #   make cluster            # local k3s-in-Docker cluster (skip it for any other cluster)
 #   make deploy             # everything, against whatever KUBECONFIG points at
 #   make deploy PROFILE=classic
+#   make mimir RULER_EVAL=local  # switch rule evaluation in place (remote is the default)
 #   make status             # pods, rings, per-tenant active series
 #   make promcost-config    # writes .state/promcost.yaml pointing at this env
 #   make cost               # the CLI's `cost` command against the env, md + json
 #   make event-<name>       # operational events, see events/ (`make events` lists them)
+#   make events-json        # the event log as validate.py --events input
 #   make down               # delete the local cluster (or `make undeploy` on a real one)
 #
 # Cluster bootstrap (`cluster`, `down`) is separate from `deploy` on
@@ -70,7 +72,7 @@ export CLUSTER K3S_IMAGE STATE PROFILE RULER_EVAL DOCKERHUB_ONLY MIMIR_PORT GRAF
         mimir monitoring tenants rules status forward promcost-config cli cost events events-json
 
 help:
-	@sed -n '2,15p' Makefile | sed 's/^# \{0,1\}//'
+	@sed -n '2,17p' Makefile | sed 's/^# \{0,1\}//'
 
 tools:
 	./scripts/tools.sh

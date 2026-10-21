@@ -9,7 +9,7 @@ tenant, and operational event scripts for the validation lane.
 
 ```bash
 make cluster              # local k3s-in-Docker cluster (skip on a real cluster)
-make deploy               # ingest-storage profile, ~5 min on a warm cache
+make deploy               # ingest-storage profile; cluster + deploy measured 7m10s from a cold cache
 make cli                  # build the CLI (from PR #50's branch until it merges)
 make cost                 # cost report for every tenant: all pools, --rule-outputs, md + json
 make down
@@ -67,6 +67,31 @@ flowchart LR
 The two differ only in [`values/profile-classic.yaml`](values/profile-classic.yaml).
 Switching a deployed cluster between them is not a supported Mimir
 migration, and `make deploy` refuses to do it: `make undeploy` first.
+
+`RULER_EVAL=local` ([`values/ruler-local.yaml`](values/ruler-local.yaml))
+puts the ruler back to the chart's default, local evaluation, so the CLI's
+evaluation-mode inference can be checked in both directions. Unlike
+`PROFILE`, this switches in place: `make mimir RULER_EVAL=local`, about 2
+minutes. Under default ruler flags the CLI currently misreads local
+evaluation as remote (#65).
+
+### Footprint
+
+Measured on the ingest profile with the interim tenants, 10 minutes after a
+cold deploy, on a 4 vCPU / 15.7 GiB node:
+
+| | CPU | Memory |
+|---|---:|---:|
+| requests (scheduled) | 2.69 cores (67%) | 7.9 GiB (50%) |
+| used, whole node (k3s included) | ~1.6 cores | 4.9 GiB |
+| used, `mimir` namespace | ~0.4 cores (ingesters 0.14, Kafka 0.03) | 2.25 GiB |
+| used, `monitoring` namespace | | 0.85 GiB |
+
+Scaling ingesters to 2 per zone adds 0.3 cores and 1.5 GiB of requests.
+`monitoring` is the largest tenant, at ~100k active series (cAdvisor,
+kubelet, API server, kube-state-metrics and Mimir itself), against ~21k
+for the four interim tenants together. That is realistic: meta-monitoring
+is usually one of a cluster's biggest tenants.
 
 ## Deviations from chart defaults
 
@@ -145,6 +170,17 @@ Each event appends JSON lines to `$EVENT_LOG` (default `.state/events.jsonl`):
 
 `phase` is `start`, `end`, `noop` (already in the requested state, so no
 start/end) or `failed`.
+
+Scale-up only: the chart labels every ingester zone
+`grafana.com/min-time-between-zones-downscale=12h`, so the rollout-operator's
+webhook refuses a second zone's downscale for 12 hours, as it would in
+production. The script refuses downscales up front, and `make undeploy deploy`
+resets.
+
+**Right after an ingester (re)start**, it reports
+`cortex_ingester_active_series_loading` for a few minutes, and its
+`cortex_ingester_active_series` is absent or partial. A window that covers
+it reads low.
 
 **Watch out after `scale-ingesters` under ingest storage.** Series that now
 hash to the new partition stay active in the old one until the idle timeout
