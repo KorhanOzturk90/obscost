@@ -2,84 +2,156 @@
 
 ![CI](https://github.com/KorhanOzturk90/obscost/actions/workflows/ci.yml/badge.svg)
 
-**Where is your metrics infrastructure capacity going, and which tenant is responsible for it?**
+**What each tenant of your self-hosted Grafana Mimir costs you, split by the thing that actually makes each component grow.**
 
-promcost attributes the resource use and cost of a shared, multi-tenant metrics platform — Grafana Mimir first — down to individual tenants, starting with the recording and alerting rules running on their behalf. The goal is a platform team being able to say, with real evidence, not a guess:
+`promcost cost` reads Mimir's own metrics and splits three shared cost pools across tenants. Ingester memory is split by active series, the query path by the data each tenant's queries fetch, and ruler CPU by the time each tenant's rules take to evaluate. By default the answer is in resources ("`analytics` uses the equivalent of 5.0 of your 8 ingesters"). It's in currency only if you add your own prices to `promcost.yaml`. Every figure comes with the query, the replication factor and the price it rests on, and anything promcost couldn't measure says **not measured**, never 0.
 
-> Tenant `analytics` accounts for 37% of ruler workload, and these rules explain 82% of it.
+It's a single read-only binary. It needs a Mimir URL and the tenant your Mimir's own metrics are scraped into. It doesn't need an agent or a database, and it never writes to Mimir.
 
-Rules are the first wedge because they're the clearest, most directly attributable source of ruler/query load on a shared Mimir cluster. Raw metric ingestion and cardinality attribution are a deliberate later phase — see [`PRODUCT-DIRECTION.md`](PRODUCT-DIRECTION.md) for the full thesis and roadmap.
+### What it looks like
 
-### See it working
+This excerpt is from the test fixture [`internal/report/testdata/cost_report_multipool.golden.md`](internal/report/testdata/cost_report_multipool.golden.md), not a production cluster. The fixture prices ingester memory and the querier, and leaves the ruler and the query-frontend unpriced:
 
 ```
-# promcost workload report — last 7d (observed)
+## Ingester memory
 
-## Tenant summary
+Average over the last 7d, ending 2026-09-18T12:00:00Z. Pool: 3 ingesters, 300.00 EUR/month.
 
-| tenant    | rules | executions | execution % | samples | sample % |
-|-----------|-------|------------|--------------|---------|----------|
-| analytics | 1842  | 1842       | 37.2%        | 4096400 | 41.8%    |
-| payments  | 621   | 621        | 18.4%        | 2068000 | 21.1%    |
+**`analytics` uses 40.9% of ingester memory** — the equivalent of 1.2 of your 3 ingesters, 122.65 EUR/month.
 
-## analytics
+| Tenant | Active series | Share | ≈ ingesters | EUR/month |
+|---|---:|---:|---:|---:|
+| analytics | 15,005 | 40.9% | 1.23 | 122.65 |
+| monitoring | 12,643 | 34.4% | 1.03 | 103.35 |
+| infra | 7,743 | 21.1% | 0.63 | 63.29 |
+| payments | 1,205 | 3.3% | 0.10 | 9.85 |
+| platform | 105 | 0.3% | 0.01 | 0.86 |
+| **Total** | **36,701** | **100%** | **3** | **300.00** |
 
-| rule                          | kind      | executions | execution % | samples | sample % |
-|--------------------------------|-----------|------------|--------------|---------|----------|
-| customer_activity:7d           | recording | 1440       | 78.2%        | 3200000 | 78.1%    |
+... query path and ruler CPU sections, each with its own assumption table ...
+
+## Cost across pools
+
+**`analytics` is 45.4% of the 31.2% of platform cost we can price** (ingester memory, query path (without query-frontend); ruler CPU not costed).
+
+| Tenant | Ingester memory EUR/month | Query path EUR/month | Total EUR/month | Share of priced cost |
+|---|---:|---:|---:|---:|
+| analytics | 122.65 | 104.25 | 226.91 | 45.4% |
+| infra | 63.29 | 93.62 | 156.91 | 31.4% |
+| monitoring | 103.35 | 0.12 | 103.46 | 20.7% |
+| payments | 9.85 | 2.01 | 11.86 | 2.4% |
+| platform | 0.86 | not measured | ≥ 0.86 | ≥ 0.2% |
+
+Not modelled yet: ingester write path, object storage, store-gateway, compactor.
 ```
 
-This is real, tested output (`internal/report/testdata/workload_report.golden.md`), not a mockup. It's produced by joining actual observed rule-execution telemetry against a tenant's loaded rule definitions and ranking the result — every number is something that was measured, never estimated. See [`docs/adr/0001-observed-workload-attribution-layer.md`](docs/adr/0001-observed-workload-attribution-layer.md) for how that pipeline is built and the real bugs that testing it against a live Mimir instance surfaced along the way.
+Note the headline: it says *45.4% of the 31.2% we can price*, not "45.4% of your Mimir bill". A total across pools always says what it covers. `platform` sent no queries through the query frontend in this window, so it's "not measured" there and its total is marked as a lower bound (≥).
 
-### What's built today
+<!-- TODO(launch/validation): once the staging validation report is committed, link it here as the evidence that shares reconcile against ground truth. Don't quote a number until then. -->
 
-| command | does | telemetry source |
+### Why this exists, and how it differs from what you already have
+
+On a shared Mimir cluster, the ingesters, queriers and rulers serve every tenant at once. The question is what share of each shared component a tenant is responsible for. The tools below answer different questions:
+
+| Tool | What it answers | Why it doesn't answer this |
 |---|---|---|
-| `promcost report` | **The main event.** Joins observed rule-execution telemetry against loaded rule definitions and produces the ranked tenant/rule workload report above. | a portable NDJSON format, or a real parser for Mimir's own `-ruler.query-stats-enabled` ruler log (`--telemetry-format mimirlogs`) |
+| **Mimir's `mimir-top-tenants` dashboard** | Who is biggest on each axis: series, samples, rule time and so on | It's 14 separate `topk` leaderboards in raw units. None of them is a share of a total, they aren't combined, and they don't say what a series costs. |
+| **Mimir's cost attribution** (`-validation.cost-attribution-trackers`, experimental in 3.x) | Splits samples and active series *inside* a tenant by a label, e.g. `team` | It works within a tenant on the write side, and it doesn't price anything. promcost works *across* tenants, and also covers the query path and the ruler. The two are complementary. |
+| **OpenCost / Kubecost** | What each pod, namespace or label costs in Kubernetes | They can tell you the ingester StatefulSet costs X a month. They can't tell you which Mimir tenant uses those ingesters, because every tenant shares the same pods. promcost takes that pod cost as an input and splits it. |
+| **Grafana Cloud's cost management and attribution** | Usage and spend on Grafana Cloud, attributed by label | It's for Grafana Cloud's own billing, not for a Mimir you run yourself. |
 
-### Quick start
+promcost does one thing: it splits the cost of **shared** Mimir components per tenant, by the physical driver of each component. It reads that driver from metrics Mimir already exposes. [How it works](docs/how-it-works.md) explains the model and what it refuses to do, such as fitting weights by regression or spreading idle capacity across tenants.
+
+### Install
+
+<!-- TODO(launch/release): replace this block with the exact snippet from the launch/release PR's "For the docs lane" section. -->
+
+> **Placeholder until v0.1.0 is tagged.** The release binaries, the image name and the tag below aren't published yet.
 
 ```sh
-go build -o bin/promcost ./cmd/promcost   # or: make build
-go test ./...                              # or: make test
+# Binary (linux/darwin, amd64/arm64) from GitHub Releases
+# RELEASE-SNIPPET-PLACEHOLDER: download URL and archive name from launch/release
+
+# Container image
+# RELEASE-SNIPPET-PLACEHOLDER: image reference from launch/release
+
+# From source (Go 1.27+)
+go install github.com/KorhanOzturk90/obscost/cmd/promcost@latest
 ```
+
+### Quickstart
+
+You need a Mimir whose own metrics (`cortex_*`) are scraped into one of its tenants. Here that tenant is called `meta`. If you don't have one, see [Prerequisites](docs/prerequisites.md).
 
 ```sh
-# workload attribution with NO log capture at all — reads Mimir's own rule
-# metrics (needs backend.url in promcost.yaml). Fastest way to see something
-# real: per tenant and per rule group, with history.
-./bin/promcost report --metrics-tenant monitoring --since 7d --config promcost.yaml
-
-# per-RULE attribution, plus the resource dimensions only the ruler log has
-# (fetched bytes/chunks/series) — needs captured ruler query-stats telemetry
-./bin/promcost report --dir path/to/rules --telemetry ruler.log \
-  --telemetry-format mimirlogs --config promcost.yaml [--since 7d] [--format md|json|html]
-
-# ...same, but with no local rule checkout: fetch definitions live from
-# Mimir's own ruler API instead
-./bin/promcost report --tenant analytics,payments --telemetry ruler.log \
-  --telemetry-format mimirlogs --config promcost.yaml
+curl -sSLO https://raw.githubusercontent.com/KorhanOzturk90/obscost/main/examples/promcost.yaml
+$EDITOR promcost.yaml                                            # set backend.url; inventory is optional
+promcost cost --config promcost.yaml --metrics-tenant meta --since 24h
+promcost cost --config promcost.yaml --metrics-tenant meta --since 7d --format json > cost.json
 ```
 
-Those first two answer different questions, deliberately — see [`docs/adr/0002`](docs/adr/0002-where-workload-evidence-comes-from.md). Mimir's own metrics give you tenant and rule-group totals exactly, cheaply, and with history, but they carry no rule name and no measure of data volume. The ruler log is the only source that reaches individual rules and reports what they actually pulled off the ingesters — which routinely disagrees with wall time about which tenant is expensive.
+`--metrics-tenant` is the tenant that **scraped** Mimir, not a tenant you want to cost. This is the most common setup mistake. [Getting started](docs/getting-started.md) walks through a first report, step by step.
 
-Want to see it running against a real Mimir instance rather than a fixture? [`dev/mimir-local`](dev/mimir-local) is a self-contained, self-monitoring Docker Compose Mimir rig with `-ruler.query-stats-enabled` already on — spin it up and point `report --telemetry-format mimirlogs` at its actual ruler logs.
+### What it measures and what it doesn't
 
-### Status and roadmap
+| Pool | Split by | Status in v0.1 |
+|---|---|---|
+| 1. Ingester memory | active series (`cortex_ingester_active_series`), averaged over the window and divided by the replication factor | measured |
+| 6. Query path (query-frontend + querier) | fetched chunk bytes, falling back to samples processed, then series fetched, then query seconds | measured |
+| 7. Ruler CPU | rule-evaluation seconds | measured |
+| 2. Ingester write path, 3. object storage, 4. store-gateway, 5. compactor | — | **not modelled yet**, and listed as such in every report |
 
-Observed workload attribution (`report`, closing issues #4–#8) is real and tested today. Next is tenant cost showback, in [ADR 0004](docs/adr/0004-finops-pivot-scope-and-sequencing.md)'s build order. Everything past that, including validating attribution against real infrastructure metrics, deterministic recommendations, before/after verification and team ownership, is open and tracked on the [issues board](https://github.com/KorhanOzturk90/obscost/issues). `PRODUCT-DIRECTION.md` has the full 8-milestone map.
+Pools 2 to 5 aren't in v0.1, and the report says so. It doesn't treat them as zero. The rest of the model behaves the same way:
+
+- **Shares cover every tenant**, not a top N, and they sum to 100% within each pool.
+- **Currency is opt-in.** With no price, you get shares and "≈ N replicas". An unpriced pool is "not costed", not free.
+- **Cross-pool totals always say what they cover**, and promcost won't show a blended total when nothing is priced.
+- **Under remote rule evaluation**, the ruler's queries are counted in the query path. The report detects the evaluation mode from metrics and says which one it found, and when it can't tell, it says "unknown".
+- **It's a snapshot over one window.** It doesn't compare windows or store history yet.
+
+There are also known limitations, such as a metrics tenant that holds several Mimir clusters, or auth that isn't a bearer token. See [Prerequisites](docs/prerequisites.md#known-limitations-in-v01).
+
+### Drill-downs
+
+- **`promcost cost --rule-outputs`** names the recording rules that write a tenant's series, and their share of that tenant's active series.
+- **`promcost report`** attributes ruler workload to rule groups, using Mimir's rule metrics. It can attribute to individual rules if you give it Mimir's ruler query-stats log (`-ruler.query-stats-enabled`). That's the layer that tells a tenant *what to change*. See [Getting started → drill down](docs/getting-started.md#5-drill-down-which-rules).
 
 ### Docs
 
-- [`PRODUCT-DIRECTION.md`](PRODUCT-DIRECTION.md) — the product thesis, what's explicitly *not* being built yet, and why.
-- [`docs/adr/`](docs/adr) — architecture decision records: the real design calls behind what's built, including the trade-offs and bugs found testing against live infrastructure.
-- [`docs/runtime-telemetry-notes.md`](docs/runtime-telemetry-notes.md) — what Mimir's own telemetry can and can't tell you, and why it's the preferred first data source.
-- [`CLAUDE.md`](CLAUDE.md) — repository guidance for AI coding agents working in this codebase.
+- [Getting started](docs/getting-started.md): from nothing to a first `cost` report
+- [Prerequisites](docs/prerequisites.md): Mimir versions, meta-monitoring, `--metrics-tenant`, replication factor, write path, rule evaluation mode, permissions
+- [Configuration](docs/configuration.md): the full `promcost.yaml` reference
+- [How it works](docs/how-it-works.md): the cost model on one page
+- [Troubleshooting](docs/troubleshooting.md)
+- [`docs/adr/`](docs/adr): the design decisions behind the model, with the measurements that support them
 
-### Demo
+### Status
 
-A video walkthrough is coming — for now, the [example above](#see-it-working) and `dev/mimir-local` are the fastest way to see it working end to end.
+**v0.1** covers three pools (ingester memory, query path, ruler CPU) as a one-off snapshot, in resources and optional currency. It's developed against Mimir 3.2.0 (Helm chart `mimir-distributed` 6.2.0) in microservices mode, on a local Kubernetes rig, with both the classic and the ingest-storage write path.
+
+<!-- TODO(launch/staging-env, launch/validation): state which topologies the staging validation covered once its report is committed. -->
+
+Next, in the order set out in [ADR 0004](docs/adr/0004-finops-pivot-scope-and-sequencing.md):
+
+- comparing windows ("up 4pp on last week, and why")
+- daily rollups to a store you own
+- a change timeline built from ruler API snapshots
+- the remaining pools
+
+Everything is tracked on the [issues board](https://github.com/KorhanOzturk90/obscost/issues).
 
 ### Contributing
 
-Contribution guidelines are coming soon. In the meantime, issues and pull requests are welcome — the [issues board](https://github.com/KorhanOzturk90/obscost/issues) is the current source of truth for what's planned next.
+Issues and pull requests are welcome. Bug reports are most useful when they include the `--format json` output, or the assumption table for the figure that looks wrong, plus your Mimir version and write path.
+
+```sh
+make build   # go build -o bin/promcost ./cmd/promcost
+make test    # go test ./...
+make lint    # golangci-lint run ./...
+```
+
+Read the [ADRs](docs/adr) before proposing a change to the cost model. [`AGENTS.md`](AGENTS.md) has repository conventions, including for AI coding agents.
+
+### License
+
+Apache-2.0. See [`LICENSE`](LICENSE).

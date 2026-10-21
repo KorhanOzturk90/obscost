@@ -1,0 +1,59 @@
+# promcost.yaml: a minimal, realistic starting point.
+#
+# Only backend.url is required. Everything under inventory: is optional.
+# Leave a value out and promcost reports that pool as shares only, or as
+# "not costed". It never guesses a number for you.
+# Full reference: docs/configuration.md
+
+backend:
+  # The base URL you'd put in front of /prometheus/api/v1/query. Usually the
+  # Mimir gateway or the query-frontend.
+  url: http://mimir-gateway.mimir.svc:8080
+  # Name of an environment variable holding a bearer token, if your gateway
+  # needs one. Comment this out if it doesn't.
+  # auth:
+  #   bearer_token_env: MIMIR_TOKEN
+  # Client-side limit on each query. The default is 2m, Mimir's own default
+  # query timeout. Raise it for long --since windows on large clusters.
+  timeout: 5m
+
+# The tenant header. X-Scope-OrgID is the default, so most setups can drop this.
+# tenancy:
+#   header: X-Scope-OrgID
+
+inventory:
+  # Required as soon as any price below is set. Use any label you like.
+  currency: EUR
+
+  # Optional. What the whole Mimir platform costs per month. With it, the
+  # cross-pool headline says what fraction of platform cost the priced pools
+  # cover. Without it, that fraction is reported as unknown.
+  # platform_cost_month: 4000
+
+  # Optional. Overrides cortex_distributor_replication_factor. Only set it if
+  # that metric isn't scraped into your metrics tenant. It's ignored under
+  # ingest storage, where the query already counts each series once.
+  # replication_factor: 3
+
+  pools:
+    # Pool 1: ingester memory, split by active series.
+    ingester_memory:
+      replicas: 8                  # enables "the equivalent of N of your 8 ingesters"
+      cost_per_replica_month: 310  # per ingester, in inventory.currency
+
+    # Pool 6: query path, split by fetched data. It spans two components,
+    # each priced on its own. Leave one out and the pool cost is reported
+    # as a lower bound.
+    query_path:
+      components:
+        query-frontend:
+          replicas: 2
+          cost_per_replica_month: 60
+        querier:
+          replicas: 6
+          cost_per_replica_month: 180
+
+    # Pool 7: ruler CPU, split by rule-evaluation time. A replica count with
+    # no price gives "≈ rulers" figures, and the pool is reported as not costed.
+    ruler_cpu:
+      replicas: 2
