@@ -24,13 +24,27 @@ if ! docker container inspect "$NODE" >/dev/null 2>&1; then
   # Traefik and metrics-server are k3s add-ons, not part of the
   # environment being modelled. /var/lib/rancher/k3s on a volume keeps
   # images and PVs across a container restart.
+  #
+  # Kubelet disk thresholds are absolute, not percentages: the cloud
+  # container's filesystem reports 252 GB but only ~30 GB of it is ours, so
+  # the default percentages read it as >85% full. Image GC then deletes
+  # every preloaded image no pod is using at that moment (the pause image
+  # included, which no registry can re-supply from inside the node), and
+  # eviction follows.
+  #
+  # `mount --make-rshared /` (what k3d's entrypoint does): node-exporter
+  # mounts the host root with HostToContainer propagation, which needs /
+  # to be a shared mount. Done in the entrypoint so it survives restarts.
   docker run -d --name "$NODE" --hostname "$NODE" --privileged \
     --tmpfs /run --tmpfs /var/run \
     -v "$NODE-data:/var/lib/rancher/k3s" \
     -p "127.0.0.1:$API_PORT:6443" \
     --restart unless-stopped \
-    "$(canonical "$K3S_IMAGE")" server \
+    --entrypoint /bin/sh \
+    "$(canonical "$K3S_IMAGE")" -c 'mount --make-rshared / && exec /bin/k3s "$@"' k3s server \
     --disable traefik --disable metrics-server \
+    --kubelet-arg=image-gc-high-threshold=100 --kubelet-arg=image-gc-low-threshold=99 \
+    '--kubelet-arg=eviction-hard=nodefs.available<2Gi,imagefs.available<2Gi' \
     --tls-san 127.0.0.1 --write-kubeconfig-mode 644 >/dev/null
 elif [[ $(docker inspect -f '{{.State.Running}}' "$NODE") != true ]]; then
   docker start "$NODE" >/dev/null
