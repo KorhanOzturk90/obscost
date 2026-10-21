@@ -64,6 +64,7 @@ type Config struct {
 	MetricsTenant string             // required; the tenant whose TSDB holds Mimir's own cortex_prometheus_rule_* series
 	BearerToken   string             // optional; sent as "Authorization: Bearer <token>" if set
 	BasicAuth     *promapi.BasicAuth // optional; sent as HTTP basic auth if set
+	Selector      promapi.Selector   // optional; added to every query, to read one Mimir cluster (#63)
 	Timeout       time.Duration
 	HTTPClient    *http.Client // optional; a default client with Timeout is used if nil
 }
@@ -189,7 +190,11 @@ func (s *Source) Read(ctx context.Context, window time.Duration) (Workload, erro
 		return a
 	}
 
-	durations, err := s.vector(ctx, "per-tenant evaluation duration", fmt.Sprintf(tenantDurationQuery, rangeStr))
+	durationsQuery, err := s.query(tenantDurationQuery, rangeStr)
+	if err != nil {
+		return Workload{}, err
+	}
+	durations, err := s.vector(ctx, "per-tenant evaluation duration", durationsQuery)
 	if err != nil {
 		return Workload{}, err
 	}
@@ -203,7 +208,11 @@ func (s *Source) Read(ctx context.Context, window time.Duration) (Workload, erro
 		a.durationObserved = true
 	}
 
-	counts, err := s.vector(ctx, "per-tenant evaluation count", fmt.Sprintf(tenantCountQuery, rangeStr))
+	countsQuery, err := s.query(tenantCountQuery, rangeStr)
+	if err != nil {
+		return Workload{}, err
+	}
+	counts, err := s.vector(ctx, "per-tenant evaluation count", countsQuery)
 	if err != nil {
 		return Workload{}, err
 	}
@@ -215,7 +224,11 @@ func (s *Source) Read(ctx context.Context, window time.Duration) (Workload, erro
 		accum(tenant).evaluations += value
 	}
 
-	groups, err := s.vector(ctx, "per-group evaluation count", fmt.Sprintf(groupCountQuery, rangeStr))
+	groupsQuery, err := s.query(groupCountQuery, rangeStr)
+	if err != nil {
+		return Workload{}, err
+	}
+	groups, err := s.vector(ctx, "per-group evaluation count", groupsQuery)
 	if err != nil {
 		return Workload{}, err
 	}
@@ -317,6 +330,17 @@ func userValue(s promapi.Sample) (tenant string, value float64, ok bool) {
 // vector runs one instant query, labelling any failure with which of the
 // three queries it was — all three hit the same endpoint with the same
 // headers, so without the label a failure is unattributable.
+// query builds one of the queries above with the selector applied.
+func (s *Source) query(format, rangeStr string) (string, error) {
+	return s.cfg.Selector.Apply(fmt.Sprintf(format, rangeStr))
+}
+
+// Clusters returns the cluster label's values on the rule metrics this
+// source reads; see promapi.Client.Clusters.
+func (s *Source) Clusters(ctx context.Context) ([]string, error) {
+	return s.api.Clusters(ctx, s.cfg.Selector, "cortex_prometheus_rule_evaluation_duration_seconds_sum", "cortex_prometheus_rule_evaluations_total")
+}
+
 func (s *Source) vector(ctx context.Context, name, promql string) ([]promapi.Sample, error) {
 	samples, err := s.api.Instant(ctx, promql)
 	if err != nil {

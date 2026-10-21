@@ -3,121 +3,19 @@ package mimirdrivers
 import (
 	"context"
 	"fmt"
-	"slices"
-	"strings"
-
-	"github.com/prometheus/common/model"
-	"github.com/prometheus/prometheus/model/labels"
-	"github.com/prometheus/prometheus/promql/parser"
 )
-
-// Selector is a set of label matchers, e.g. {cluster="prod-eu"}, added to
-// every vector selector of every query a Source runs (#54). It exists
-// because one metrics tenant commonly scrapes several Mimir clusters, told
-// apart by a label; without it every driver, total and the replication
-// factor span all of them, and "N of your M ingesters" multiplies a
-// multi-cluster share by one cluster's replica count.
-//
-// The zero Selector selects nothing extra.
-type Selector struct {
-	text     string
-	matchers []*labels.Matcher
-}
-
-var promqlParser = parser.NewParser(parser.Options{})
-
-// ParseSelector parses s with the PromQL parser and accepts only a plain
-// matcher set in braces: no metric name, no __name__ matcher, and no
-// matcher on user, which is the tenant label and would silently drop
-// tenants from every pool's denominator (--tenant is how to name tenants).
-func ParseSelector(s string) (Selector, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return Selector{}, nil
-	}
-	if !strings.HasPrefix(s, "{") {
-		return Selector{}, fmt.Errorf("selector %q must be a label-matcher set in braces, e.g. {cluster=\"prod-eu\"}, with no metric name", s)
-	}
-	ms, err := promqlParser.ParseMetricSelector(s)
-	if err != nil {
-		return Selector{}, fmt.Errorf("selector %q: %w", s, err)
-	}
-	if len(ms) == 0 {
-		return Selector{}, fmt.Errorf("selector %q has no matchers: omit it to select every cluster", s)
-	}
-	for _, m := range ms {
-		switch m.Name {
-		case model.MetricNameLabel:
-			return Selector{}, fmt.Errorf("selector %q matches on %s: it selects a Mimir cluster, not a metric", s, model.MetricNameLabel)
-		case "user":
-			return Selector{}, fmt.Errorf("selector %q matches on user, the tenant label: it selects a Mimir cluster, not tenants (use --tenant to name tenants)", s)
-		}
-	}
-	return Selector{text: s, matchers: ms}, nil
-}
-
-func (s Selector) String() string { return s.text }
-
-// IsZero is true for a Selector that adds nothing.
-func (s Selector) IsZero() bool { return len(s.matchers) == 0 }
-
-// apply adds the selector's matchers to every vector selector in query,
-// through the AST rather than by string splicing, so a selector reaches
-// subqueries, both sides of a binary operator, and label_replace's
-// argument alike. With no selector the query is returned unchanged,
-// keeping its original text in the assumption trail.
-func (s Selector) apply(query string) (string, error) {
-	if s.IsZero() {
-		return query, nil
-	}
-	expr, err := promqlParser.ParseExpr(query)
-	if err != nil {
-		return "", fmt.Errorf("adding selector to %q: %w", query, err)
-	}
-	parser.Inspect(expr, func(n parser.Node, _ []parser.Node) error {
-		if vs, ok := n.(*parser.VectorSelector); ok {
-			vs.LabelMatchers = append(slices.Clone(vs.LabelMatchers), s.matchers...)
-		}
-		return nil
-	})
-	return expr.String(), nil
-}
 
 // query is fmt.Sprintf with the Source's selector applied: every PromQL
 // string a Source sends is built through it.
 func (s *Source) query(format string, args ...any) (string, error) {
-	return s.cfg.Selector.apply(fmt.Sprintf(format, args...))
+	return s.cfg.Selector.Apply(fmt.Sprintf(format, args...))
 }
 
-// clusterLabel is the label the Mimir mixin, and so most meta-monitoring
-// setups, tell clusters apart by.
-const clusterLabel = "cluster"
-
-// clustersQuery lists the cluster label's values across the driver
-// metrics of every pool.
-const clustersQuery = `count by (` + clusterLabel + `) ({__name__=~"cortex_ingester_active_series|cortex_query_seconds_total|` + ruleEvaluationMetric + `"})`
-
-// Clusters returns the distinct non-empty values of the cluster label on
-// the driver metrics, now, with the Source's selector applied. More than
-// one, with no selector, means every figure sums several Mimir clusters.
+// Clusters returns the cluster label's values across every pool's driver
+// metrics; see promapi.Client.Clusters.
 func (s *Source) Clusters(ctx context.Context) ([]string, error) {
 	if err := s.requireMetricsTenant(); err != nil {
 		return nil, err
 	}
-	q, err := s.query("%s", clustersQuery)
-	if err != nil {
-		return nil, err
-	}
-	samples, err := s.api.Instant(ctx, q)
-	if err != nil {
-		return nil, err
-	}
-	var out []string
-	for _, smp := range samples {
-		if c := smp.Metric[clusterLabel]; c != "" && !slices.Contains(out, c) {
-			out = append(out, c)
-		}
-	}
-	slices.Sort(out)
-	return out, nil
+	return s.api.Clusters(ctx, s.cfg.Selector, "cortex_ingester_active_series", "cortex_query_seconds_total", ruleEvaluationMetric)
 }

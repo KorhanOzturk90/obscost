@@ -35,7 +35,7 @@ type Config struct {
 	BasicAuth     *promapi.BasicAuth
 	// Selector scopes every query to one Mimir cluster; SelectorSource
 	// names where it came from, for the assumption trail.
-	Selector       Selector
+	Selector       promapi.Selector
 	SelectorSource string
 	// RuleEvaluation is the operator's inventory.ruler_evaluation, if set.
 	// It replaces the inference in ruleEvaluation, and the trail labels it

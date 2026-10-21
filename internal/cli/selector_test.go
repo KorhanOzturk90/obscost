@@ -83,3 +83,63 @@ func TestCost_SelectorScopesToOneCluster(t *testing.T) {
 		t.Errorf("code=%d stderr=%q, want a --selector parse error", code, stderr)
 	}
 }
+
+// twoClusterRuleMetrics is the rule-metrics view of a metrics tenant that
+// scrapes two Mimir clusters: unselected, infra's evaluation time sums
+// both; with {cluster="prod-eu"}, it is prod-eu's alone.
+func twoClusterRuleMetrics(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query().Get("query")
+		eu := strings.Contains(q, `cluster="prod-eu"`)
+		w.Header().Set("Content-Type", "application/json")
+		body := `[]`
+		switch {
+		case strings.HasPrefix(q, "count by (cluster)"):
+			body = `[{"metric":{"cluster":"prod-eu"},"value":[1757800000,"1"]},{"metric":{"cluster":"prod-us"},"value":[1757800000,"1"]}]`
+		case strings.Contains(q, "evaluation_duration_seconds_sum") && eu:
+			body = `[{"metric":{"user":"infra"},"value":[1757800000,"10"]}]`
+		case strings.Contains(q, "evaluation_duration_seconds_sum"):
+			body = `[{"metric":{"user":"infra"},"value":[1757800000,"35"]}]`
+		}
+		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":` + body + `}}`))
+	}))
+}
+
+// #63: report --metrics-tenant takes the same selector as cost, warns the
+// same way without one, and names it in the report's source line.
+func TestReport_SelectorScopesToOneCluster(t *testing.T) {
+	srv := twoClusterRuleMetrics(t)
+	defer srv.Close()
+	args := []string{"report", "--metrics-tenant", "monitoring", "--config", writeReportConfig(t, srv.URL)}
+
+	_, stderr, code := run(args...)
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	if !strings.Contains(stderr, "holds 2 Mimir clusters (cluster=prod-eu, prod-us)") {
+		t.Errorf("stderr = %q, want a several-clusters warning", stderr)
+	}
+
+	for _, format := range []string{"md", "json"} {
+		stdout, stderr, code := run(append(args, "--selector", `{cluster="prod-eu"}`, "--format", format)...)
+		if code != 0 {
+			t.Fatalf("%s: exit %d: %s", format, code, stderr)
+		}
+		if strings.Contains(stderr, "warning") {
+			t.Errorf("%s: stderr = %q, want no warning with a selector", format, stderr)
+		}
+		if !strings.Contains(stdout, `cluster selector {cluster=\"prod-eu\"} from --selector`) && !strings.Contains(stdout, `cluster selector {cluster="prod-eu"} from --selector`) {
+			t.Errorf("%s: want the selector in the source line:\n%s", format, stdout)
+		}
+	}
+
+	for _, bad := range [][]string{
+		append(args[:len(args):len(args)], "--selector", `{__name__="x"}`),
+		{"report", "--telemetry", "x.ndjson", "--selector", `{cluster="a"}`},
+	} {
+		if _, _, code := run(bad...); code == 0 {
+			t.Errorf("%v: exit 0, want an error", bad)
+		}
+	}
+}

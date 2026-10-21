@@ -166,13 +166,9 @@ func runCost(ctx context.Context, stdout, stderr io.Writer, opts costOptions) er
 		return err
 	}
 
-	selector, selectorSource := cfg.Backend.Selector, "backend.selector in the config file"
-	if opts.selector != "" {
-		selector, selectorSource = opts.selector, "--selector"
-	}
-	sel, err := mimirdrivers.ParseSelector(selector)
+	sel, selectorSource, err := resolveSelector(cfg, opts.selector)
 	if err != nil {
-		return fmt.Errorf("%s: %w", selectorSource, err)
+		return err
 	}
 
 	creds, err := backendAuth(cfg)
@@ -191,7 +187,7 @@ func runCost(ctx context.Context, stdout, stderr io.Writer, opts costOptions) er
 		RuleEvaluation: inv.RuleEvaluation,
 	})
 	if sel.IsZero() {
-		warnIfSeveralClusters(ctx, stderr, src)
+		warnIfSeveralClusters(ctx, stderr, src.Clusters)
 	}
 	readers := map[cost.PoolID]func(context.Context, time.Duration) (cost.Measurement, error){
 		cost.PoolIngesterMemory: src.ReadIngesterMemory,
@@ -228,13 +224,27 @@ func runCost(ctx context.Context, stdout, stderr io.Writer, opts costOptions) er
 	return rep.Render(stdout, result)
 }
 
-// warnIfSeveralClusters warns on stderr when, with no selector, the driver
-// metrics carry more than one cluster label value: every figure then sums
-// several Mimir clusters, and shares and replica equivalents are wrong
-// for each (#54). The check is advice, so a failure to run it is only
-// mentioned, never fatal.
-func warnIfSeveralClusters(ctx context.Context, stderr io.Writer, src *mimirdrivers.Source) {
-	clusters, err := src.Clusters(ctx)
+// resolveSelector picks the cluster selector: --selector, else
+// backend.selector, parsed and validated (promapi.ParseSelector). The
+// second result names where it came from, for the trail.
+func resolveSelector(cfg config.Config, flag string) (promapi.Selector, string, error) {
+	text, source := cfg.Backend.Selector, "backend.selector in the config file"
+	if flag != "" {
+		text, source = flag, "--selector"
+	}
+	sel, err := promapi.ParseSelector(text)
+	if err != nil {
+		return promapi.Selector{}, "", fmt.Errorf("%s: %w", source, err)
+	}
+	return sel, source, nil
+}
+
+// warnIfSeveralClusters warns on stderr when, with no selector, the
+// metrics a command reads carry more than one cluster label value: every
+// figure then sums several Mimir clusters (#54, #63). The check is advice,
+// so a failure to run it is only mentioned, never fatal.
+func warnIfSeveralClusters(ctx context.Context, stderr io.Writer, clustersOf func(context.Context) ([]string, error)) {
+	clusters, err := clustersOf(ctx)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "warning: could not check whether the metrics tenant holds several Mimir clusters: %v\n", err)
 		return

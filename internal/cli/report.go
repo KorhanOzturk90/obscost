@@ -49,6 +49,7 @@ func newReportCmd(stdout, stderr io.Writer) *cobra.Command {
 		format        string
 		since         string
 		strict        bool
+		selector      string
 	)
 
 	cmd := &cobra.Command{
@@ -65,6 +66,7 @@ func newReportCmd(stdout, stderr io.Writer) *cobra.Command {
 				format:        format,
 				since:         since,
 				strict:        strict,
+				selector:      selector,
 			})
 		},
 	}
@@ -77,6 +79,7 @@ func newReportCmd(stdout, stderr io.Writer) *cobra.Command {
 	cmd.Flags().StringVar(&configPath, "config", "", "path to promcost.yaml")
 	cmd.Flags().StringVar(&format, "format", "md", "output format: md|json|html")
 	cmd.Flags().StringVar(&since, "since", "", "window to report over (e.g. 24h, 7d, 2w). With --telemetry it filters executions; with the metrics source it is the query window and defaults to 1h")
+	cmd.Flags().StringVar(&selector, "selector", "", `label matchers added to every query of Mimir's own metrics, e.g. '{cluster="prod-eu"}', when the metrics tenant holds several Mimir clusters. Overrides backend.selector in the config; metrics source only`)
 	cmd.Flags().BoolVar(&strict, "strict", false, "fail instead of warning when telemetry records can't be read/matched (e.g. an unmatched or ambiguous mimirlogs line)")
 
 	// --metrics-tenant only has an effect when --telemetry is omitted (the
@@ -85,6 +88,7 @@ func newReportCmd(stdout, stderr io.Writer) *cobra.Command {
 	// Without these, each flag combination below silently ignores half of
 	// what was passed instead of erroring.
 	cmd.MarkFlagsMutuallyExclusive("telemetry", "metrics-tenant")
+	cmd.MarkFlagsMutuallyExclusive("telemetry", "selector")
 	cmd.MarkFlagsMutuallyExclusive("dir", "metrics-tenant")
 	cmd.MarkFlagsMutuallyExclusive("tenant", "metrics-tenant")
 
@@ -101,6 +105,7 @@ type reportOptions struct {
 	format        string
 	since         string
 	strict        bool
+	selector      string
 }
 
 // defaultMetricsWindow is the window the metrics source queries when --since
@@ -137,7 +142,7 @@ func runReport(ctx context.Context, stdout, stderr io.Writer, opts reportOptions
 	// identity, and they cannot be drilled past that no matter what
 	// definitions we load (ADR 0002).
 	if opts.telemetryPath == "" {
-		return runMetricsReport(ctx, stdout, opts, cfg, sinceDuration)
+		return runMetricsReport(ctx, stdout, stderr, opts, cfg, sinceDuration)
 	}
 
 	defsLoader, err := newDefinitionsSource(opts, cfg)
@@ -246,7 +251,7 @@ func observedRange(executions []rule.RuleExecution) (start, end time.Time, ok bo
 // answer. The trade is granularity — these metrics carry no rule name, so
 // the report stops at the rule group and says so rather than presenting an
 // empty rule tier as "nothing ran".
-func runMetricsReport(ctx context.Context, stdout io.Writer, opts reportOptions, cfg config.Config, since time.Duration) error {
+func runMetricsReport(ctx context.Context, stdout, stderr io.Writer, opts reportOptions, cfg config.Config, since time.Duration) error {
 	if cfg.Backend.URL == "" {
 		return fmt.Errorf("--telemetry was omitted, so workload comes from Mimir's rule metrics — but config's backend.url is empty, so there is nowhere to query")
 	}
@@ -259,6 +264,10 @@ func runMetricsReport(ctx context.Context, stdout io.Writer, opts reportOptions,
 		window = defaultMetricsWindow
 	}
 
+	sel, selectorSource, err := resolveSelector(cfg, opts.selector)
+	if err != nil {
+		return err
+	}
 	creds, err := backendAuth(cfg)
 	if err != nil {
 		return err
@@ -270,8 +279,17 @@ func runMetricsReport(ctx context.Context, stdout io.Writer, opts reportOptions,
 		MetricsTenant: opts.metricsTenant,
 		BearerToken:   creds.bearerToken,
 		BasicAuth:     creds.basicAuth,
+		Selector:      sel,
 		Timeout:       cfg.Backend.Timeout.Duration(),
 	})
+	sourceLabel := "Mimir rule metrics (cortex_prometheus_rule_*)"
+	if sel.IsZero() {
+		warnIfSeveralClusters(ctx, stderr, src.Clusters)
+	} else {
+		// The workload report has no per-figure assumption trail; its
+		// source label is the line every renderer prints about provenance.
+		sourceLabel += ", cluster selector " + sel.String() + " from " + selectorSource
+	}
 	workload, err := src.Read(ctx, window)
 	if err != nil {
 		return err
@@ -314,7 +332,7 @@ func runMetricsReport(ctx context.Context, stdout io.Writer, opts reportOptions,
 		RankMetric:      agg.RankMetric,
 		GroupRankMetric: agg.GroupRankMetric,
 		Granularity:     agg.Granularity,
-		SourceLabel:     "Mimir rule metrics (cortex_prometheus_rule_*)",
+		SourceLabel:     sourceLabel,
 		SourceNote: "counts are PromQL increase() figures, extrapolated at window edges; " +
 			"tenants rank by rule-evaluation wall time, which depends on cluster load as well as on the rules, " +
 			"so a tenant's time can rise because a neighbour loads the cluster",
