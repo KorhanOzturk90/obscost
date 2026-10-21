@@ -5,10 +5,15 @@
 #
 # Under ingest storage each new ingester owns a new Kafka partition, so new
 # series start landing on it; under classic it takes ring tokens and
-# series move. Re-running with the current count logs a `noop`. Scaling
-# down goes through the rollout-operator's prepare-downscale webhook, as
-# in production. After scaling, re-run `make promcost-config` so the
-# inventory's replica count matches.
+# series move. Re-running with the current count logs a `noop`. After
+# scaling, re-run `make promcost-config` so the inventory's replica count
+# matches.
+#
+# Up only. Downscaling goes through the rollout-operator's prepare-downscale
+# webhook, as in production, and the chart labels every ingester zone with
+# grafana.com/min-time-between-zones-downscale=12h: the webhook refuses a
+# second zone's downscale for 12 hours, so a 3-zone downscale takes a day.
+# Refused here rather than left half-done; `make undeploy deploy` resets.
 set -euo pipefail
 for a in "$@"; do [[ $a == REPLICAS=* ]] && REPLICAS=${a#REPLICAS=}; done
 source "$(dirname "$0")/lib.sh"
@@ -22,6 +27,11 @@ detail=$(jq -cn --arg from "$before" --argjson to "$REPLICAS" '{component: "inge
 if [[ $before == "$REPLICAS" ]]; then
   event_log noop "$detail"
   exit 0
+fi
+if [[ $before == *,* ]] || ((REPLICAS < before)); then
+  echo "refusing: zones are at $before per zone and $REPLICAS would downscale (or zones differ)." >&2
+  echo "The rollout-operator allows one zone's downscale per 12h; 'make undeploy deploy' resets." >&2
+  exit 2
 fi
 begin_event "$detail"
 # shellcheck disable=SC2086

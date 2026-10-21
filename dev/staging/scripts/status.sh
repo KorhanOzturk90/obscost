@@ -26,4 +26,8 @@ if [[ $profile == classic ]]; then
 else
   query='sum by (user) (max by (ingester_id, user) (label_replace(cortex_ingester_active_series, "ingester_id", "$1", "pod", ".*-([0-9]+)$")))'
 fi
-q "$query" | jq -r '.data.result[]? | "  \(.metric.user)\t\(.value[1] | tonumber | floor)"' | sort || echo "  (Mimir not answering yet)"
+rows=$(q "$query" | jq -r '.data.result[]? | "  \(.metric.user)\t\(.value[1] | tonumber | floor)"' | sort) || true
+# Right after a deploy there is nothing yet: Prometheus has not scraped
+# the ingesters, and ingesters report cortex_ingester_active_series_loading
+# for a few minutes after they start.
+echo "${rows:-  (no data yet: try again in a few minutes)}"
