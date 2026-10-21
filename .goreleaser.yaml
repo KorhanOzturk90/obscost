@@ -116,7 +116,7 @@ release:
   footer: |
     **Container image:** `ghcr.io/korhanozturk90/{{ .ProjectName }}:{{ .Version }}`
 
-    Verify a download with `sha256sum --ignore-missing -c checksums.txt`.
+    Verify a download: `grep <archive name> checksums.txt | sha256sum -c` (macOS: `shasum -a 256 -c`).
 
 snapshot:
   version_template: "{{ incpatch .Version }}-snapshot-{{ .ShortCommit }}"
