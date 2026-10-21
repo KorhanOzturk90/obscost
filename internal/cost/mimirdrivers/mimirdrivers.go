@@ -33,8 +33,12 @@ type Config struct {
 	MetricsTenant string
 	BearerToken   string
 	BasicAuth     *promapi.BasicAuth
-	Timeout       time.Duration
-	HTTPClient    *http.Client
+	// Selector scopes every query to one Mimir cluster; SelectorSource
+	// names where it came from, for the assumption trail.
+	Selector       Selector
+	SelectorSource string
+	Timeout        time.Duration
+	HTTPClient     *http.Client
 }
 
 type Source struct {
@@ -119,6 +123,24 @@ func subqueryStep(window time.Duration) time.Duration {
 	return step.Truncate(time.Second)
 }
 
+// source is every Measurement's Source.
+func (s *Source) source() string {
+	return fmt.Sprintf("Mimir metrics (queried as tenant %s)", s.cfg.MetricsTenant)
+}
+
+// selectorAssumptions is the trail line for the cluster selector, if any:
+// every query of the pool carries it.
+func (s *Source) selectorAssumptions() []cost.Assumption {
+	if s.cfg.Selector.IsZero() {
+		return nil
+	}
+	return []cost.Assumption{{
+		Name:   "cluster selector",
+		Value:  s.cfg.Selector.String() + ", added to every query this pool ran",
+		Source: s.cfg.SelectorSource,
+	}}
+}
+
 func (s *Source) requireMetricsTenant() error {
 	if s.cfg.MetricsTenant == "" {
 		return errors.New("MetricsTenant is required: it names the tenant whose TSDB holds Mimir's own cortex_* series (commonly a monitoring tenant), which is not one of the tenants being costed")
@@ -140,14 +162,27 @@ func (s *Source) ReadIngesterMemory(ctx context.Context, window time.Duration) (
 		return cost.Measurement{}, err
 	}
 
+	classicQuery, err := s.query(ingesterMemoryQuery, rangeStr, stepStr)
+	if err != nil {
+		return cost.Measurement{}, err
+	}
+	ingestQuery, err := s.query(ingestStorageMemoryQuery, rangeStr, stepStr)
+	if err != nil {
+		return cost.Measurement{}, err
+	}
+	rfQuery, err := s.query(replicationFactorQuery, rangeStr)
+	if err != nil {
+		return cost.Measurement{}, err
+	}
 	m := cost.Measurement{
 		Pool:        cost.IngesterMemory,
 		Window:      window,
 		End:         s.now(),
-		Source:      fmt.Sprintf("Mimir metrics (queried as tenant %s)", s.cfg.MetricsTenant),
-		DriverQuery: fmt.Sprintf(ingesterMemoryQuery, rangeStr, stepStr),
-		RFQuery:     fmt.Sprintf(replicationFactorQuery, rangeStr),
+		Source:      s.source(),
+		DriverQuery: classicQuery,
+		RFQuery:     rfQuery,
 		Drivers:     map[string]float64{},
+		Assumptions: s.selectorAssumptions(),
 	}
 
 	// Classic first: its guard excludes ingest-storage ingesters, so a
@@ -162,7 +197,6 @@ func (s *Source) ReadIngesterMemory(ctx context.Context, window time.Duration) (
 	if len(samples) > 0 {
 		m.Architecture = "classic"
 	} else {
-		ingestQuery := fmt.Sprintf(ingestStorageMemoryQuery, rangeStr, stepStr)
 		samples, err = s.api.Instant(ctx, ingestQuery)
 		if err != nil {
 			return cost.Measurement{}, fmt.Errorf("active series query (ingest storage): %w", err)

@@ -39,6 +39,11 @@ type BackendConfig struct {
 	URL     string      `yaml:"url,omitempty"`
 	Auth    BackendAuth `yaml:"auth,omitempty"`
 	Timeout Duration    `yaml:"timeout,omitempty"`
+	// Selector is a PromQL label-matcher set, e.g. '{cluster="prod-eu"}',
+	// that `cost` adds to every query of Mimir's own metrics, for a
+	// metrics tenant that holds several Mimir clusters. See
+	// mimirdrivers.Selector.
+	Selector string `yaml:"selector,omitempty"`
 }
 
 // DiscoverySource is one entry in tenancy.discovery. Only Source=="static"

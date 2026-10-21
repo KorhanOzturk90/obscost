@@ -54,6 +54,7 @@ func newCostCmd(stdout, stderr io.Writer) *cobra.Command {
 	cmd.Flags().StringVar(&opts.pools, "pool", "", "comma-separated pools to cost: "+poolList()+" (default: all)")
 	cmd.Flags().BoolVar(&opts.ruleOutputs, "rule-outputs", false, "also count, per tenant, the series each recording rule writes (its record: name), as a point-in-time figure and a share of the tenant's active series. Rule definitions come from --dir, or from the ruler API for --tenant")
 	cmd.Flags().StringVar(&opts.dir, "dir", "", "directory of rule files for --rule-outputs. If omitted, rule definitions are fetched from Mimir's ruler API for --tenant's tenants")
+	cmd.Flags().StringVar(&opts.selector, "selector", "", `label matchers added to every query of Mimir's own metrics, e.g. '{cluster="prod-eu"}', when the metrics tenant holds several Mimir clusters. Overrides backend.selector in the config`)
 	cmd.Flags().IntVar(&opts.ruleOutputConcurrency, "rule-output-concurrency", 4, "maximum --rule-outputs count queries in flight at once")
 	return cmd
 }
@@ -65,6 +66,7 @@ type costOptions struct {
 	format        string
 	since         string
 	pools         string
+	selector      string
 
 	ruleOutputs           bool
 	dir                   string
@@ -164,18 +166,32 @@ func runCost(ctx context.Context, stdout, stderr io.Writer, opts costOptions) er
 		return err
 	}
 
+	selector, selectorSource := cfg.Backend.Selector, "backend.selector in the config file"
+	if opts.selector != "" {
+		selector, selectorSource = opts.selector, "--selector"
+	}
+	sel, err := mimirdrivers.ParseSelector(selector)
+	if err != nil {
+		return fmt.Errorf("%s: %w", selectorSource, err)
+	}
+
 	creds, err := backendAuth(cfg)
 	if err != nil {
 		return err
 	}
 	src := mimirdrivers.New(mimirdrivers.Config{
-		BaseURL:       cfg.Backend.URL,
-		Header:        creds.header,
-		MetricsTenant: opts.metricsTenant,
-		BearerToken:   creds.bearerToken,
-		BasicAuth:     creds.basicAuth,
-		Timeout:       cfg.Backend.Timeout.Duration(),
+		BaseURL:        cfg.Backend.URL,
+		Header:         creds.header,
+		MetricsTenant:  opts.metricsTenant,
+		BearerToken:    creds.bearerToken,
+		BasicAuth:      creds.basicAuth,
+		Timeout:        cfg.Backend.Timeout.Duration(),
+		Selector:       sel,
+		SelectorSource: selectorSource,
 	})
+	if sel.IsZero() {
+		warnIfSeveralClusters(ctx, stderr, src)
+	}
 	readers := map[cost.PoolID]func(context.Context, time.Duration) (cost.Measurement, error){
 		cost.PoolIngesterMemory: src.ReadIngesterMemory,
 		cost.PoolQueryPath:      src.ReadQueryPath,
@@ -209,6 +225,24 @@ func runCost(ctx context.Context, stdout, stderr io.Writer, opts costOptions) er
 		result.RuleOutputs = &ro
 	}
 	return rep.Render(stdout, result)
+}
+
+// warnIfSeveralClusters warns on stderr when, with no selector, the driver
+// metrics carry more than one cluster label value: every figure then sums
+// several Mimir clusters, and shares and replica equivalents are wrong
+// for each (#54). The check is advice, so a failure to run it is only
+// mentioned, never fatal.
+func warnIfSeveralClusters(ctx context.Context, stderr io.Writer, src *mimirdrivers.Source) {
+	clusters, err := src.Clusters(ctx)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "warning: could not check whether the metrics tenant holds several Mimir clusters: %v\n", err)
+		return
+	}
+	if len(clusters) > 1 {
+		_, _ = fmt.Fprintf(stderr, "warning: the metrics tenant holds %d Mimir clusters (cluster=%s), and every figure below sums all of them. "+
+			"Select one with --selector or backend.selector, e.g. '{cluster=%q}'\n",
+			len(clusters), strings.Join(clusters, ", "), clusters[0])
+	}
 }
 
 // measureRuleOutputs loads rule definitions exactly as `report` does, then

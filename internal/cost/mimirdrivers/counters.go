@@ -89,7 +89,10 @@ func (s *Source) ReadQueryPath(ctx context.Context, window time.Duration) (cost.
 		skipped []skip
 	)
 	for _, d := range queryPathChain {
-		q := fmt.Sprintf(counterQuery, d.metric, rangeStr)
+		q, err := s.query(counterQuery, d.metric, rangeStr)
+		if err != nil {
+			return cost.Measurement{}, err
+		}
 		drivers, err := s.readDrivers(ctx, q)
 		if err != nil {
 			return cost.Measurement{}, fmt.Errorf("%s query: %w", d.metric, err)
@@ -115,7 +118,9 @@ func (s *Source) ReadQueryPath(ctx context.Context, window time.Duration) (cost.
 	}
 	if chosen == nil {
 		first := queryPathChain[0]
-		m.DriverQuery = fmt.Sprintf(counterQuery, first.metric, rangeStr)
+		if m.DriverQuery, err = s.query(counterQuery, first.metric, rangeStr); err != nil {
+			return cost.Measurement{}, err
+		}
 		m.DriverMetric, m.DriverKind, m.Unit = first.metric, first.kind, first.unit
 		m.Notes = append(m.Notes, "Mimir returned no data for any query-path metric ("+chainNames()+"): no tenant ran a query in this window, or the metrics tenant does not scrape the query-frontend")
 		return m, nil
@@ -203,13 +208,20 @@ func (s *Source) ruleEvaluation(ctx context.Context, rangeStr string) (ruleEvalu
 	if r, ok := s.evalModes[rangeStr]; ok {
 		return r, nil
 	}
-	r := ruleEvaluation{evalQuery: fmt.Sprintf(counterQuery, ruleEvaluationMetric, rangeStr)}
+	var r ruleEvaluation
 	var err error
+	if r.evalQuery, err = s.query(counterQuery, ruleEvaluationMetric, rangeStr); err != nil {
+		return ruleEvaluation{}, err
+	}
+	localQuery, err := s.query(counterQuery, rulerQueryMetric, rangeStr)
+	if err != nil {
+		return ruleEvaluation{}, err
+	}
 	r.evalSeconds, err = s.readDrivers(ctx, r.evalQuery)
 	if err != nil {
 		return ruleEvaluation{}, fmt.Errorf("rule evaluation query: %w", err)
 	}
-	local, err := s.readDrivers(ctx, fmt.Sprintf(counterQuery, rulerQueryMetric, rangeStr))
+	local, err := s.readDrivers(ctx, localQuery)
 	if err != nil {
 		return ruleEvaluation{}, fmt.Errorf("ruler query-time query: %w", err)
 	}
@@ -311,9 +323,10 @@ func (s *Source) counterMeasurement(pool cost.Pool, window time.Duration) (cost.
 		Pool:         pool,
 		Window:       window,
 		End:          s.now(),
-		Source:       fmt.Sprintf("Mimir metrics (queried as tenant %s)", s.cfg.MetricsTenant),
+		Source:       s.source(),
 		Drivers:      map[string]float64{},
 		Unreplicated: true,
+		Assumptions:  s.selectorAssumptions(),
 	}, rangeStr, nil
 }
 
