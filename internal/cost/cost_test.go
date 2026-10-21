@@ -217,6 +217,7 @@ func TestInventoryValidate(t *testing.T) {
 		// a json encoding error).
 		{"zero price", Inventory{Currency: "EUR", Pools: map[PoolID]PoolInventory{PoolRulerCPU: {Replicas: intp(1), CostPerReplicaMonth: floatp(0)}}}, "omit cost_per_replica_month"},
 		{"zero RF", Inventory{ReplicationFactor: intp(0)}, "replication_factor"},
+		{"unknown ruler evaluation", Inventory{RuleEvaluation: "inferred"}, "ruler_evaluation must be local or remote"},
 		{"unknown pool", Inventory{Pools: map[PoolID]PoolInventory{"ingesters": {Replicas: intp(8)}}}, "unknown pool"},
 	}
 	for _, tt := range tests {

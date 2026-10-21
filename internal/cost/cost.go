@@ -138,7 +138,11 @@ type Inventory struct {
 	// the fraction is not derivable from the pools alone, because an
 	// unpriced pool's cost is unknown, not zero.
 	PlatformCostMonth *float64
-	Pools             map[PoolID]PoolInventory
+	// RuleEvaluation is the operator's statement of how the ruler evaluates
+	// rules, local or remote. When set it replaces the inference from
+	// metric presence (ADR 0003 [V]); empty means infer.
+	RuleEvaluation RuleEvaluation
+	Pools          map[PoolID]PoolInventory
 }
 
 // PoolInventory prices one pool. A single-component pool (1 and 7) uses
@@ -166,6 +170,11 @@ type ComponentInventory struct {
 func (inv Inventory) Validate() error {
 	if inv.ReplicationFactor != nil && *inv.ReplicationFactor < 1 {
 		return fmt.Errorf("inventory.replication_factor must be at least 1, got %d", *inv.ReplicationFactor)
+	}
+	switch inv.RuleEvaluation {
+	case "", RuleEvaluationLocal, RuleEvaluationRemote:
+	default:
+		return fmt.Errorf("inventory.ruler_evaluation must be %s or %s, got %q (leave it out to infer it)", RuleEvaluationLocal, RuleEvaluationRemote, inv.RuleEvaluation)
 	}
 	if inv.PlatformCostMonth != nil {
 		if *inv.PlatformCostMonth <= 0 {

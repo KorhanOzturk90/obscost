@@ -188,6 +188,7 @@ func runCost(ctx context.Context, stdout, stderr io.Writer, opts costOptions) er
 		Timeout:        cfg.Backend.Timeout.Duration(),
 		Selector:       sel,
 		SelectorSource: selectorSource,
+		RuleEvaluation: inv.RuleEvaluation,
 	})
 	if sel.IsZero() {
 		warnIfSeveralClusters(ctx, stderr, src)
@@ -303,6 +304,7 @@ func inventoryFromConfig(c config.InventoryConfig) cost.Inventory {
 		Currency:          c.Currency,
 		ReplicationFactor: c.ReplicationFactor,
 		PlatformCostMonth: c.PlatformCostMonth,
+		RuleEvaluation:    cost.RuleEvaluation(c.RulerEvaluation),
 		Pools:             make(map[cost.PoolID]cost.PoolInventory, len(c.Pools)),
 	}
 	for id, p := range c.Pools {

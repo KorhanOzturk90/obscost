@@ -37,9 +37,15 @@ func costFixture(t *testing.T) *httptest.Server {
 				{"metric":{"user":"infra"},"value":[1757800000,"281.5"]},
 				{"metric":{"user":"payments"},"value":[1757800000,"165"]},
 				{"metric":{"user":"platform"},"value":[1757800000,"149.4"]}]}}`))
-		case strings.Contains(q, "cortex_ruler_query_seconds_total["):
-			// Remote evaluation: the ruler records no query time of its own.
+		case strings.Contains(q, "cortex_ruler_query_seconds_total["),
+			strings.Contains(q, "cortex_distributor_query_duration_seconds_count{"):
+			// Remote evaluation: the ruler records no query time of its own,
+			// and has no distributor to query through.
 			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+		case strings.Contains(q, "cortex_prometheus_rule_evaluation_duration_seconds_count{"):
+			// ...while its own job does evaluate rules.
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[
+				{"metric":{},"value":[1757800000,"1"]}]}}`))
 		case strings.Contains(q, "cortex_ingester_active_series"):
 			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[
 				{"metric":{"user":"analytics"},"value":[1757800000,"45015"]},
@@ -408,5 +414,31 @@ func TestCost_NoDataTotalsAreNotMeasured(t *testing.T) {
 				t.Errorf("pool %v: %s = %v, want it absent", p["pool"], k, v)
 			}
 		}
+	}
+}
+
+// #65: inventory.ruler_evaluation replaces the inference, and the trail
+// says the operator supplied it. costFixture's evidence says remote.
+func TestCost_RulerEvaluationOverride(t *testing.T) {
+	srv := costFixture(t)
+	defer srv.Close()
+
+	stdout, stderr, code := run("cost", "--metrics-tenant", "monitoring", "--pool", "ruler_cpu",
+		"--config", writeCostConfig(t, srv.URL, "inventory:\n  ruler_evaluation: local\n"))
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	if !strings.Contains(stdout, "| rule evaluation | `local (operator-supplied, not inferred)") ||
+		!strings.Contains(stdout, "`operator-supplied: inventory.ruler_evaluation` |") {
+		t.Errorf("want the operator's local mode, labelled operator-supplied:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "waiting on the query path") {
+		t.Errorf("the remote-evaluation caveat is shown although the operator said local:\n%s", stdout)
+	}
+
+	_, stderr, code = run("cost", "--metrics-tenant", "monitoring",
+		"--config", writeCostConfig(t, srv.URL, "inventory:\n  ruler_evaluation: Local\n"))
+	if code == 0 || !strings.Contains(stderr, "ruler_evaluation must be local or remote") {
+		t.Errorf("code=%d stderr=%q, want a validation error", code, stderr)
 	}
 }

@@ -74,7 +74,7 @@ func (s *Source) ReadQueryPath(ctx context.Context, window time.Duration) (cost.
 	m.Assumptions = append(m.Assumptions, cost.Assumption{
 		Name:   "rule queries",
 		Value:  queryPathRuleQueries[mode.mode] + " (" + mode.evidence + ")",
-		Source: m.Source,
+		Source: mode.source,
 	})
 
 	type answer struct {
@@ -181,67 +181,131 @@ var queryPathRuleQueries = map[cost.RuleEvaluation]string{
 type ruleEvaluation struct {
 	mode     cost.RuleEvaluation
 	evidence string
+	// source is the trail's Source for the mode: Mimir's metrics, or the
+	// operator.
+	source string
 	// evalSeconds is the pool-7 driver, read on the way.
 	evalSeconds map[string]float64
 	evalQuery   string
 }
 
-// ruleEvaluation infers whether the ruler evaluates rules locally or
-// through the query-frontend (-ruler.query-frontend.address), from which
-// of its metrics exist. On Mimir 3.2.0 (ADR 0003 [V], E7)
-// cortex_ruler_query_seconds_total is recorded only for queries the ruler
-// runs itself, and is absent under remote evaluation, while
-// cortex_prometheus_rule_evaluation_duration_seconds exists in both modes.
-// So:
+// rulerJob matches the ruler's own scrape job under the mixin's
+// <namespace>/<component> convention ("mimir/ruler") and a bare or
+// prefixed one ("ruler", "mimir-ruler"). PromQL anchors the regex, so it
+// does not match the chart's dedicated ruler read path ("mimir/ruler-querier",
+// "mimir/ruler-query-frontend"): those are a querier and a frontend, and a
+// querier exports the distributor's query metrics in either mode.
+const rulerJob = `job=~".*ruler"`
+
+// rulerDistributorQueryMetric is the local-evaluation signal that needs no
+// flag. In Mimir 3.2.0 a ruler with no -ruler.query-frontend.address
+// depends on the distributor service (pkg/mimir/modules.go L1716-1717)
+// and queries through it (L1288-1291); distributor.New registers this
+// histogram unconditionally (pkg/distributor/distributor.go L568-569),
+// and every Distributor.QueryStream observes it (pkg/distributor/query.go
+// L98). A remote ruler has no distributor and never observes it.
+const rulerDistributorQueryMetric = "cortex_distributor_query_duration_seconds_count"
+
+// rulerEvaluationCountMetric, under the ruler's job, says the ruler itself
+// is scraped under a job rulerJob recognises — which is what makes the
+// absence of rulerDistributorQueryMetric there evidence of remote mode
+// rather than of a job label this probe cannot see.
+const rulerEvaluationCountMetric = "cortex_prometheus_rule_evaluation_duration_seconds_count"
+
+// presentQuery is non-empty iff metric had a sample under the ruler's job
+// in the window.
+const presentQuery = `count(increase(%s{` + rulerJob + `}[%s]))`
+
+// ruleEvaluation decides whether the ruler evaluates rules locally or
+// through the query-frontend (-ruler.query-frontend.address). An operator
+// value (inventory.ruler_evaluation) wins and is labelled as such.
+// Otherwise it is inferred from which metrics exist, on Mimir 3.2.0:
 //
-//   - query seconds present: local;
-//   - query seconds absent, evaluations present: remote;
-//   - neither present: unknown. No tenant has rules, or the metrics tenant
-//     does not scrape the ruler; either way there is no evidence of a
-//     mode, and claiming one would be the inference ADR 0003 [V] warns
-//     against.
+//   - local: the ruler's job has distributor query data
+//     (rulerDistributorQueryMetric, on with default flags), or
+//     cortex_ruler_query_seconds_total has data. The latter exists only
+//     with -ruler.query-stats-enabled=true (pkg/ruler/compat.go L455-465,
+//     default off), so it is a second signal, never a required one (#65);
+//   - remote: the ruler's job has rule-evaluation data but no distributor
+//     query data, which a local ruler cannot produce;
+//   - unknown: anything else — no rule evaluations, or evaluations under no
+//     job rulerJob recognises (a monolithic or relabelled deployment).
+//     Absence of a local signal there is not evidence of remote mode, and
+//     guessing one is what ADR 0003 [V] warns against.
 //
-// This is inference from metric presence, not configuration, and the
-// trail says so. A ruler switched between modes inside the window has
-// query seconds for part of it and reads as local.
+// A ruler switched between modes inside the window has local signals for
+// part of it and reads as local.
 func (s *Source) ruleEvaluation(ctx context.Context, rangeStr string) (ruleEvaluation, error) {
 	if r, ok := s.evalModes[rangeStr]; ok {
 		return r, nil
 	}
-	var r ruleEvaluation
+	r := ruleEvaluation{source: s.source()}
 	var err error
 	if r.evalQuery, err = s.query(counterQuery, ruleEvaluationMetric, rangeStr); err != nil {
-		return ruleEvaluation{}, err
-	}
-	localQuery, err := s.query(counterQuery, rulerQueryMetric, rangeStr)
-	if err != nil {
 		return ruleEvaluation{}, err
 	}
 	r.evalSeconds, err = s.readDrivers(ctx, r.evalQuery)
 	if err != nil {
 		return ruleEvaluation{}, fmt.Errorf("rule evaluation query: %w", err)
 	}
-	local, err := s.readDrivers(ctx, localQuery)
-	if err != nil {
-		return ruleEvaluation{}, fmt.Errorf("ruler query-time query: %w", err)
-	}
-	switch {
-	case len(local) > 0:
-		r.mode = cost.RuleEvaluationLocal
-		r.evidence = "inferred: " + rulerQueryMetric + " has data, and the ruler records it only for queries it runs itself"
-	case len(r.evalSeconds) > 0:
-		r.mode = cost.RuleEvaluationRemote
-		r.evidence = "inferred: rules were evaluated, but " + rulerQueryMetric + " has no data, which is what a ruler sending its queries to the query-frontend reports"
-	default:
-		r.mode = cost.RuleEvaluationUnknown
-		r.evidence = "neither " + ruleEvaluationMetric + " nor " + rulerQueryMetric +
-			" has data in this window: no tenant evaluated rules, or the metrics tenant does not scrape the ruler"
+	if err := s.inferRuleEvaluation(ctx, rangeStr, &r); err != nil {
+		return ruleEvaluation{}, err
 	}
 	if s.evalModes == nil {
 		s.evalModes = map[string]ruleEvaluation{}
 	}
 	s.evalModes[rangeStr] = r
 	return r, nil
+}
+
+func (s *Source) inferRuleEvaluation(ctx context.Context, rangeStr string, r *ruleEvaluation) error {
+	if s.cfg.RuleEvaluation != "" {
+		r.mode = s.cfg.RuleEvaluation
+		r.evidence = "operator-supplied, not inferred"
+		r.source = "operator-supplied: inventory.ruler_evaluation"
+		return nil
+	}
+	present := func(format string, args ...any) (bool, error) {
+		q, err := s.query(format, args...)
+		if err != nil {
+			return false, err
+		}
+		samples, err := s.api.Instant(ctx, q)
+		return len(samples) > 0, err
+	}
+	distributorQueries, err := present(presentQuery, rulerDistributorQueryMetric, rangeStr)
+	if err != nil {
+		return fmt.Errorf("ruler distributor-query probe: %w", err)
+	}
+	querySeconds, err := present(counterQuery, rulerQueryMetric, rangeStr)
+	if err != nil {
+		return fmt.Errorf("ruler query-time query: %w", err)
+	}
+	rulerEvaluations, err := present(presentQuery, rulerEvaluationCountMetric, rangeStr)
+	if err != nil {
+		return fmt.Errorf("ruler evaluation probe: %w", err)
+	}
+	switch {
+	case distributorQueries:
+		r.mode = cost.RuleEvaluationLocal
+		r.evidence = "inferred: the ruler's job (" + rulerJob + ") has " + rulerDistributorQueryMetric + " data, which only a ruler querying ingesters itself records"
+	case querySeconds:
+		r.mode = cost.RuleEvaluationLocal
+		r.evidence = "inferred: " + rulerQueryMetric + " has data, and the ruler records it only for queries it runs itself"
+	case rulerEvaluations:
+		r.mode = cost.RuleEvaluationRemote
+		r.evidence = "inferred: the ruler's job (" + rulerJob + ") evaluated rules but has no " + rulerDistributorQueryMetric +
+			" data, which a ruler evaluating locally always records, so its queries go to the query-frontend"
+	case len(r.evalSeconds) > 0:
+		r.mode = cost.RuleEvaluationUnknown
+		r.evidence = "rules were evaluated, but not under a scrape job matching " + rulerJob +
+			", so the ruler's own query metrics cannot be told apart; set inventory.ruler_evaluation to say which"
+	default:
+		r.mode = cost.RuleEvaluationUnknown
+		r.evidence = "neither " + ruleEvaluationMetric + " nor any ruler query metric has data in this window: " +
+			"no tenant evaluated rules, or the metrics tenant does not scrape the ruler"
+	}
+	return nil
 }
 
 // ReadRulerCPU measures pool 7, the ruler, over [now-window, now]: the
@@ -287,13 +351,13 @@ func (s *Source) ReadRulerCPU(ctx context.Context, window time.Duration) (cost.M
 			Name: "rule evaluation",
 			Value: "local (" + mode.evidence + "): all of this time is ruler CPU, and none of it is in the query path " +
 				"(the ruler's query time is part of it, not added to it)",
-			Source: m.Source,
+			Source: mode.source,
 		})
 	case cost.RuleEvaluationRemote:
 		m.Assumptions = append(m.Assumptions, cost.Assumption{
 			Name:   "rule evaluation",
 			Value:  "remote (" + mode.evidence + "): the rule queries' work is priced in the query path",
-			Source: m.Source,
+			Source: mode.source,
 		})
 		m.Notes = append(m.Notes,
 			"rules are evaluated remotely, so this time is mostly the ruler waiting on the query path, not ruler CPU: "+
@@ -303,7 +367,7 @@ func (s *Source) ReadRulerCPU(ctx context.Context, window time.Duration) (cost.M
 		m.Assumptions = append(m.Assumptions, cost.Assumption{
 			Name:   "rule evaluation",
 			Value:  "unknown (" + mode.evidence + ")",
-			Source: m.Source,
+			Source: mode.source,
 		})
 	}
 	return m, nil

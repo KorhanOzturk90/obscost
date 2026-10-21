@@ -108,6 +108,10 @@ type InventoryConfig struct {
 	// priced pools cover; without it that fraction is reported as unknown
 	// rather than guessed (ADR 0003 [A]).
 	PlatformCostMonth *float64 `yaml:"platform_cost_month,omitempty"`
+	// RulerEvaluation is "local" or "remote": how the ruler evaluates
+	// rules, which decides whether rule queries are in the query path or
+	// the ruler pool. Omitted, it is inferred from Mimir's metrics.
+	RulerEvaluation string `yaml:"ruler_evaluation,omitempty"`
 	// Pools is keyed by pool ID: "ingester_memory", "query_path",
 	// "ruler_cpu".
 	Pools map[string]PoolInventory `yaml:"pools,omitempty"`

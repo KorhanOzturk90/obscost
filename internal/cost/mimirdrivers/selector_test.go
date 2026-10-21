@@ -38,10 +38,10 @@ func TestSelector_EveryQueryCarriesIt(t *testing.T) {
 	if _, err := src.Clusters(ctx); err != nil {
 		t.Fatal(err)
 	}
-	// 3 for pool 1 (classic, ingest storage, RF), 4 for the pool-6 chain, 2
+	// 3 for pool 1 (classic, ingest storage, RF), 4 for the pool-6 chain, 4
 	// for the shared evaluation-mode probe, 1 cluster probe.
-	if len(queries) != 10 {
-		t.Errorf("sent %d queries, want 10: %q", len(queries), queries)
+	if len(queries) != 12 {
+		t.Errorf("sent %d queries, want 12: %q", len(queries), queries)
 	}
 	for _, m := range ms {
 		queries = append(queries, m.DriverQuery)

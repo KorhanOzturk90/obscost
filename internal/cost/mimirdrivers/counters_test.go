@@ -38,6 +38,28 @@ var (
 	rigEvalSeconds  = vec("analytics", "357.79", "infra", "281.53", "payments", "164.97", "platform", "149.40")
 )
 
+// The evaluation-mode probes' answers: any sample means "present". On the
+// k3d rig under remote evaluation, the ruler's job (mimir/ruler) reports
+// rule evaluations and no distributor query metrics; under local
+// evaluation with default flags it reports both, and no
+// cortex_ruler_query_seconds_total (#65).
+var (
+	present         = vec("", "1")
+	rulerJobEvals   = map[string]string{rulerEvaluationCountMetric: present}
+	rulerJobQueries = map[string]string{rulerEvaluationCountMetric: present, rulerDistributorQueryMetric: present}
+)
+
+// with merges fixture maps; later ones win.
+func with(ms ...map[string]string) map[string]string {
+	out := map[string]string{}
+	for _, m := range ms {
+		for k, v := range m {
+			out[k] = v
+		}
+	}
+	return out
+}
+
 // metricServer answers each query with the response registered for the
 // metric it mentions, and with an empty vector for a metric it has none for —
 // which is what a real Mimir does for a series that does not exist. Metrics
@@ -56,7 +78,9 @@ func metricServer(t *testing.T, responses map[string]string, queries *[]string) 
 		}
 		w.Header().Set("Content-Type", "application/json")
 		for metric, body := range responses {
-			if strings.Contains(q, metric+"[") {
+			// "{" for a metric queried with matchers, such as the ruler-job
+			// probes of the evaluation mode.
+			if strings.Contains(q, metric+"[") || strings.Contains(q, metric+"{") {
 				_, _ = w.Write([]byte(body))
 				return
 			}
@@ -88,8 +112,8 @@ func TestReadQueryPath_PrefersFetchedBytes(t *testing.T) {
 	if m.Fallback {
 		t.Error("Fallback set although the preferred volume driver answered")
 	}
-	if len(queries) != 3 {
-		t.Errorf("issued %d queries, want 3: one driver (the chain stops at the first with data) and the two-query evaluation-mode probe", len(queries))
+	if len(queries) != 5 {
+		t.Errorf("issued %d queries, want 5: one driver (the chain stops at the first with data) and the four-query evaluation-mode probe", len(queries))
 	}
 	if want := "sum by (user) (increase(cortex_query_fetched_chunk_bytes_total[10m]))"; m.DriverQuery != want {
 		t.Errorf("DriverQuery = %q, want %q", m.DriverQuery, want)
@@ -247,9 +271,9 @@ func TestReadQueryPath_NoDataAtAllIsEmptyNotAnError(t *testing.T) {
 // waiting on the query path.
 func TestReadRulerCPU_RemoteEvaluation(t *testing.T) {
 	var queries []string
-	srv := metricServer(t, map[string]string{
+	srv := metricServer(t, with(rulerJobEvals, map[string]string{
 		"cortex_prometheus_rule_evaluation_duration_seconds_sum": rigEvalSeconds,
-	}, &queries)
+	}), &queries)
 	defer srv.Close()
 
 	m, err := source(srv).ReadRulerCPU(context.Background(), 10*time.Minute)
@@ -272,8 +296,8 @@ func TestReadRulerCPU_RemoteEvaluation(t *testing.T) {
 	if !strings.Contains(strings.Join(m.Notes, "\n"), "waiting on the query path") {
 		t.Errorf("Notes = %q, want the caveat that remote time is mostly waiting", m.Notes)
 	}
-	if len(queries) != 2 {
-		t.Errorf("issued %d queries, want 2 (evaluation seconds, and the local/remote probe)", len(queries))
+	if len(queries) != 4 {
+		t.Errorf("issued %d queries, want 4 (evaluation seconds, and the three local/remote probes)", len(queries))
 	}
 }
 
@@ -327,8 +351,8 @@ func TestCounterReaders_QueriesAreValidPromQL(t *testing.T) {
 			t.Fatalf("window %v: %v", w, err)
 		}
 		srv.Close()
-		if len(queries) != 6 {
-			t.Errorf("window %v: issued %d queries, want 6 (four query-path drivers, and the two-query evaluation-mode probe shared by both pools)", w, len(queries))
+		if len(queries) != 8 {
+			t.Errorf("window %v: issued %d queries, want 8 (four query-path drivers, and the four-query evaluation-mode probe shared by both pools)", w, len(queries))
 		}
 		for _, q := range queries {
 			if _, err := p.ParseExpr(q); err != nil {
@@ -426,31 +450,59 @@ func TestReadQueryPath_StatesWhetherRuleQueriesAreIncluded(t *testing.T) {
 	tests := []struct {
 		name      string
 		responses map[string]string
+		override  cost.RuleEvaluation
 		mode      cost.RuleEvaluation
 		want      string
+		// evidence is a substring of the mode's evidence, and source the
+		// trail's Source for it.
+		evidence, source string
 	}{
-		{"remote", map[string]string{
+		{"remote", with(rulerJobEvals, map[string]string{
 			"cortex_query_fetched_chunk_bytes_total":                 rigFetchedBytes,
 			"cortex_prometheus_rule_evaluation_duration_seconds_sum": rigEvalSeconds,
-		}, cost.RuleEvaluationRemote, "included"},
-		{"local", map[string]string{
+		}), "", cost.RuleEvaluationRemote, "included", "has no " + rulerDistributorQueryMetric, "Mimir metrics"},
+		{"local, query stats enabled", map[string]string{
 			"cortex_query_fetched_chunk_bytes_total":                 rigFetchedBytes,
 			"cortex_prometheus_rule_evaluation_duration_seconds_sum": vec("infra", "292.05"),
 			"cortex_ruler_query_seconds_total":                       vec("infra", "221.65"),
-		}, cost.RuleEvaluationLocal, "not included"},
+		}, "", cost.RuleEvaluationLocal, "not included", rulerQueryMetric + " has data", "Mimir metrics"},
+		// #65: Mimir's default -ruler.query-stats-enabled=false, so a local
+		// ruler has no cortex_ruler_query_seconds_total. Its distributor
+		// query metrics still say local.
+		{"local, default flags", with(rulerJobQueries, map[string]string{
+			"cortex_prometheus_rule_evaluation_duration_seconds_sum": vec("infra", "292.05"),
+		}), "", cost.RuleEvaluationLocal, "not included", "has " + rulerDistributorQueryMetric + " data", "Mimir metrics"},
+		// What #65's reader called remote: rules evaluated, no local signal,
+		// and no ruler job to look for one under. That is no evidence.
+		{"evaluations under no ruler job", map[string]string{
+			"cortex_query_fetched_chunk_bytes_total":                 rigFetchedBytes,
+			"cortex_prometheus_rule_evaluation_duration_seconds_sum": rigEvalSeconds,
+		}, "", cost.RuleEvaluationUnknown, "unknown", "set inventory.ruler_evaluation", "Mimir metrics"},
 		{"unknown", map[string]string{
 			"cortex_query_fetched_chunk_bytes_total": rigFetchedBytes,
-		}, cost.RuleEvaluationUnknown, "unknown"},
+		}, "", cost.RuleEvaluationUnknown, "unknown", "does not scrape the ruler", "Mimir metrics"},
+		// The override wins over evidence pointing the other way.
+		{"override local over remote evidence", with(rulerJobEvals, map[string]string{
+			"cortex_prometheus_rule_evaluation_duration_seconds_sum": rigEvalSeconds,
+		}), cost.RuleEvaluationLocal, cost.RuleEvaluationLocal, "not included", "operator-supplied", "operator-supplied: inventory.ruler_evaluation"},
+		{"override remote over local evidence", with(rulerJobQueries, map[string]string{
+			"cortex_prometheus_rule_evaluation_duration_seconds_sum": rigEvalSeconds,
+		}), cost.RuleEvaluationRemote, cost.RuleEvaluationRemote, "included", "operator-supplied", "operator-supplied: inventory.ruler_evaluation"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var queries []string
 			srv := metricServer(t, tt.responses, &queries)
 			defer srv.Close()
-			src := source(srv)
+			src := New(Config{BaseURL: srv.URL, MetricsTenant: "monitoring", RuleEvaluation: tt.override})
 			qp, err := src.ReadQueryPath(context.Background(), time.Hour)
 			if err != nil {
 				t.Fatal(err)
+			}
+			for _, as := range qp.Assumptions {
+				if as.Name == "rule queries" && (!strings.Contains(as.Value, tt.evidence) || !strings.HasPrefix(as.Source, tt.source)) {
+					t.Errorf("rule queries = %q from %q, want evidence %q from %q", as.Value, as.Source, tt.evidence, tt.source)
+				}
 			}
 			if qp.RuleEvaluation != tt.mode {
 				t.Errorf("RuleEvaluation = %q, want %q", qp.RuleEvaluation, tt.mode)
