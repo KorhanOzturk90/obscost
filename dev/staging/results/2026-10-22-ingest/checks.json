@@ -1,0 +1,1188 @@
+{
+  "env": "staging-ingest",
+  "generated_at": "2026-10-22T07:20:06.063695+00:00",
+  "promcost": "promcost @ 5a9df1f (launch/fixes)",
+  "url": "http://localhost:8091",
+  "metrics_tenant": "monitoring",
+  "expect_eval": "remote",
+  "expect_write_path": "ingest storage",
+  "events": [
+    {
+      "name": "ingester-rolling-restart",
+      "start": "2026-10-22T01:28:19Z",
+      "end": "2026-10-22T01:32:41Z",
+      "profile": "ingest",
+      "detail": {
+        "component": "ingester",
+        "pods": [
+          "pod/mimir-ingester-zone-a-0",
+          "pod/mimir-ingester-zone-b-0",
+          "pod/mimir-ingester-zone-c-0"
+        ]
+      }
+    },
+    {
+      "name": "ingester-rolling-restart",
+      "start": "2026-10-22T02:38:10Z",
+      "end": "2026-10-22T02:42:36Z",
+      "profile": "ingest",
+      "detail": {
+        "component": "ingester",
+        "pods": [
+          "pod/mimir-ingester-zone-a-0",
+          "pod/mimir-ingester-zone-b-0",
+          "pod/mimir-ingester-zone-c-0"
+        ]
+      }
+    },
+    {
+      "name": "ingester-rolling-restart",
+      "start": "2026-10-22T06:23:01Z",
+      "end": "2026-10-22T06:27:26Z",
+      "profile": "ingest",
+      "detail": {
+        "component": "ingester",
+        "pods": [
+          "pod/mimir-ingester-zone-a-0",
+          "pod/mimir-ingester-zone-b-0",
+          "pod/mimir-ingester-zone-c-0"
+        ]
+      }
+    }
+  ],
+  "checks": [
+    {
+      "id": "delivery",
+      "window": "all",
+      "title": "the workload was delivered as the profile describes",
+      "status": "pass",
+      "expected": "no sample rejected, \u22641% of queries failed",
+      "measured": "all delivered",
+      "tolerance": "\u22641% of queries",
+      "why": "a query can fail transiently (an ingester restart); samples are retried and must all land",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "shares-sum/ingester_memory",
+      "window": "1h",
+      "title": "pool 1 (ingester memory): shares sum to 100%",
+      "status": "pass",
+      "expected": "100%",
+      "measured": "100.0000%",
+      "tolerance": "\u00b10.1pp",
+      "why": "shares are computed exactly from one set of drivers; only float rounding may separate them from 100%",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "shares-sum/query_path",
+      "window": "1h",
+      "title": "pool 6 (query path): shares sum to 100%",
+      "status": "pass",
+      "expected": "100%",
+      "measured": "100.0000%",
+      "tolerance": "\u00b10.1pp",
+      "why": "shares are computed exactly from one set of drivers; only float rounding may separate them from 100%",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "shares-sum/ruler_cpu",
+      "window": "1h",
+      "title": "pool 7 (ruler CPU): shares sum to 100%",
+      "status": "pass",
+      "expected": "100%",
+      "measured": "100.0000%",
+      "tolerance": "\u00b10.1pp",
+      "why": "shares are computed exactly from one set of drivers; only float rounding may separate them from 100%",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "not-measured/ingester_memory",
+      "window": "1h",
+      "title": "pool 1 (ingester memory): unmeasured tenants are \"not measured\", never 0",
+      "status": "pass",
+      "expected": "every cell of each unmeasured tenant's row reads \"not measured\"",
+      "measured": "0 unmeasured: none",
+      "tolerance": "exact",
+      "why": "ADR 0003 decision 5: absence is a different fact from zero",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "not-measured/query_path",
+      "window": "1h",
+      "title": "pool 6 (query path): unmeasured tenants are \"not measured\", never 0",
+      "status": "pass",
+      "expected": "every cell of each unmeasured tenant's row reads \"not measured\"",
+      "measured": "0 unmeasured: none",
+      "tolerance": "exact",
+      "why": "ADR 0003 decision 5: absence is a different fact from zero",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "not-measured/ruler_cpu",
+      "window": "1h",
+      "title": "pool 7 (ruler CPU): unmeasured tenants are \"not measured\", never 0",
+      "status": "pass",
+      "expected": "every cell of each unmeasured tenant's row reads \"not measured\"",
+      "measured": "0 unmeasured: none",
+      "tolerance": "exact",
+      "why": "ADR 0003 decision 5: absence is a different fact from zero",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "pool1-truth/cardinal",
+      "window": "1h",
+      "title": "pool 1: `cardinal` active series (after the replication divisor)",
+      "status": "pass",
+      "expected": "20,010\u201320,010",
+      "measured": "20,010",
+      "tolerance": "band [20,010, 20,010] \u00b115%",
+      "why": "the window overlaps ingester-rolling-restart: during an ingester rollout the sum-then-average query reads low while a replica is down (measured 9% on dev/mimir-k8s), so the band is widened to \u00b115%",
+      "detail": [
+        "subquery points with pipeline data: 60; points this tenant was present (model): 60; (Mimir): 60"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "pool1-truth/churn",
+      "window": "1h",
+      "title": "pool 1: `churn` active series (after the replication divisor)",
+      "status": "pass",
+      "expected": "5,344\u20136,211",
+      "measured": "5,344",
+      "tolerance": "band [5,344, 6,211] \u00b115%",
+      "why": "the window overlaps ingester-rolling-restart: during an ingester rollout the sum-then-average query reads low while a replica is down (measured 9% on dev/mimir-k8s), so the band is widened to \u00b115%",
+      "detail": [
+        "subquery points with pipeline data: 60; points this tenant was present (model): 60; (Mimir): 60"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "pool1-truth/dashboards",
+      "window": "1h",
+      "title": "pool 1: `dashboards` active series (after the replication divisor)",
+      "status": "pass",
+      "expected": "4,011\u20134,011",
+      "measured": "4,011",
+      "tolerance": "band [4,011, 4,011] \u00b115%",
+      "why": "the window overlaps ingester-rolling-restart: during an ingester rollout the sum-then-average query reads low while a replica is down (measured 9% on dev/mimir-k8s), so the band is widened to \u00b115%",
+      "detail": [
+        "subquery points with pipeline data: 60; points this tenant was present (model): 60; (Mimir): 60"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "pool1-truth/ghost",
+      "window": "1h",
+      "title": "pool 1: `ghost` active series (after the replication divisor)",
+      "status": "pass",
+      "expected": "1,758\u20131,758",
+      "measured": "1,758",
+      "tolerance": "band [1,758, 1,758] \u00b115%",
+      "why": "the window overlaps ingester-rolling-restart: during an ingester rollout the sum-then-average query reads low while a replica is down (measured 9% on dev/mimir-k8s), so the band is widened to \u00b115%",
+      "detail": [
+        "subquery points with pipeline data: 60; points this tenant was present (model): 41; (Mimir): 41"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "pool1-truth/latecomer",
+      "window": "1h",
+      "title": "pool 1: `latecomer` active series (after the replication divisor)",
+      "status": "pass",
+      "expected": "1,977\u20132,011",
+      "measured": "2,011",
+      "tolerance": "band [1,977, 2,011] \u00b115%",
+      "why": "the window overlaps ingester-rolling-restart: during an ingester rollout the sum-then-average query reads low while a replica is down (measured 9% on dev/mimir-k8s), so the band is widened to \u00b115%",
+      "detail": [
+        "subquery points with pipeline data: 60; points this tenant was present (model): 60; (Mimir): 60"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "pool1-truth/rules",
+      "window": "1h",
+      "title": "pool 1: `rules` active series (after the replication divisor)",
+      "status": "pass",
+      "expected": "3,660\u20133,660",
+      "measured": "3,660",
+      "tolerance": "band [3,660, 3,660] \u00b115%",
+      "why": "the window overlaps ingester-rolling-restart: during an ingester rollout the sum-then-average query reads low while a replica is down (measured 9% on dev/mimir-k8s), so the band is widened to \u00b115%",
+      "detail": [
+        "subquery points with pipeline data: 60; points this tenant was present (model): 60; (Mimir): 60"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "pool1-truth/steady",
+      "window": "1h",
+      "title": "pool 1: `steady` active series (after the replication divisor)",
+      "status": "pass",
+      "expected": "30,022\u201330,022",
+      "measured": "30,022",
+      "tolerance": "band [30,022, 30,022] \u00b115%",
+      "why": "the window overlaps ingester-rolling-restart: during an ingester rollout the sum-then-average query reads low while a replica is down (measured 9% on dev/mimir-k8s), so the band is widened to \u00b115%",
+      "detail": [
+        "subquery points with pipeline data: 60; points this tenant was present (model): 60; (Mimir): 60"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "pool1-truth/tiny",
+      "window": "1h",
+      "title": "pool 1: `tiny` active series (after the replication divisor)",
+      "status": "pass",
+      "expected": "20.00\u201320.00",
+      "measured": "20.00",
+      "tolerance": "band [20.00, 20.00] \u00b115%",
+      "why": "the window overlaps ingester-rolling-restart: during an ingester rollout the sum-then-average query reads low while a replica is down (measured 9% on dev/mimir-k8s), so the band is widened to \u00b115%",
+      "detail": [
+        "subquery points with pipeline data: 60; points this tenant was present (model): 60; (Mimir): 60"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "pool1-rank",
+      "window": "1h",
+      "title": "pool 1: tenant rank order matches the workload shapes",
+      "status": "pass",
+      "expected": "steady > cardinal > churn > dashboards > rules > latecomer > ghost > tiny",
+      "measured": "steady > cardinal > churn > dashboards > rules > latecomer > ghost > tiny",
+      "tolerance": "pairs whose expected figures are within 10% of each other are not ranked",
+      "why": "a near-tie can legitimately flip on gauge lag; everything else is a difference of shape",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "dominates/query_path",
+      "window": "1h",
+      "title": "pool 6 (query path): `dashboards` dominates",
+      "status": "pass",
+      "expected": "`dashboards` first, with at least 50%",
+      "measured": "dashboards 97.4%; rules 1.3%; cardinal 0.8%; steady 0.4%",
+      "tolerance": "rank 1 and \u226550%",
+      "why": "the workload makes `dashboards` this pool's driver by a wide margin by construction; a simple majority is a weaker claim than the margin built in, so it should hold under noise",
+      "detail": [
+        "driver: chunk bytes fetched (cortex_query_fetched_chunk_bytes_total)"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "dominates/ruler_cpu",
+      "window": "1h",
+      "title": "pool 7 (ruler CPU): `rules` dominates",
+      "status": "pass",
+      "expected": "`rules` first, with at least 50%",
+      "measured": "rules 90.4%; steady 3.1%; dashboards 1.6%; cardinal 1.6%",
+      "tolerance": "rank 1 and \u226550%",
+      "why": "the workload makes `rules` this pool's driver by a wide margin by construction; a simple majority is a weaker claim than the margin built in, so it should hold under noise",
+      "detail": [
+        "driver: rule-evaluation seconds (cortex_prometheus_rule_evaluation_duration_seconds_sum)"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "eval-mode",
+      "window": "1h",
+      "title": "ruler evaluation mode detected correctly",
+      "status": "pass",
+      "expected": "remote",
+      "measured": "pool 6 (query path): remote, pool 7 (ruler CPU): remote",
+      "tolerance": "exact",
+      "why": "the environment's ruler configuration is known",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "rule-outputs/cardinal",
+      "window": "1h",
+      "title": "rule outputs: `cardinal` record: series",
+      "status": "pass",
+      "expected": "10 series over 1 record: names (present)",
+      "measured": "10 series (1 output metrics)",
+      "tolerance": "exact",
+      "why": "each rule is sum by (shard) or sum over a metric with a known shard count, so its output series are known in advance; the count is an instant query",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "rule-outputs/churn",
+      "window": "1h",
+      "title": "rule outputs: `churn` record: series",
+      "status": "pass",
+      "expected": "11 series over 2 record: names (present)",
+      "measured": "11 series (2 output metrics)",
+      "tolerance": "exact",
+      "why": "each rule is sum by (shard) or sum over a metric with a known shard count, so its output series are known in advance; the count is an instant query",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "rule-outputs/dashboards",
+      "window": "1h",
+      "title": "rule outputs: `dashboards` record: series",
+      "status": "pass",
+      "expected": "11 series over 2 record: names (present)",
+      "measured": "11 series (2 output metrics)",
+      "tolerance": "exact",
+      "why": "each rule is sum by (shard) or sum over a metric with a known shard count, so its output series are known in advance; the count is an instant query",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "rule-outputs/ghost",
+      "window": "1h",
+      "title": "rule outputs: `ghost` record: series",
+      "status": "pass",
+      "expected": "0 series over 2 record: names (absent)",
+      "measured": "0 series (2 output metrics)",
+      "tolerance": "exact",
+      "why": "each rule is sum by (shard) or sum over a metric with a known shard count, so its output series are known in advance; the count is an instant query",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "rule-outputs/latecomer",
+      "window": "1h",
+      "title": "rule outputs: `latecomer` record: series",
+      "status": "pass",
+      "expected": "11 series over 2 record: names (present)",
+      "measured": "11 series (2 output metrics)",
+      "tolerance": "exact",
+      "why": "each rule is sum by (shard) or sum over a metric with a known shard count, so its output series are known in advance; the count is an instant query",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "rule-outputs/rules",
+      "window": "1h",
+      "title": "rule outputs: `rules` record: series",
+      "status": "pass",
+      "expected": "660 series over 120 record: names (present)",
+      "measured": "660 series (120 output metrics)",
+      "tolerance": "exact",
+      "why": "each rule is sum by (shard) or sum over a metric with a known shard count, so its output series are known in advance; the count is an instant query",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "rule-outputs/steady",
+      "window": "1h",
+      "title": "rule outputs: `steady` record: series",
+      "status": "pass",
+      "expected": "22 series over 4 record: names (present)",
+      "measured": "22 series (4 output metrics)",
+      "tolerance": "exact",
+      "why": "each rule is sum by (shard) or sum over a metric with a known shard count, so its output series are known in advance; the count is an instant query",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "rule-outputs/tiny",
+      "window": "1h",
+      "title": "rule outputs: `tiny` record: series",
+      "status": "pass",
+      "expected": "0 series over 0 record: names (absent)",
+      "measured": "0 series (0 output metrics)",
+      "tolerance": "exact",
+      "why": "each rule is sum by (shard) or sum over a metric with a known shard count, so its output series are known in advance; the count is an instant query",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "pool1-vs-mimir",
+      "window": "1h",
+      "title": "pool 1: promcost equals Mimir's own gauge, read independently",
+      "status": "pass",
+      "expected": "every tenant within 0.5% (or 1 series) of the direct read",
+      "measured": "9 of 9 tenants equal",
+      "tolerance": "0.5% or 1 series",
+      "why": "the direct read applies the same de-duplication and averaging to the same points, so only rounding and the instant of each read may differ",
+      "detail": [
+        "cardinal: promcost 20,010, Mimir 20,010",
+        "churn: promcost 5,344, Mimir 5,344",
+        "dashboards: promcost 4,011, Mimir 4,011",
+        "ghost: promcost 1,758, Mimir 1,758",
+        "latecomer: promcost 2,011, Mimir 2,011",
+        "monitoring: promcost 108,956, Mimir 108,956",
+        "rules: promcost 3,660, Mimir 3,660",
+        "steady: promcost 30,022, Mimir 30,022",
+        "tiny: promcost 20.00, Mimir 20.00"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "write-path",
+      "window": "1h",
+      "title": "write path detected correctly",
+      "status": "pass",
+      "expected": "ingest storage",
+      "measured": "ingest storage",
+      "tolerance": "exact",
+      "why": "the environment's architecture is known",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "events/counters",
+      "window": "1h",
+      "title": "counter pools stay sane across ingester-rolling-restart",
+      "status": "pass",
+      "expected": "every per-tenant figure finite and \u2265 0",
+      "measured": "all finite and \u2265 0",
+      "tolerance": "exact",
+      "why": "increase() compensates for counter resets; a negative or infinite figure would mean it did not",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "shares-sum/ingester_memory",
+      "window": "30m",
+      "title": "pool 1 (ingester memory): shares sum to 100%",
+      "status": "pass",
+      "expected": "100%",
+      "measured": "100.0000%",
+      "tolerance": "\u00b10.1pp",
+      "why": "shares are computed exactly from one set of drivers; only float rounding may separate them from 100%",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "shares-sum/query_path",
+      "window": "30m",
+      "title": "pool 6 (query path): shares sum to 100%",
+      "status": "pass",
+      "expected": "100%",
+      "measured": "100.0000%",
+      "tolerance": "\u00b10.1pp",
+      "why": "shares are computed exactly from one set of drivers; only float rounding may separate them from 100%",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "shares-sum/ruler_cpu",
+      "window": "30m",
+      "title": "pool 7 (ruler CPU): shares sum to 100%",
+      "status": "pass",
+      "expected": "100%",
+      "measured": "100.0000%",
+      "tolerance": "\u00b10.1pp",
+      "why": "shares are computed exactly from one set of drivers; only float rounding may separate them from 100%",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "not-measured/ingester_memory",
+      "window": "30m",
+      "title": "pool 1 (ingester memory): unmeasured tenants are \"not measured\", never 0",
+      "status": "pass",
+      "expected": "every cell of each unmeasured tenant's row reads \"not measured\"",
+      "measured": "0 unmeasured: none",
+      "tolerance": "exact",
+      "why": "ADR 0003 decision 5: absence is a different fact from zero",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "not-measured/query_path",
+      "window": "30m",
+      "title": "pool 6 (query path): unmeasured tenants are \"not measured\", never 0",
+      "status": "pass",
+      "expected": "every cell of each unmeasured tenant's row reads \"not measured\"",
+      "measured": "0 unmeasured: none",
+      "tolerance": "exact",
+      "why": "ADR 0003 decision 5: absence is a different fact from zero",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "not-measured/ruler_cpu",
+      "window": "30m",
+      "title": "pool 7 (ruler CPU): unmeasured tenants are \"not measured\", never 0",
+      "status": "pass",
+      "expected": "every cell of each unmeasured tenant's row reads \"not measured\"",
+      "measured": "0 unmeasured: none",
+      "tolerance": "exact",
+      "why": "ADR 0003 decision 5: absence is a different fact from zero",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "pool1-truth/cardinal",
+      "window": "30m",
+      "title": "pool 1: `cardinal` active series (after the replication divisor)",
+      "status": "pass",
+      "expected": "20,010\u201320,010",
+      "measured": "20,010",
+      "tolerance": "band [20,010, 20,010] \u00b11%",
+      "why": "the ingester recomputes active series every 1m and the gauge is scraped every 15s, so each point of the average describes the ingester up to 75s earlier, and idle series are purged up to 1m late; the band is the model evaluated at both extremes, plus \u00b11% for anything else",
+      "detail": [
+        "subquery points with pipeline data: 30; points this tenant was present (model): 30; (Mimir): 30"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "pool1-truth/churn",
+      "window": "30m",
+      "title": "pool 1: `churn` active series (after the replication divisor)",
+      "status": "pass",
+      "expected": "5,811\u20136,211",
+      "measured": "6,011",
+      "tolerance": "band [5,811, 6,211] \u00b11%",
+      "why": "the ingester recomputes active series every 1m and the gauge is scraped every 15s, so each point of the average describes the ingester up to 75s earlier, and idle series are purged up to 1m late; the band is the model evaluated at both extremes, plus \u00b11% for anything else",
+      "detail": [
+        "subquery points with pipeline data: 30; points this tenant was present (model): 30; (Mimir): 30"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "pool1-truth/dashboards",
+      "window": "30m",
+      "title": "pool 1: `dashboards` active series (after the replication divisor)",
+      "status": "pass",
+      "expected": "4,011\u20134,011",
+      "measured": "4,011",
+      "tolerance": "band [4,011, 4,011] \u00b11%",
+      "why": "the ingester recomputes active series every 1m and the gauge is scraped every 15s, so each point of the average describes the ingester up to 75s earlier, and idle series are purged up to 1m late; the band is the model evaluated at both extremes, plus \u00b11% for anything else",
+      "detail": [
+        "subquery points with pipeline data: 30; points this tenant was present (model): 30; (Mimir): 30"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "pool1-truth/ghost",
+      "window": "30m",
+      "title": "pool 1: `ghost` active series (after the replication divisor)",
+      "status": "pass",
+      "expected": "504\u2013504",
+      "measured": "504",
+      "tolerance": "band [504, 504] \u00b11%",
+      "why": "the ingester recomputes active series every 1m and the gauge is scraped every 15s, so each point of the average describes the ingester up to 75s earlier, and idle series are purged up to 1m late; the band is the model evaluated at both extremes, plus \u00b11% for anything else",
+      "detail": [
+        "subquery points with pipeline data: 30; points this tenant was present (model): 11; (Mimir): 11"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "pool1-truth/latecomer",
+      "window": "30m",
+      "title": "pool 1: `latecomer` active series (after the replication divisor)",
+      "status": "pass",
+      "expected": "2,011\u20132,011",
+      "measured": "2,011",
+      "tolerance": "band [2,011, 2,011] \u00b11%",
+      "why": "the ingester recomputes active series every 1m and the gauge is scraped every 15s, so each point of the average describes the ingester up to 75s earlier, and idle series are purged up to 1m late; the band is the model evaluated at both extremes, plus \u00b11% for anything else",
+      "detail": [
+        "subquery points with pipeline data: 30; points this tenant was present (model): 30; (Mimir): 30"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "pool1-truth/rules",
+      "window": "30m",
+      "title": "pool 1: `rules` active series (after the replication divisor)",
+      "status": "pass",
+      "expected": "3,660\u20133,660",
+      "measured": "3,660",
+      "tolerance": "band [3,660, 3,660] \u00b11%",
+      "why": "the ingester recomputes active series every 1m and the gauge is scraped every 15s, so each point of the average describes the ingester up to 75s earlier, and idle series are purged up to 1m late; the band is the model evaluated at both extremes, plus \u00b11% for anything else",
+      "detail": [
+        "subquery points with pipeline data: 30; points this tenant was present (model): 30; (Mimir): 30"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "pool1-truth/steady",
+      "window": "30m",
+      "title": "pool 1: `steady` active series (after the replication divisor)",
+      "status": "pass",
+      "expected": "30,022\u201330,022",
+      "measured": "30,022",
+      "tolerance": "band [30,022, 30,022] \u00b11%",
+      "why": "the ingester recomputes active series every 1m and the gauge is scraped every 15s, so each point of the average describes the ingester up to 75s earlier, and idle series are purged up to 1m late; the band is the model evaluated at both extremes, plus \u00b11% for anything else",
+      "detail": [
+        "subquery points with pipeline data: 30; points this tenant was present (model): 30; (Mimir): 30"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "pool1-truth/tiny",
+      "window": "30m",
+      "title": "pool 1: `tiny` active series (after the replication divisor)",
+      "status": "pass",
+      "expected": "20.00\u201320.00",
+      "measured": "20.00",
+      "tolerance": "band [20.00, 20.00] \u00b11%",
+      "why": "the ingester recomputes active series every 1m and the gauge is scraped every 15s, so each point of the average describes the ingester up to 75s earlier, and idle series are purged up to 1m late; the band is the model evaluated at both extremes, plus \u00b11% for anything else",
+      "detail": [
+        "subquery points with pipeline data: 30; points this tenant was present (model): 30; (Mimir): 30"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "pool1-rank",
+      "window": "30m",
+      "title": "pool 1: tenant rank order matches the workload shapes",
+      "status": "pass",
+      "expected": "steady > cardinal > churn > dashboards > rules > latecomer > ghost > tiny",
+      "measured": "steady > cardinal > churn > dashboards > rules > latecomer > ghost > tiny",
+      "tolerance": "pairs whose expected figures are within 10% of each other are not ranked",
+      "why": "a near-tie can legitimately flip on gauge lag; everything else is a difference of shape",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "dominates/query_path",
+      "window": "30m",
+      "title": "pool 6 (query path): `dashboards` dominates",
+      "status": "pass",
+      "expected": "`dashboards` first, with at least 50%",
+      "measured": "dashboards 97.3%; rules 1.2%; cardinal 0.9%; steady 0.4%",
+      "tolerance": "rank 1 and \u226550%",
+      "why": "the workload makes `dashboards` this pool's driver by a wide margin by construction; a simple majority is a weaker claim than the margin built in, so it should hold under noise",
+      "detail": [
+        "driver: chunk bytes fetched (cortex_query_fetched_chunk_bytes_total)"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "dominates/ruler_cpu",
+      "window": "30m",
+      "title": "pool 7 (ruler CPU): `rules` dominates",
+      "status": "pass",
+      "expected": "`rules` first, with at least 50%",
+      "measured": "rules 90.7%; steady 3.0%; cardinal 1.7%; dashboards 1.6%",
+      "tolerance": "rank 1 and \u226550%",
+      "why": "the workload makes `rules` this pool's driver by a wide margin by construction; a simple majority is a weaker claim than the margin built in, so it should hold under noise",
+      "detail": [
+        "driver: rule-evaluation seconds (cortex_prometheus_rule_evaluation_duration_seconds_sum)"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "eval-mode",
+      "window": "30m",
+      "title": "ruler evaluation mode detected correctly",
+      "status": "pass",
+      "expected": "remote",
+      "measured": "pool 6 (query path): remote, pool 7 (ruler CPU): remote",
+      "tolerance": "exact",
+      "why": "the environment's ruler configuration is known",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "rule-outputs/cardinal",
+      "window": "30m",
+      "title": "rule outputs: `cardinal` record: series",
+      "status": "pass",
+      "expected": "10 series over 1 record: names (present)",
+      "measured": "10 series (1 output metrics)",
+      "tolerance": "exact",
+      "why": "each rule is sum by (shard) or sum over a metric with a known shard count, so its output series are known in advance; the count is an instant query",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "rule-outputs/churn",
+      "window": "30m",
+      "title": "rule outputs: `churn` record: series",
+      "status": "pass",
+      "expected": "11 series over 2 record: names (present)",
+      "measured": "11 series (2 output metrics)",
+      "tolerance": "exact",
+      "why": "each rule is sum by (shard) or sum over a metric with a known shard count, so its output series are known in advance; the count is an instant query",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "rule-outputs/dashboards",
+      "window": "30m",
+      "title": "rule outputs: `dashboards` record: series",
+      "status": "pass",
+      "expected": "11 series over 2 record: names (present)",
+      "measured": "11 series (2 output metrics)",
+      "tolerance": "exact",
+      "why": "each rule is sum by (shard) or sum over a metric with a known shard count, so its output series are known in advance; the count is an instant query",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "rule-outputs/ghost",
+      "window": "30m",
+      "title": "rule outputs: `ghost` record: series",
+      "status": "pass",
+      "expected": "0 series over 2 record: names (absent)",
+      "measured": "0 series (2 output metrics)",
+      "tolerance": "exact",
+      "why": "each rule is sum by (shard) or sum over a metric with a known shard count, so its output series are known in advance; the count is an instant query",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "rule-outputs/latecomer",
+      "window": "30m",
+      "title": "rule outputs: `latecomer` record: series",
+      "status": "pass",
+      "expected": "11 series over 2 record: names (present)",
+      "measured": "11 series (2 output metrics)",
+      "tolerance": "exact",
+      "why": "each rule is sum by (shard) or sum over a metric with a known shard count, so its output series are known in advance; the count is an instant query",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "rule-outputs/rules",
+      "window": "30m",
+      "title": "rule outputs: `rules` record: series",
+      "status": "pass",
+      "expected": "660 series over 120 record: names (present)",
+      "measured": "660 series (120 output metrics)",
+      "tolerance": "exact",
+      "why": "each rule is sum by (shard) or sum over a metric with a known shard count, so its output series are known in advance; the count is an instant query",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "rule-outputs/steady",
+      "window": "30m",
+      "title": "rule outputs: `steady` record: series",
+      "status": "pass",
+      "expected": "22 series over 4 record: names (present)",
+      "measured": "22 series (4 output metrics)",
+      "tolerance": "exact",
+      "why": "each rule is sum by (shard) or sum over a metric with a known shard count, so its output series are known in advance; the count is an instant query",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "rule-outputs/tiny",
+      "window": "30m",
+      "title": "rule outputs: `tiny` record: series",
+      "status": "pass",
+      "expected": "0 series over 0 record: names (absent)",
+      "measured": "0 series (0 output metrics)",
+      "tolerance": "exact",
+      "why": "each rule is sum by (shard) or sum over a metric with a known shard count, so its output series are known in advance; the count is an instant query",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "pool1-vs-mimir",
+      "window": "30m",
+      "title": "pool 1: promcost equals Mimir's own gauge, read independently",
+      "status": "pass",
+      "expected": "every tenant within 0.5% (or 1 series) of the direct read",
+      "measured": "9 of 9 tenants equal",
+      "tolerance": "0.5% or 1 series",
+      "why": "the direct read applies the same de-duplication and averaging to the same points, so only rounding and the instant of each read may differ",
+      "detail": [
+        "cardinal: promcost 20,010, Mimir 20,010",
+        "churn: promcost 6,011, Mimir 6,011",
+        "dashboards: promcost 4,011, Mimir 4,011",
+        "ghost: promcost 504, Mimir 504",
+        "latecomer: promcost 2,011, Mimir 2,011",
+        "monitoring: promcost 107,179, Mimir 107,179",
+        "rules: promcost 3,660, Mimir 3,660",
+        "steady: promcost 30,022, Mimir 30,022",
+        "tiny: promcost 20.00, Mimir 20.00"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "write-path",
+      "window": "30m",
+      "title": "write path detected correctly",
+      "status": "pass",
+      "expected": "ingest storage",
+      "measured": "ingest storage",
+      "tolerance": "exact",
+      "why": "the environment's architecture is known",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "shares-sum/ingester_memory",
+      "window": "10m",
+      "title": "pool 1 (ingester memory): shares sum to 100%",
+      "status": "pass",
+      "expected": "100%",
+      "measured": "100.0000%",
+      "tolerance": "\u00b10.1pp",
+      "why": "shares are computed exactly from one set of drivers; only float rounding may separate them from 100%",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "shares-sum/query_path",
+      "window": "10m",
+      "title": "pool 6 (query path): shares sum to 100%",
+      "status": "pass",
+      "expected": "100%",
+      "measured": "100.0000%",
+      "tolerance": "\u00b10.1pp",
+      "why": "shares are computed exactly from one set of drivers; only float rounding may separate them from 100%",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "shares-sum/ruler_cpu",
+      "window": "10m",
+      "title": "pool 7 (ruler CPU): shares sum to 100%",
+      "status": "pass",
+      "expected": "100%",
+      "measured": "100.0000%",
+      "tolerance": "\u00b10.1pp",
+      "why": "shares are computed exactly from one set of drivers; only float rounding may separate them from 100%",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "not-measured/ingester_memory",
+      "window": "10m",
+      "title": "pool 1 (ingester memory): unmeasured tenants are \"not measured\", never 0",
+      "status": "pass",
+      "expected": "every cell of each unmeasured tenant's row reads \"not measured\"",
+      "measured": "1 unmeasured: ghost",
+      "tolerance": "exact",
+      "why": "ADR 0003 decision 5: absence is a different fact from zero",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "not-measured/query_path",
+      "window": "10m",
+      "title": "pool 6 (query path): unmeasured tenants are \"not measured\", never 0",
+      "status": "pass",
+      "expected": "every cell of each unmeasured tenant's row reads \"not measured\"",
+      "measured": "0 unmeasured: none",
+      "tolerance": "exact",
+      "why": "ADR 0003 decision 5: absence is a different fact from zero",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "not-measured/ruler_cpu",
+      "window": "10m",
+      "title": "pool 7 (ruler CPU): unmeasured tenants are \"not measured\", never 0",
+      "status": "pass",
+      "expected": "every cell of each unmeasured tenant's row reads \"not measured\"",
+      "measured": "0 unmeasured: none",
+      "tolerance": "exact",
+      "why": "ADR 0003 decision 5: absence is a different fact from zero",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "pool1-truth/cardinal",
+      "window": "10m",
+      "title": "pool 1: `cardinal` active series (after the replication divisor)",
+      "status": "pass",
+      "expected": "20,010\u201320,010",
+      "measured": "20,010",
+      "tolerance": "band [20,010, 20,010] \u00b11%",
+      "why": "the ingester recomputes active series every 1m and the gauge is scraped every 15s, so each point of the average describes the ingester up to 75s earlier, and idle series are purged up to 1m late; the band is the model evaluated at both extremes, plus \u00b11% for anything else",
+      "detail": [
+        "subquery points with pipeline data: 10; points this tenant was present (model): 10; (Mimir): 10"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "pool1-truth/churn",
+      "window": "10m",
+      "title": "pool 1: `churn` active series (after the replication divisor)",
+      "status": "pass",
+      "expected": "5,811\u20136,211",
+      "measured": "6,011",
+      "tolerance": "band [5,811, 6,211] \u00b11%",
+      "why": "the ingester recomputes active series every 1m and the gauge is scraped every 15s, so each point of the average describes the ingester up to 75s earlier, and idle series are purged up to 1m late; the band is the model evaluated at both extremes, plus \u00b11% for anything else",
+      "detail": [
+        "subquery points with pipeline data: 10; points this tenant was present (model): 10; (Mimir): 10"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "pool1-truth/dashboards",
+      "window": "10m",
+      "title": "pool 1: `dashboards` active series (after the replication divisor)",
+      "status": "pass",
+      "expected": "4,011\u20134,011",
+      "measured": "4,011",
+      "tolerance": "band [4,011, 4,011] \u00b11%",
+      "why": "the ingester recomputes active series every 1m and the gauge is scraped every 15s, so each point of the average describes the ingester up to 75s earlier, and idle series are purged up to 1m late; the band is the model evaluated at both extremes, plus \u00b11% for anything else",
+      "detail": [
+        "subquery points with pipeline data: 10; points this tenant was present (model): 10; (Mimir): 10"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "pool1-truth/ghost",
+      "window": "10m",
+      "title": "pool 1: `ghost` active series",
+      "status": "pass",
+      "expected": "no active series in this window (absent or 0)",
+      "measured": "not measured",
+      "tolerance": "exact",
+      "why": "the tenant wrote no sample within the idle timeout of any point",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "pool1-truth/latecomer",
+      "window": "10m",
+      "title": "pool 1: `latecomer` active series (after the replication divisor)",
+      "status": "pass",
+      "expected": "2,011\u20132,011",
+      "measured": "2,011",
+      "tolerance": "band [2,011, 2,011] \u00b11%",
+      "why": "the ingester recomputes active series every 1m and the gauge is scraped every 15s, so each point of the average describes the ingester up to 75s earlier, and idle series are purged up to 1m late; the band is the model evaluated at both extremes, plus \u00b11% for anything else",
+      "detail": [
+        "subquery points with pipeline data: 10; points this tenant was present (model): 10; (Mimir): 10"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "pool1-truth/rules",
+      "window": "10m",
+      "title": "pool 1: `rules` active series (after the replication divisor)",
+      "status": "pass",
+      "expected": "3,660\u20133,660",
+      "measured": "3,660",
+      "tolerance": "band [3,660, 3,660] \u00b11%",
+      "why": "the ingester recomputes active series every 1m and the gauge is scraped every 15s, so each point of the average describes the ingester up to 75s earlier, and idle series are purged up to 1m late; the band is the model evaluated at both extremes, plus \u00b11% for anything else",
+      "detail": [
+        "subquery points with pipeline data: 10; points this tenant was present (model): 10; (Mimir): 10"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "pool1-truth/steady",
+      "window": "10m",
+      "title": "pool 1: `steady` active series (after the replication divisor)",
+      "status": "pass",
+      "expected": "30,022\u201330,022",
+      "measured": "30,022",
+      "tolerance": "band [30,022, 30,022] \u00b11%",
+      "why": "the ingester recomputes active series every 1m and the gauge is scraped every 15s, so each point of the average describes the ingester up to 75s earlier, and idle series are purged up to 1m late; the band is the model evaluated at both extremes, plus \u00b11% for anything else",
+      "detail": [
+        "subquery points with pipeline data: 10; points this tenant was present (model): 10; (Mimir): 10"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "pool1-truth/tiny",
+      "window": "10m",
+      "title": "pool 1: `tiny` active series (after the replication divisor)",
+      "status": "pass",
+      "expected": "20.00\u201320.00",
+      "measured": "20.00",
+      "tolerance": "band [20.00, 20.00] \u00b11%",
+      "why": "the ingester recomputes active series every 1m and the gauge is scraped every 15s, so each point of the average describes the ingester up to 75s earlier, and idle series are purged up to 1m late; the band is the model evaluated at both extremes, plus \u00b11% for anything else",
+      "detail": [
+        "subquery points with pipeline data: 10; points this tenant was present (model): 10; (Mimir): 10"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "pool1-rank",
+      "window": "10m",
+      "title": "pool 1: tenant rank order matches the workload shapes",
+      "status": "pass",
+      "expected": "steady > cardinal > churn > dashboards > rules > latecomer > tiny",
+      "measured": "steady > cardinal > churn > dashboards > rules > latecomer > tiny",
+      "tolerance": "pairs whose expected figures are within 10% of each other are not ranked",
+      "why": "a near-tie can legitimately flip on gauge lag; everything else is a difference of shape",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "dominates/query_path",
+      "window": "10m",
+      "title": "pool 6 (query path): `dashboards` dominates",
+      "status": "pass",
+      "expected": "`dashboards` first, with at least 50%",
+      "measured": "dashboards 97.6%; cardinal 1.0%; rules 1.0%; steady 0.3%",
+      "tolerance": "rank 1 and \u226550%",
+      "why": "the workload makes `dashboards` this pool's driver by a wide margin by construction; a simple majority is a weaker claim than the margin built in, so it should hold under noise",
+      "detail": [
+        "driver: chunk bytes fetched (cortex_query_fetched_chunk_bytes_total)"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "dominates/ruler_cpu",
+      "window": "10m",
+      "title": "pool 7 (ruler CPU): `rules` dominates",
+      "status": "pass",
+      "expected": "`rules` first, with at least 50%",
+      "measured": "rules 90.6%; steady 2.9%; cardinal 1.8%; dashboards 1.5%",
+      "tolerance": "rank 1 and \u226550%",
+      "why": "the workload makes `rules` this pool's driver by a wide margin by construction; a simple majority is a weaker claim than the margin built in, so it should hold under noise",
+      "detail": [
+        "driver: rule-evaluation seconds (cortex_prometheus_rule_evaluation_duration_seconds_sum)"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "eval-mode",
+      "window": "10m",
+      "title": "ruler evaluation mode detected correctly",
+      "status": "pass",
+      "expected": "remote",
+      "measured": "pool 6 (query path): remote, pool 7 (ruler CPU): remote",
+      "tolerance": "exact",
+      "why": "the environment's ruler configuration is known",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "lifecycle/ghost",
+      "window": "10m",
+      "title": "`ghost` after it went silent: 0 or not measured",
+      "status": "pass",
+      "expected": "0 active series, or not measured",
+      "measured": "not measured",
+      "tolerance": "exact",
+      "why": "its last sample, and its recording rules' last output, are more than the 20m idle timeout before the window opens",
+      "detail": [
+        "last sample 45m into the run"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "rule-outputs/cardinal",
+      "window": "10m",
+      "title": "rule outputs: `cardinal` record: series",
+      "status": "pass",
+      "expected": "10 series over 1 record: names (present)",
+      "measured": "10 series (1 output metrics)",
+      "tolerance": "exact",
+      "why": "each rule is sum by (shard) or sum over a metric with a known shard count, so its output series are known in advance; the count is an instant query",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "rule-outputs/churn",
+      "window": "10m",
+      "title": "rule outputs: `churn` record: series",
+      "status": "pass",
+      "expected": "11 series over 2 record: names (present)",
+      "measured": "11 series (2 output metrics)",
+      "tolerance": "exact",
+      "why": "each rule is sum by (shard) or sum over a metric with a known shard count, so its output series are known in advance; the count is an instant query",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "rule-outputs/dashboards",
+      "window": "10m",
+      "title": "rule outputs: `dashboards` record: series",
+      "status": "pass",
+      "expected": "11 series over 2 record: names (present)",
+      "measured": "11 series (2 output metrics)",
+      "tolerance": "exact",
+      "why": "each rule is sum by (shard) or sum over a metric with a known shard count, so its output series are known in advance; the count is an instant query",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "rule-outputs/ghost",
+      "window": "10m",
+      "title": "rule outputs: `ghost` record: series",
+      "status": "pass",
+      "expected": "0 series over 2 record: names (absent)",
+      "measured": "0 series (2 output metrics)",
+      "tolerance": "exact",
+      "why": "each rule is sum by (shard) or sum over a metric with a known shard count, so its output series are known in advance; the count is an instant query",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "rule-outputs/latecomer",
+      "window": "10m",
+      "title": "rule outputs: `latecomer` record: series",
+      "status": "pass",
+      "expected": "11 series over 2 record: names (present)",
+      "measured": "11 series (2 output metrics)",
+      "tolerance": "exact",
+      "why": "each rule is sum by (shard) or sum over a metric with a known shard count, so its output series are known in advance; the count is an instant query",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "rule-outputs/rules",
+      "window": "10m",
+      "title": "rule outputs: `rules` record: series",
+      "status": "pass",
+      "expected": "660 series over 120 record: names (present)",
+      "measured": "660 series (120 output metrics)",
+      "tolerance": "exact",
+      "why": "each rule is sum by (shard) or sum over a metric with a known shard count, so its output series are known in advance; the count is an instant query",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "rule-outputs/steady",
+      "window": "10m",
+      "title": "rule outputs: `steady` record: series",
+      "status": "pass",
+      "expected": "22 series over 4 record: names (present)",
+      "measured": "22 series (4 output metrics)",
+      "tolerance": "exact",
+      "why": "each rule is sum by (shard) or sum over a metric with a known shard count, so its output series are known in advance; the count is an instant query",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "rule-outputs/tiny",
+      "window": "10m",
+      "title": "rule outputs: `tiny` record: series",
+      "status": "pass",
+      "expected": "0 series over 0 record: names (absent)",
+      "measured": "0 series (0 output metrics)",
+      "tolerance": "exact",
+      "why": "each rule is sum by (shard) or sum over a metric with a known shard count, so its output series are known in advance; the count is an instant query",
+      "detail": [],
+      "issue": ""
+    },
+    {
+      "id": "pool1-vs-mimir",
+      "window": "10m",
+      "title": "pool 1: promcost equals Mimir's own gauge, read independently",
+      "status": "pass",
+      "expected": "every tenant within 0.5% (or 1 series) of the direct read",
+      "measured": "8 of 8 tenants equal",
+      "tolerance": "0.5% or 1 series",
+      "why": "the direct read applies the same de-duplication and averaging to the same points, so only rounding and the instant of each read may differ",
+      "detail": [
+        "cardinal: promcost 20,010, Mimir 20,010",
+        "churn: promcost 6,011, Mimir 6,011",
+        "dashboards: promcost 4,011, Mimir 4,011",
+        "latecomer: promcost 2,011, Mimir 2,011",
+        "monitoring: promcost 107,158, Mimir 107,158",
+        "rules: promcost 3,660, Mimir 3,660",
+        "steady: promcost 30,022, Mimir 30,022",
+        "tiny: promcost 20.00, Mimir 20.00"
+      ],
+      "issue": ""
+    },
+    {
+      "id": "write-path",
+      "window": "10m",
+      "title": "write path detected correctly",
+      "status": "pass",
+      "expected": "ingest storage",
+      "measured": "ingest storage",
+      "tolerance": "exact",
+      "why": "the environment's architecture is known",
+      "detail": [],
+      "issue": ""
+    }
+  ]
+}
