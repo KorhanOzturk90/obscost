@@ -1,4 +1,6 @@
-# promcost validation — `staging-ingest`, profile `short`
+# promcost validation — `staging-ingest`, profile `short` — BEFORE the #66 fix (promcost @ b680c2a)
+
+> Superseded by [`../2026-10-22-ingest/`](../2026-10-22-ingest/report.md), the same environment re-run on the #66 fix. Kept as the evidence for #66: its 4 failures are that bug.
 
 **79 passed, 4 failed, 0 skipped** across 3 window(s) (1h, 30m, 10m). Generated 2026-10-22 03:26 UTC.
 
