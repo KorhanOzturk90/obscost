@@ -1,5 +1,7 @@
 # promcost validation — `staging-ingest`, profile `short`
 
+> **Correction (added after the run).** The one failure, `churn` at 5,611 against 5,811–6,211, is not promcost's. `make mimir RULER_EVAL=local` rolled every ingester (03:27:45–03:30:39Z, from `process_start_time_seconds`), so this "clean" window sat inside the restart transient: a restarted ingester re-learns only series that receive new samples, and `churn`'s already-replaced generations were not re-counted. Mimir's own gauge read the same as promcost. The model now accounts for ingester restarts (commit 1030dd7); this report was produced before that and is left as it ran.
+
 **33 passed, 1 failed, 0 skipped** across 1 window(s) (10m). Generated 2026-10-22 03:48 UTC.
 
 Failures, grouped by cause:
