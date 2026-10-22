@@ -1,5 +1,7 @@
 # Obscost Product Direction
 
+> **Internal roadmap, not a list of shipped features.** For what promcost does today, see the [README](README.md).
+
 > **Status note — 2026-09-18.** This document still describes the right
 > destination, but its *ordering* has been superseded by
 > [ADR 0004](docs/adr/0004-finops-pivot-scope-and-sequencing.md). The

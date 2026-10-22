@@ -339,7 +339,7 @@ Two things to fix alongside it, both small:
    needs a memory limit or restart policy so it doesn't silently die again.
 
 Explicitly **not** in this step: the query-frontend telemetry source (see
-`docs/investigation-ruler-remote-query-frontend.md` — needs a real Mimir
+`docs/investigations/investigation-ruler-remote-query-frontend.md` — needs a real Mimir
 architecture change), the static-analysis join (issue #9), and any
 before/after experiment work (needs its own methodology ADR — comparing a
 rule against its former self across two time windows cannot hold load
@@ -373,7 +373,7 @@ constant, and getting that wrong produces confidently wrong numbers).
 - [ADR 0001](0001-observed-workload-attribution-layer.md) — the log-parsing
   attribution layer this builds on; decision 3 (missing vs zero) and
   decision 5 (recovering rule identity) both carry forward unchanged
-- [`docs/investigation-ruler-remote-query-frontend.md`](../investigation-ruler-remote-query-frontend.md)
+- [`docs/investigations/investigation-ruler-remote-query-frontend.md`](../investigations/investigation-ruler-remote-query-frontend.md)
   — why `samples_processed` is unavailable on the ruler's log line
 - `promcost-v0-spec_updated.md` — the "no daemon/SaaS control plane" v0
   non-goal that decision 4 respects (restated in `AGENTS.md`)
