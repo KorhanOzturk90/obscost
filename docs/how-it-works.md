@@ -41,7 +41,7 @@ cost(tenant, pool)  = share × replicas × price you supplied
 
 Pools 2 to 5 (write path, object storage, store-gateway, compactor) are defined in [ADR 0003](adr/0003-cost-model-pool-driver-mappings.md), but they aren't built yet. Every report lists them as "not modelled yet".
 
-**Gauges and counters are read differently.** Active series is a gauge. promcost sums across ingesters *inside* a subquery and averages the sum, so an ingester rollout doesn't double-count. Pools 6 and 7 are counters, read with `increase()` over the window, which handles counter resets. [ADR 0003 "How each driver must be read"](adr/0003-cost-model-pool-driver-mappings.md#a-how-each-driver-must-be-read) has the full reasoning.
+**Gauges and counters are read differently.** Active series is a gauge. promcost sums across ingesters *inside* a subquery and averages the sum over the whole window, so an ingester rollout doesn't double-count. A minute where a tenant had no series counts as 0, so a tenant that appears halfway through isn't credited with its full-window level. Minutes where Mimir's own metrics are missing are left out, and the trail says how many points were used. Pools 6 and 7 are counters, read with `increase()` over the window, which handles counter resets. [ADR 0003 "How each driver must be read"](adr/0003-cost-model-pool-driver-mappings.md#a-how-each-driver-must-be-read) has the full reasoning.
 
 ## What promcost deliberately doesn't do
 
@@ -106,7 +106,16 @@ The pool-level metrics stop at the tenant. To find out **which rule** is expensi
 
 The pool-to-driver mappings are engineering judgements, and ADR 0003 labels them that way: pool 1 high confidence, pool 6 medium-high, pool 7 high under local evaluation. They're being calibrated against per-component CPU and memory on a microservices Kubernetes rig.
 
-<!-- TODO(launch/validation): link the staging validation report and the calibration results (#49) here. State what was checked (shares reconcile, active series vs ground truth, RF under both write paths, evaluation-mode detection). Quote no number until it is committed. -->
+**What has been checked:** that promcost reads those drivers correctly. On a staging Mimir 3.2.0 with synthetic tenants of known shape, under ingest storage and under classic at RF=3, it passed every check:
+- shares sum to 100%
+- each tenant's active series match the generated ground truth and Mimir's own gauge
+- the replication factor is divided out
+- the write path and the evaluation mode are detected
+- tenants with no data read "not measured"
+
+Pools 6 and 7 were checked for ranking only, since their values depend on caches and CPU contention. See the [validation results](../dev/staging/results/README.md).
+
+**What hasn't been checked:** whether active series, fetched bytes and evaluation seconds really are what drive each component's memory and CPU. That's calibration (ADR 0003 decision 6, #49), and the validation doesn't answer it.
 
 These are figures for capacity and chargeback conversations. They aren't invoices.
 

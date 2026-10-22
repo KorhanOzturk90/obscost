@@ -83,34 +83,39 @@ inventory:
       replicas: 2                  # replicas only: "≈ rulers", pool not costed
 ```
 
-This is the output from that inventory (in `examples/promcost.yaml`). It came from running the v0.1 binary against a **stub of Mimir's query API that serves fixed values**, not a real cluster. The values match the fixture in the README, and the output is trimmed to pool 1:
+Here is pool 1 from a real run, the staging validation's classic write path at replication factor 3, with 3 ingesters priced at 120 EUR each ([full report](../dev/staging/results/2026-10-22-classic/raw/cost-30m.md)). The tenants are synthetic:
 
 ```
 ## Ingester memory
 
-Average over the last 7d, ending 2026-10-21T16:49:37Z. Pool: 8 ingesters, 2,480.00 EUR/month.
+Average over the last 30m, ending 2026-10-22T08:52:44Z. Pool: 3 ingesters, 360.00 EUR/month.
 
-**`analytics` uses 40.9% of ingester memory** — the equivalent of 3.3 of your 8 ingesters, 1,013.93 EUR/month.
+**`monitoring` uses 62.8% of ingester memory** — the equivalent of 1.9 of your 3 ingesters, 226.15 EUR/month.
 
 | Tenant | Active series | Share | ≈ ingesters | EUR/month |
 |---|---:|---:|---:|---:|
-| analytics | 15,005 | 40.9% | 3.27 | 1,013.93 |
-| monitoring | 12,643 | 34.4% | 2.76 | 854.33 |
-| infra | 7,743 | 21.1% | 1.69 | 523.22 |
-| payments | 1,205 | 3.3% | 0.26 | 81.43 |
-| platform | 105 | 0.3% | 0.02 | 7.10 |
-| **Total** | **36,701** | **100%** | **8** | **2,480.00** |
+| monitoring | 112,386 | 62.8% | 1.88 | 226.15 |
+| steady | 30,022 | 16.8% | 0.50 | 60.41 |
+| cardinal | 20,010 | 11.2% | 0.34 | 40.27 |
+| churn | 5,944 | 3.3% | 0.10 | 11.96 |
+| dashboards | 4,011 | 2.2% | 0.07 | 8.07 |
+| rules | 3,660 | 2.0% | 0.06 | 7.36 |
+| latecomer | 2,011 | 1.1% | 0.03 | 4.05 |
+| ghost | 838 | 0.5% | 0.01 | 1.69 |
+| tiny | 20 | 0.0% | 0.00 | 0.04 |
+| **Total** | **178,903** | **100%** | **3** | **360.00** |
 
 ### Assumptions
 
 | Input | Value | Source |
 |---|---|---|
-| driver | `cortex_ingester_active_series (active series), averaged over 7d` | `Mimir metrics (queried as tenant meta)` |
-| driver query | `avg_over_time((sum by (user) (cortex_ingester_active_series unless on (cluster, namespace, job) cortex_partition_ring_partitions))[7d:7m])` | `Mimir metrics (queried as tenant meta)` |
+| driver | `cortex_ingester_active_series (active series), averaged over 30m` | `Mimir metrics (queried as tenant monitoring)` |
+| driver query | `sum_over_time((sum by (user) (cortex_ingester_active_series unless on (cluster, namespace, job) cortex_partition_ring_partitions))[30m:1m]) / scalar(count_over_time((sum(sum by (user) (cortex_ingester_active_series unless on (cluster, namespace, job) cortex_partition_ring_partitions)))[30m:1m]))` | `Mimir metrics (queried as tenant monitoring)` |
+| averaging | `averaged over the whole window; points where the tenant had no series count as 0; points where Mimir's own metrics were missing are excluded (30 of 30)` | `count_over_time((sum(sum by (user) (cortex_ingester_active_series unless on (cluster, namespace, job) cortex_partition_ring_partitions)))[30m:1m])` |
 | write path | `classic` | `detected from which driver query returned data` |
-| replication factor | `3` | `max(max_over_time(cortex_distributor_replication_factor[7d]))` |
-| ingester replicas | `8` | `promcost.yaml inventory` |
-| price | `310.00 EUR per ingester-month × 8 = 2480.00 EUR/month` | `promcost.yaml inventory` |
+| replication factor | `3` | `max(max_over_time(cortex_distributor_replication_factor[30m]))` |
+| ingester replicas | `3` | `promcost.yaml inventory` |
+| price | `120.00 EUR per ingester-month × 3 = 360.00 EUR/month` | `promcost.yaml inventory` |
 ```
 
 Every number traces back to a row in the Assumptions table. If you dispute a figure, change the input and run it again.

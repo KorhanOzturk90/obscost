@@ -10,44 +10,57 @@ It's a single read-only binary. It needs a Mimir URL and the tenant your Mimir's
 
 ### What it looks like
 
-This excerpt is from the test fixture [`internal/report/testdata/cost_report_multipool.golden.md`](internal/report/testdata/cost_report_multipool.golden.md), not a production cluster. The fixture prices ingester memory and the querier, and leaves the ruler and the query-frontend unpriced:
+This is real output, trimmed, from the staging validation run: Mimir 3.2.0 with the classic write path at replication factor 3, synthetic tenants, and a 30-minute window ([full report](dev/staging/results/2026-10-22-classic/raw/cost-30m.md)). The inventory prices all three pools with illustrative prices. `monitoring` is the metrics tenant itself, and it shows up because its own series sit in the ingesters too:
 
 ```
 ## Ingester memory
 
-Average over the last 7d, ending 2026-09-18T12:00:00Z. Pool: 3 ingesters, 300.00 EUR/month.
+Average over the last 30m, ending 2026-10-22T08:52:44Z. Pool: 3 ingesters, 360.00 EUR/month.
 
-**`analytics` uses 40.9% of ingester memory** — the equivalent of 1.2 of your 3 ingesters, 122.65 EUR/month.
+**`monitoring` uses 62.8% of ingester memory** — the equivalent of 1.9 of your 3 ingesters, 226.15 EUR/month.
 
 | Tenant | Active series | Share | ≈ ingesters | EUR/month |
 |---|---:|---:|---:|---:|
-| analytics | 15,005 | 40.9% | 1.23 | 122.65 |
-| monitoring | 12,643 | 34.4% | 1.03 | 103.35 |
-| infra | 7,743 | 21.1% | 0.63 | 63.29 |
-| payments | 1,205 | 3.3% | 0.10 | 9.85 |
-| platform | 105 | 0.3% | 0.01 | 0.86 |
-| **Total** | **36,701** | **100%** | **3** | **300.00** |
+| monitoring | 112,386 | 62.8% | 1.88 | 226.15 |
+| steady | 30,022 | 16.8% | 0.50 | 60.41 |
+| cardinal | 20,010 | 11.2% | 0.34 | 40.27 |
+| churn | 5,944 | 3.3% | 0.10 | 11.96 |
+| dashboards | 4,011 | 2.2% | 0.07 | 8.07 |
+| rules | 3,660 | 2.0% | 0.06 | 7.36 |
+| latecomer | 2,011 | 1.1% | 0.03 | 4.05 |
+| ghost | 838 | 0.5% | 0.01 | 1.69 |
+| tiny | 20 | 0.0% | 0.00 | 0.04 |
+| **Total** | **178,903** | **100%** | **3** | **360.00** |
 
 ... query path and ruler CPU sections, each with its own assumption table ...
 
 ## Cost across pools
 
-**`analytics` is 45.4% of the 31.2% of platform cost we can price** (ingester memory, query path (without query-frontend); ruler CPU not costed).
+**`monitoring` is 39.0% of the cost of the priced pools** (ingester memory, query path, ruler CPU). What fraction of your platform cost that is stays unknown until `inventory.platform_cost_month` is set.
 
-| Tenant | Ingester memory EUR/month | Query path EUR/month | Total EUR/month | Share of priced cost |
-|---|---:|---:|---:|---:|
-| analytics | 122.65 | 104.25 | 226.91 | 45.4% |
-| infra | 63.29 | 93.62 | 156.91 | 31.4% |
-| monitoring | 103.35 | 0.12 | 103.46 | 20.7% |
-| payments | 9.85 | 2.01 | 11.86 | 2.4% |
-| platform | 0.86 | not measured | ≥ 0.86 | ≥ 0.2% |
+| Tenant | Ingester memory EUR/month | Query path EUR/month | Ruler CPU EUR/month | Total EUR/month | Share of priced cost |
+|---|---:|---:|---:|---:|---:|
+| monitoring | 226.15 | not measured | not measured | ≥ 226.15 | ≥ 39.0% |
+| dashboards | 8.07 | 151.77 | 1.66 | 161.50 | 27.8% |
+| steady | 60.41 | 1.39 | 2.34 | 64.15 | 11.1% |
+| rules | 7.36 | 4.03 | 52.29 | 63.69 | 11.0% |
+| cardinal | 40.27 | 2.20 | 2.08 | 44.54 | 7.7% |
+| churn | 11.96 | 0.14 | 0.56 | 12.67 | 2.2% |
+| latecomer | 4.05 | 0.46 | 0.59 | 5.10 | 0.9% |
+| ghost | 1.69 | 0.00 | 0.31 | 1.99 | 0.3% |
+| tiny | 0.04 | 0.00 | 0.17 | 0.21 | 0.0% |
+
+**Read before quoting:**
+
+- rules are evaluated remotely, so a tenant's rule queries drive its share of both the query path (the work) and the ruler (the time spent waiting for it). Each pool's cost is split once, so nothing is counted twice, but a rule-heavy tenant's total weighs the same queries in both
+- a tenant marked ≥ was not measured in every priced pool: what it would owe there is unknown, not zero, and that pool's cost is shared out among the tenants that were measured, so its figure is a lower bound and theirs are inflated
 
 Not modelled yet: ingester write path, object storage, store-gateway, compactor.
 ```
 
-Note the headline: it says *45.4% of the 31.2% we can price*, not "45.4% of your Mimir bill". A total across pools always says what it covers. `platform` sent no queries through the query frontend in this window, so it's "not measured" there and its total is marked as a lower bound (≥).
+Note the headline: it says *39.0% of the cost of the priced pools*, not "of your Mimir bill". A total across pools always says what it covers, and here `platform_cost_month` wasn't set. `monitoring` sent no queries and ran no rules, so it's "not measured" in those pools, and its total is marked as a lower bound (≥).
 
-<!-- TODO(launch/validation): once the staging validation report is committed, link it here as the evidence that shares reconcile against ground truth. Don't quote a number until then. -->
+**Checked against known ground truth.** On a staging Mimir 3.2.0 with synthetic tenants, run once with each write path, promcost passed all 87 checks in each run. The checks covered: every pool's shares sum to 100%; each tenant's active series match both the generated ground truth and Mimir's own gauge after dividing by the replication factor; the write path and the rule evaluation mode are detected correctly; and unmeasured tenants read "not measured". Pools 6 and 7 were checked for ranking only, not absolute values. Windows were at most 1h, on a single container. [Results, and what they don't show](dev/staging/results/README.md).
 
 ### Why this exists, and how it differs from what you already have
 
@@ -140,9 +153,7 @@ If your metrics tenant holds several Mimir clusters, pick one with `--selector '
 
 ### Status
 
-**v0.1** covers three pools (ingester memory, query path, ruler CPU) as a one-off snapshot, in resources and optional currency. It's developed against Mimir 3.2.0 (Helm chart `mimir-distributed` 6.2.0) in microservices mode, on a local Kubernetes rig, with both the classic and the ingest-storage write path.
-
-<!-- TODO(launch/staging-env, launch/validation): state which topologies the staging validation covered once its report is committed. -->
+**v0.1** covers three pools (ingester memory, query path, ruler CPU) as a one-off snapshot, in resources and optional currency. It's tested against Mimir 3.2.0 (Helm chart 6.2.0), with ingest storage and classic, zone-aware ingesters, and remote rule evaluation through the dedicated ruler query path. A separate run checked local evaluation. See the [validation results](dev/staging/results/README.md).
 
 Next, in the order set out in [ADR 0004](docs/adr/0004-finops-pivot-scope-and-sequencing.md):
 

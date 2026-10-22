@@ -12,11 +12,11 @@ Everything else it detects, and says what it detected: the replication factor, t
 
 | Mimir | Status |
 |---|---|
-| 3.2.0 (Helm chart `mimir-distributed` 6.2.0), microservices mode | **Developed and tested against this**, on the repo's Kubernetes rig ([`dev/mimir-k8s`](../dev/mimir-k8s)), with the classic and the ingest-storage write path, and with remote rule evaluation |
+| 3.2.0 (Helm chart `mimir-distributed` 6.2.0), microservices mode | **Tested**: ingest storage and classic (RF=3), zone-aware ingesters, remote evaluation through the dedicated ruler query path, and a separate local-evaluation run. See the [validation results](../dev/staging/results/README.md) |
 | 3.2.0, monolithic (single binary) | Works for shares. Replica counts and prices are less meaningful, because every pool is the same process |
 | other versions | Untested. The driver metrics are long-standing `cortex_*` metrics, but promcost hasn't checked their names or labels on other versions |
 
-<!-- TODO(launch/validation): add the staging validation's coverage (topologies, write paths, evaluation modes) once its report is committed. -->
+The validation ran on one container with synthetic tenants and windows of at most 1h. Each run's report lists what it doesn't show, such as real tenants, a multi-node cluster and day-long windows.
 
 Reports from other versions are welcome as issues.
 
