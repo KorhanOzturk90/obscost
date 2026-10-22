@@ -24,7 +24,7 @@
 # "not measured" in pool 6, never 0.
 #
 # Pool 7 (ruler): `rules` has 240 rules (120 recording + 120 alerting — the
-# size of the mimir-mixin's compiled corpus) every 30s over 10m ranges;
+# size of the mimir-mixin's compiled corpus) every 1m over 2m ranges;
 # everyone else has ≤5 rules every 1m over 5m.
 name: standard
 description: eight tenant shapes for promcost validation (see header)
@@ -68,7 +68,11 @@ tenants:
     shape: rule-heavy (mixin-sized corpus)
     series: {metrics: 10, per_metric: 300, shards: 10, interval: 15s}
     # 12 groups of 10+10: Mimir's default -ruler.max-rules-per-rule-group is 20.
-    rules: {groups: 12, recording_per_group: 10, alerting_per_group: 10, interval: 30s, range: 10m}
+    # Every 1m over 2m ranges, not heavier: under remote evaluation every
+    # rule query is pool-6 traffic too, and 30s/10m made this tenant 7x
+    # `dashboards`' fetched volume on staging (2026-10-22). Pool 7 is
+    # dominated by rule count either way.
+    rules: {groups: 12, recording_per_group: 10, alerting_per_group: 10, interval: 1m, range: 2m}
 
   - name: tiny
     shape: tiny

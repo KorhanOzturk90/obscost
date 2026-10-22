@@ -19,7 +19,7 @@ profiles/standard.yaml ─► loadgen ─┬─ remote write  /api/v1/push      
 | `steady` | large steady ingestion | 30,000 | 2,000 | 1 light panel / 5m | 4 + 2 | 22 |
 | `cardinal` | high cardinality, low sample rate (1 metric, 20k series, padded labels, 60s interval) | 20,000 | 333 | — | 1 + 0 | 10 |
 | `dashboards` | query-heavy: 3 viewers × 6 panels every 30s over 6h | 4,000 | 267 | 36/min | 2 + 2 | 11 |
-| `rules` | rule-heavy: 240 rules (the mimir-mixin's size) every 30s over 10m ranges | 3,000 | 200 | — | 120 + 120 | 660 |
+| `rules` | rule-heavy: 240 rules (the mimir-mixin's size) every 1m over 2m ranges | 3,000 | 200 | — | 120 + 120 | 660 |
 | `tiny` | tiny | 20 | 0.7 | — | 0 + 1 | 0 |
 | `churn` | every series replaced every 10m, like a deploy | 2,000 (≈6,000 active) | 133 | — | 2 + 0 | 11 |
 | `latecomer` | **starts 90m into the run** (rules pushed when it starts) | 2,000 | 133 | 1 panel / 1m | 2 + 1 | 11 |
@@ -27,8 +27,10 @@ profiles/standard.yaml ─► loadgen ─┬─ remote write  /api/v1/push      
 
 Each shape is chosen so every pool has a clear expected answer. Pool 1's
 rank order follows active series. `dashboards` dominates pool 6, and it
-still does under remote rule evaluation, because its queries read about
-4.5× the series-minutes that `rules`' evaluations do. `rules` dominates
+still does under remote rule evaluation, because its queries read far more
+series-minutes than `rules`' evaluations do once an hour of data exists. On a
+run younger than that, its 6h ranges have little to read, and the
+harness reports the shortfall rather than hiding it. `rules` dominates
 pool 7, and tenants that issue no queries must be "not measured" in pool 6
 under local evaluation.
 
