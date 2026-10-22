@@ -64,20 +64,33 @@ promcost does one thing: it splits the cost of **shared** Mimir components per t
 
 ### Install
 
-<!-- TODO(launch/release): replace this block with the exact snippet from the launch/release PR's "For the docs lane" section. -->
-
-> **Placeholder until v0.1.0 is tagged.** The release binaries, the image name and the tag below aren't published yet.
+Binaries for linux and darwin (amd64, arm64) and windows (amd64) are on [GitHub Releases](https://github.com/KorhanOzturk90/obscost/releases), with a `checksums.txt`:
 
 ```sh
-# Binary (linux/darwin, amd64/arm64) from GitHub Releases
-# RELEASE-SNIPPET-PLACEHOLDER: download URL and archive name from launch/release
+# Download and verify (Linux; on macOS use OS=darwin and `shasum -a 256 -c`)
+VERSION=0.1.0 OS=linux ARCH=amd64   # or arm64
+BASE=https://github.com/KorhanOzturk90/obscost/releases/download/v${VERSION}
+curl -sSLO "$BASE/promcost_${VERSION}_${OS}_${ARCH}.tar.gz"
+curl -sSLO "$BASE/checksums.txt"
+grep "promcost_${VERSION}_${OS}_${ARCH}.tar.gz" checksums.txt | sha256sum -c
+tar xzf "promcost_${VERSION}_${OS}_${ARCH}.tar.gz" promcost
+./promcost --version
 
-# Container image
-# RELEASE-SNIPPET-PLACEHOLDER: image reference from launch/release
-
-# From source (Go 1.27+)
-go install github.com/KorhanOzturk90/obscost/cmd/promcost@latest
+# Or with Go 1.27.1+
+go install github.com/KorhanOzturk90/obscost/cmd/promcost@v0.1.0
 ```
+
+Or run the multi-arch container image:
+
+```sh
+# Container (multi-arch). A promcost.yaml pointing at localhost needs --network host (Linux);
+# otherwise use an address the container can reach.
+docker run --rm -v "$PWD/promcost.yaml:/etc/promcost/promcost.yaml:ro" \
+  ghcr.io/korhanozturk90/promcost:0.1.0 \
+  cost --config /etc/promcost/promcost.yaml --metrics-tenant <tenant-with-mimir-self-metrics>
+```
+
+To run it in Kubernetes as a one-off Job or a daily CronJob, see [`deploy/kubernetes/`](deploy/kubernetes/README.md).
 
 ### Quickstart
 

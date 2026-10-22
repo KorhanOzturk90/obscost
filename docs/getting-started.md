@@ -9,14 +9,21 @@ flowchart LR
 
 ## 1. Install
 
-<!-- TODO(launch/release): replace with the release lane's snippet. -->
-
-> **Placeholder:** release binaries and the container image arrive with v0.1.0. Until then, build from source:
-
 ```sh
-go install github.com/KorhanOzturk90/obscost/cmd/promcost@latest   # needs Go 1.27+
-promcost --help
+# Download and verify (Linux; on macOS use OS=darwin and `shasum -a 256 -c`)
+VERSION=0.1.0 OS=linux ARCH=amd64   # or arm64
+BASE=https://github.com/KorhanOzturk90/obscost/releases/download/v${VERSION}
+curl -sSLO "$BASE/promcost_${VERSION}_${OS}_${ARCH}.tar.gz"
+curl -sSLO "$BASE/checksums.txt"
+grep "promcost_${VERSION}_${OS}_${ARCH}.tar.gz" checksums.txt | sha256sum -c
+tar xzf "promcost_${VERSION}_${OS}_${ARCH}.tar.gz" promcost
+./promcost --version
+
+# Or with Go 1.27.1+
+go install github.com/KorhanOzturk90/obscost/cmd/promcost@v0.1.0
 ```
+
+The container image (`ghcr.io/korhanozturk90/promcost:0.1.0`) and the Kubernetes Job and CronJob are described in the [README](../README.md#install).
 
 ## 2. Find the tenant that holds Mimir's own metrics
 
