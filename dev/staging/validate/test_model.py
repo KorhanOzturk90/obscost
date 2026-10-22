@@ -65,6 +65,17 @@ class Active(unittest.TestCase):
         # The first present point reads 0 at the lagged edge, hence not 1000.
         self.assertTrue(850 <= plo <= phi <= 1000, e.presence_weighted)
 
+    def test_decay_band_includes_a_fresh_gauge(self):
+        # Silent from T0+3600; a window over its expiry must allow the gauge
+        # to drop exactly at the idle timeout, not only late.
+        stop = T0 + 3600
+        tt = tenant(last=stop, stopped=True)
+        end = stop + 1200 + 600
+        lo, hi = model.expect_active(tt, end, 1800, now=end).time_weighted
+        exact = sum(1000 for p in model.subquery_points(end, 1800, 60) if p < stop + 1200) / 30
+        self.assertLessEqual(lo, exact)
+        self.assertGreaterEqual(hi, exact)
+
     def test_rule_outputs_count_as_active_series(self):
         rules = {"record_series_total": 11, "interval_s": 60, "range_s": 300, "record_series": {"a": 10, "b": 1}}
         tt = tenant(last=T0 + 3600, rules=rules)

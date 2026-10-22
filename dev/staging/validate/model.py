@@ -143,7 +143,10 @@ def expect_active(tt: dict, end: float, window_s: float, pipeline_points: list[f
     # The low bound also applies ingester restarts (see active_at); the high
     # bound does not, so the band covers a tracker that re-learned a series
     # and one that did not.
-    lo_vals = [active_at(gs, p - GAUGE_LAG_S, restarts=restarts) for p in pts]
+    # The gauge can also be fresh: read at the 1m update right after a
+    # series expired, it has already dropped it. For a rising tenant the
+    # lagged read is the low one; for a decaying one, the fresh read is.
+    lo_vals = [min(active_at(gs, p - GAUGE_LAG_S, restarts=restarts), active_at(gs, p, restarts=restarts)) for p in pts]
     hi_vals = [active_at(gs, p, IDLE_TIMEOUT_S + PURGE_SLACK_S) for p in pts]
     # The two bounds are not ordered point by point (lag delays both rises
     # and falls), so take each point's min and max.
