@@ -5,7 +5,8 @@
 #   ./run.sh staging-ingest    # dev/staging, PROFILE=ingest  (ingest storage, remote rule evaluation)
 #   ./run.sh staging-classic   # dev/staging, PROFILE=classic (classic RF=3, remote rule evaluation)
 #
-# WINDOWS (default 1h,6h,24h) and EVENTS (an events JSON file) pass through.
+# WINDOWS (default 1h,6h,24h), EVENTS (an events JSON file) and, for staging,
+# EXPECT_EVAL (remote; local after `make mimir RULER_EVAL=local`) pass through.
 # PROMCOST names the binary; it is the only place the name lives.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -37,7 +38,7 @@ case "${1:-}" in
     exec "$HERE/validate.py" --env "$1" --url "$url" --metrics-tenant monitoring \
       --ground-truth "$WORKLOAD/.run/ground-truth-k8s.json" \
       --observer-log "$WORKLOAD/.run/observer-$1.jsonl" \
-      --expect-eval remote --expect-write-path "$wp" --windows "$WINDOWS" "${args[@]}"
+      --expect-eval "${EXPECT_EVAL:-remote}" --expect-write-path "$wp" --windows "$WINDOWS" "${args[@]}"
     ;;
   *)
     sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
