@@ -217,6 +217,7 @@ def main() -> int:
         })
         results += cs
 
+    results.insert(0, checks.delivery(load_ground_truth(a.ground_truth) if not a.ground_truth.startswith("http") else gt))
     doc = {
         "env": a.env, "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(), "promcost": promcost_version(),
         "url": a.url, "metrics_tenant": a.metrics_tenant, "expect_eval": a.expect_eval,

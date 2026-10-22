@@ -405,3 +405,23 @@ _SLUG = re.compile(r"[^a-z0-9]+")
 
 def slug(s: str) -> str:
     return _SLUG.sub("-", s.lower()).strip("-")
+
+
+def delivery(gt: dict) -> Check:
+    """The ground truth is only as good as the workload's delivery: a
+    rejected sample or a failed query means the figures being checked are
+    not the ones the profile describes."""
+    bad = []
+    for name, tt in sorted(gt["tenants"].items()):
+        c = tt["counters"]
+        q = c["queries_ok"] + c["queries_failed"]
+        if c["samples_failed"]:
+            bad.append(f"{name}: {c['samples_failed']} of {c['samples_sent'] + c['samples_failed']} samples rejected")
+        if q and c["queries_failed"] / q > 0.01:
+            bad.append(f"{name}: {c['queries_failed']} of {q} queries failed")
+        if bad and bad[-1].startswith(name) and c.get("last_error"):
+            bad[-1] += f" (last error: {c['last_error'][:120]})"
+    return Check("delivery", "all", "the workload was delivered as the profile describes", "fail" if bad else "pass",
+                 expected="no sample rejected, ≤1% of queries failed", measured="; ".join(bad) or "all delivered",
+                 tolerance="≤1% of queries", why="a query can fail transiently (an ingester restart); samples are retried and must all land",
+                 detail=bad)
