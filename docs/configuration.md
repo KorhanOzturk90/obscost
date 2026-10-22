@@ -15,8 +15,9 @@ For a commented starting point, see [`examples/promcost.yaml`](../examples/promc
 backend:
   url: http://mimir-gateway.mimir.svc:8080
   auth:
-    bearer_token_env: MIMIR_TOKEN
+    bearer_token_env: MIMIR_TOKEN   # or basic_auth: {username: ..., password_env: ...}
   timeout: 5m
+  selector: '{cluster="prod-eu"}'   # only if the metrics tenant holds several Mimir clusters
 
 tenancy:
   header: X-Scope-OrgID
@@ -29,6 +30,7 @@ inventory:
   currency: EUR
   platform_cost_month: 4000
   replication_factor: 3
+  ruler_evaluation: remote
   pools:
     ingester_memory: {replicas: 8, cost_per_replica_month: 310}
     query_path:
@@ -43,8 +45,16 @@ inventory:
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `url` | string | none (**required** by `cost`, and by `report` unless it uses `--dir` and `--telemetry`) | Base URL of Mimir's HTTP API, usually the gateway or the query-frontend. promcost appends `/prometheus/api/v1/query` and `/prometheus/api/v1/rules`, so don't include `/prometheus` yourself. |
-| `auth.bearer_token_env` | string | unset | The **name** of an environment variable holding a bearer token. promcost sends it as `Authorization: Bearer <token>`. If the variable is empty, no header is sent (#55). This is the only auth method in v0.1. |
+| `auth.bearer_token_env` | string | unset | The **name** of an environment variable holding a bearer token. promcost sends it as `Authorization: Bearer <token>`. If the variable is unset or empty, promcost fails before sending any request. |
+| `auth.basic_auth.username` | string | unset | HTTP basic auth user, e.g. for the `mimir-distributed` gateway or an nginx in front of Mimir. Needs exactly one of the two password keys below. |
+| `auth.basic_auth.password_env` | string | unset | The **name** of an environment variable holding the password. Unset or empty is an error. |
+| `auth.basic_auth.password_file` | path | unset | A file holding the password. Relative paths resolve against the directory you run promcost from. A trailing newline is ignored, and an empty file is an error. |
 | `timeout` | Go duration (`90s`, `5m`, `1h`) | `2m` | Client-side limit on each query. `2m` matches Mimir's default `-querier.timeout`. Raise it for long `--since` windows on large clusters. Day units (`1d`) aren't accepted here, unlike `--since`. |
+| `selector` | PromQL label matchers in braces | unset | Added to every query of Mimir's own metrics, by `cost` and by `report --metrics-tenant`. Use it when one metrics tenant holds several Mimir clusters: `'{cluster="prod-eu"}'`. Several matchers are fine (`'{cluster="prod", namespace="mimir"}'`). It must not name a metric or match on `user`, the tenant label: use `--tenant` to name tenants. `--selector` overrides it. |
+
+Use one auth method, not both: setting `bearer_token_env` and `basic_auth` together is an error. An inline `basic_auth.password` is rejected, so the file can be committed. promcost has no client-certificate or custom-CA settings. It trusts the system CA store.
+
+With no `selector`, `cost` checks whether the driver metrics carry more than one `cluster` value, and if so prints a warning on stderr naming them (see [Troubleshooting](troubleshooting.md#figures-span-several-clusters)).
 
 ## `tenancy`
 
@@ -80,6 +90,7 @@ What you know about your own deployment. promcost never ships a default, a price
 | `currency` | string | **Required** as soon as any price or `platform_cost_month` is set | A label printed next to every figure (`EUR`, `USD`, `credits`). promcost doesn't convert anything. |
 | `platform_cost_month` | number | > 0. Needs `currency` | What the whole Mimir platform costs per month, including the pools promcost doesn't model. It's the only thing that lets the cross-pool headline say "X% of the **Y%** of platform cost we can price". Without it, that fraction is reported as unknown. |
 | `replication_factor` | integer | ≥ 1 | Overrides `cortex_distributor_replication_factor`. Use it when that metric isn't in your metrics tenant. It affects only pool 1's absolute figures (shares cancel it), and it's ignored under ingest storage, where a note says so if it isn't 1. If it disagrees with what Mimir reports, the report says so. |
+| `ruler_evaluation` | `local` \| `remote` | anything else is an error | States how your ruler evaluates rules, instead of letting promcost infer it from metrics. Set it when the report says `unknown`, or when you know better. The trail labels it `operator-supplied, not inferred`. See [Prerequisites → rule evaluation](prerequisites.md#rule-evaluation-local-remote-or-unknown). |
 | `pools` | map | keys: `ingester_memory`, `query_path`, `ruler_cpu` | Replica counts and prices per pool. Any other key is an error that lists the known pools. |
 
 ### `inventory.pools.<pool>`
@@ -89,7 +100,7 @@ A pool takes **either** the flat form **or**, for `query_path` only, `components
 | Key | Type | Rules | What it unlocks |
 |---|---|---|---|
 | `replicas` | integer | ≥ 1 | The "≈ N replicas" column: "the equivalent of 3.3 of your 8 ingesters" |
-| `cost_per_replica_month` | number | ≥ 0. Needs `currency` | With `replicas`, the pool cost (`replicas × price`) and the per-tenant currency column. A price **without** `replicas` leaves the pool not costed, and the report says why. Use a positive price: a price of 0 currently produces `NaN%` (#57). |
+| `cost_per_replica_month` | number | > 0. Needs `currency` | With `replicas`, the pool cost (`replicas × price`) and the per-tenant currency column. A price **without** `replicas` leaves the pool not costed, and the report says why. `0` is rejected: to leave a pool or component uncosted (for example because its cost is already in another pool's price), omit the price. |
 | `components` | map | `query_path` only. Keys: `query-frontend`, `querier` | Prices the query path per component, each with its own `replicas` and `cost_per_replica_month` |
 
 | Pool key | ADR 0003 pool | Replica noun in the report |
@@ -109,6 +120,7 @@ A pool takes **either** the flat form **or**, for `query_path` only, `components
 | Flag | Config it relies on |
 |---|---|
 | `--metrics-tenant` | sent in `tenancy.header` to `backend.url` |
+| `--selector` | overrides `backend.selector`. On `report` it applies to the metrics source only, and can't be combined with `--telemetry` |
 | `--pool` | restricts which `inventory.pools` entries are used. The rest are reported as "not read in this run" |
 | `--rule-outputs --dir` | `tenancy.discovery` and `tenancy.unmapped` |
 | `--rule-outputs --tenant`, or `report` without `--dir` | `backend.url`, read via the ruler API as each tenant |

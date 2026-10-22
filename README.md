@@ -106,10 +106,10 @@ Pools 2 to 5 aren't in v0.1, and the report says so. It doesn't treat them as ze
 - **Shares cover every tenant**, not a top N, and they sum to 100% within each pool.
 - **Currency is opt-in.** With no price, you get shares and "≈ N replicas". An unpriced pool is "not costed", not free.
 - **Cross-pool totals always say what they cover**, and promcost won't show a blended total when nothing is priced.
-- **Under remote rule evaluation**, the ruler's queries are counted in the query path. The report detects the evaluation mode from metrics and says which one it found, and when it can't tell, it says "unknown".
+- **Under remote rule evaluation**, the ruler's queries are counted in the query path. The report infers the evaluation mode from metrics and says which one it found. When it can't tell, it says "unknown", and you can state the mode in config.
 - **It's a snapshot over one window.** It doesn't compare windows or store history yet.
 
-There are also known limitations, such as a metrics tenant that holds several Mimir clusters, or auth that isn't a bearer token. See [Prerequisites](docs/prerequisites.md#known-limitations-in-v01).
+If your metrics tenant holds several Mimir clusters, pick one with `--selector '{cluster="..."}'`. promcost warns you when you need to. See [Prerequisites](docs/prerequisites.md#known-limitations-in-v01) for the known limitations.
 
 ### Drill-downs
 

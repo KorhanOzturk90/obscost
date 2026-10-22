@@ -9,13 +9,20 @@ backend:
   # The base URL you'd put in front of /prometheus/api/v1/query. Usually the
   # Mimir gateway or the query-frontend.
   url: http://mimir-gateway.mimir.svc:8080
-  # Name of an environment variable holding a bearer token, if your gateway
-  # needs one. Comment this out if it doesn't.
+  # Auth, if your gateway needs it: one method, never both. Secrets are
+  # named (an env var or a file), never written here.
   # auth:
   #   bearer_token_env: MIMIR_TOKEN
+  #   # or:
+  #   basic_auth:
+  #     username: promcost
+  #     password_env: MIMIR_PASSWORD   # or password_file: /etc/promcost/password
   # Client-side limit on each query. The default is 2m, Mimir's own default
   # query timeout. Raise it for long --since windows on large clusters.
   timeout: 5m
+  # Only if your metrics tenant holds several Mimir clusters (promcost warns
+  # you): pick one. --selector on the command line overrides it.
+  # selector: '{cluster="prod-eu"}'
 
 # The tenant header. X-Scope-OrgID is the default, so most setups can drop this.
 # tenancy:
@@ -34,6 +41,10 @@ inventory:
   # that metric isn't scraped into your metrics tenant. It's ignored under
   # ingest storage, where the query already counts each series once.
   # replication_factor: 3
+
+  # Optional: local or remote. States how your ruler evaluates rules,
+  # instead of inferring it from metrics. Set it if the report says "unknown".
+  # ruler_evaluation: remote
 
   pools:
     # Pool 1: ingester memory, split by active series.

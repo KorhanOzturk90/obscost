@@ -116,8 +116,9 @@ The cross-pool section now has a total. Without `inventory.platform_cost_month` 
 |---|---|
 | `--since 7d` | Window to average or total over. Takes Go durations plus `d` and `w`. Default `1h`. |
 | `--pool ingester_memory,ruler_cpu` | Read only these pools. Pools left out are listed as "not read in this run". |
-| `--format json` | One JSON document on stdout, for `jq` or a spreadsheet. |
+| `--format json` | One JSON document on stdout, for `jq` or a spreadsheet. A value that wasn't measured is **absent** from the JSON, never `0`. |
 | `--tenant a,b` | Tenants you expect. Any that weren't measured are reported as `not measured`. |
+| `--selector '{cluster="prod-eu"}'` | Pick one Mimir cluster when the metrics tenant holds several. promcost warns on stderr when you need it. |
 
 A long `--since` on a big cluster can hit the client timeout. See [Troubleshooting → timeouts](troubleshooting.md#a-query-times-out).
 

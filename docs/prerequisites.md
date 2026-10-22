@@ -43,12 +43,13 @@ If you get this wrong, every pool is "not measured" and the run still exits 0. S
 | ingesters | `cortex_ingester_active_series`, plus `cortex_partition_ring_partitions` under ingest storage | pool 1 |
 | distributors | `cortex_distributor_replication_factor` | pool 1's absolute figures (not shares) under the classic write path |
 | query-frontend | `cortex_query_fetched_chunk_bytes_total`, `cortex_query_samples_processed_total`, `cortex_query_fetched_series_total`, `cortex_query_seconds_total` | pool 6 |
-| ruler | `cortex_prometheus_rule_evaluation_duration_seconds_sum`, `cortex_ruler_query_seconds_total` | pool 7, and detecting the evaluation mode |
+| ruler | `cortex_prometheus_rule_evaluation_duration_seconds_sum` and `_count`, `cortex_distributor_query_duration_seconds_count`, and `cortex_ruler_query_seconds_total` if present | pool 7, and detecting the evaluation mode |
 
 The simplest rule is to scrape every Mimir pod's `/metrics`. Keep these labels:
 
 - **`pod`**: under ingest storage, promcost collapses zone replicas using the pod name's trailing ordinal (e.g. `mimir-ingester-zone-a-0`)
-- **`job`, `namespace` and `cluster`** (whichever you have): the ingest-storage guard matches on them
+- **`job`, `namespace` and `cluster`** (whichever you have): the ingest-storage guard matches on them, and `backend.selector` usually matches on `cluster`
+- **the ruler's `job`**, in a form matching `job=~".*ruler"` (e.g. `mimir/ruler`): this is how promcost recognises the ruler when it infers the evaluation mode
 
 These are the labels the [Mimir mixin](https://github.com/grafana/mimir/tree/main/operations/mimir-mixin) expects too.
 
@@ -62,7 +63,7 @@ Any scraper that remote-writes into a Mimir tenant works. These are the common s
 
 The metrics tenant can live in the Mimir you're costing, or in a separate monitoring Mimir. `backend.url` points at whichever one holds it.
 
-**One Mimir cluster per metrics tenant.** promcost's queries aren't filtered by `cluster`. If one tenant holds the metrics of several Mimir clusters, their figures are added together (#54).
+**Several Mimir clusters in one metrics tenant?** Pick one with `backend.selector` or `--selector`, e.g. `'{cluster="prod-eu"}'`. The matchers are added to every query of Mimir's own metrics, and the assumption trail shows them. Without a selector, figures from all clusters are added together, and `cost` warns on stderr when the driver metrics carry more than one `cluster` value. Run once per cluster to cost each one.
 
 ## Replication factor
 
@@ -88,15 +89,26 @@ It tries the classic query first, and uses the ingest-storage query only if the 
 
 ## Rule evaluation: local, remote or unknown
 
-Where rule work lands depends on how the ruler evaluates rules. promcost infers this from which metrics exist:
+Where rule work lands depends on how the ruler evaluates rules:
 
-| Mode | Evidence | Pool 6 (query path) | Pool 7 (ruler CPU) |
-|---|---|---|---|
-| **local** (Mimir's default) | `cortex_ruler_query_seconds_total` has data | user and API queries only | all rule evaluation time is ruler CPU |
-| **remote** (`-ruler.query-frontend.address` set) | rule evaluations exist, but `cortex_ruler_query_seconds_total` has none | **includes** every tenant's rule queries, and no label separates them from user queries | mostly the ruler *waiting* on the query path. The report adds a note, and if both pools are priced, the cross-pool total notes that rule work weighs on both |
-| **unknown** | neither metric has data | — | — |
+| Mode | Pool 6 (query path) | Pool 7 (ruler CPU) |
+|---|---|---|
+| **local** (Mimir's default) | user and API queries only | all rule evaluation time is ruler CPU |
+| **remote** (`-ruler.query-frontend.address` set) | **includes** every tenant's rule queries, and no label separates them from user queries | mostly the ruler *waiting* on the query path. The report adds a note, and if both pools are priced, the cross-pool total notes that rule work weighs on both |
 
-"Unknown" means no tenant evaluated rules in the window, or the ruler isn't scraped. promcost doesn't guess either way. In v0.1 the mode can't be overridden in config.
+**You can state the mode** with `inventory.ruler_evaluation: local|remote`. That replaces the inference, and the trail says `operator-supplied`.
+
+**Otherwise promcost infers it** from which metrics the ruler's own scrape job (`job=~".*ruler"`) exports. The trail records the evidence.
+
+| Evidence | Mode |
+|---|---|
+| the ruler's job has `cortex_distributor_query_duration_seconds_count` data. A local ruler queries ingesters through a distributor client and always records this, with default flags | **local** |
+| `cortex_ruler_query_seconds_total` has data. It's only registered with `-ruler.query-stats-enabled=true` (default off), so it's a second signal, not a required one | **local** |
+| the ruler's job evaluated rules but has no distributor query data | **remote** |
+| rules were evaluated, but not under a job matching `.*ruler` (e.g. a monolithic or relabelled deployment) | **unknown**: set `inventory.ruler_evaluation` |
+| no rule evaluations in the window, or the ruler isn't scraped | **unknown** |
+
+The chart's dedicated ruler read path (`ruler-querier`, `ruler-query-frontend`) doesn't match `.*ruler`, so it isn't mistaken for the ruler. promcost doesn't guess when the evidence is missing. A ruler that switched modes inside the window reads as local.
 
 **A dedicated ruler query path** (the chart's remote-evaluation option with its own ruler query-frontend and queriers) is folded into pool 6: promcost sums every query-frontend. Price those pods as part of the `query-frontend` and `querier` components if you want them in the cost.
 
@@ -111,12 +123,12 @@ promcost only reads. It sends `GET` requests to:
 | `/prometheus/api/v1/rules` | each tenant in `--tenant` | `cost --rule-outputs` or `report` without `--dir` |
 
 - **Tenant header:** `X-Scope-OrgID` by default. Change it with `tenancy.header` if a proxy in front of Mimir expects another header.
-- **Auth:** a bearer token, read from the environment variable named in `backend.auth.bearer_token_env`. That's the only method in v0.1. There's no basic auth and no client TLS settings (#55). If your gateway needs basic auth, put promcost behind a local proxy that adds it, or `kubectl port-forward` to the query-frontend or gateway service.
+- **Auth:** a bearer token (`backend.auth.bearer_token_env`) or HTTP basic auth (`backend.auth.basic_auth`, with the password from an environment variable or a file). Secrets are never written in `promcost.yaml`. There are no client-certificate or custom-CA settings: promcost trusts the system CA store. If you need mTLS, use a local proxy or `kubectl port-forward` to the gateway or query-frontend.
 - **Network:** promcost talks to `backend.url` and nothing else. It sends no telemetry.
 
 ## Known limitations in v0.1
 
-- One Mimir cluster per metrics tenant (#54).
-- Bearer token is the only auth method (#55).
+- No client certificates or custom CA.
+- `cost --rule-outputs` runs its count queries through the query path as each tenant, so they show up in pool 6 for later windows that include the run (#61).
 - Pools 2 to 5 (write path, object storage, store-gateway, compactor) aren't modelled. They're listed in every report.
 - One window at a time: no comparisons and no history.

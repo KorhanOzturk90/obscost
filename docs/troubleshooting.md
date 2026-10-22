@@ -21,7 +21,16 @@ curl -s -H 'X-Scope-OrgID: <metrics tenant>' 'http://<mimir>/prometheus/api/v1/q
 - **Empty:** try the tenant your Alloy or Prometheus `remote_write` sends with. See [Prerequisites → metrics tenant](prerequisites.md#mimirs-own-metrics-and-the-metrics-tenant).
 - **Not empty, but some tenants are missing:** those tenants had no active series in the window, or the ingesters that hold them aren't scraped.
 
-Two known display bugs in this case: the query-path and ruler totals render as `0 B` and `0.0` (#52), and pool 1's assumptions still say `write path: classic` (#53). Read both as "not measured".
+In this case every Total row reads `not measured`, and pool 1's write path reads `unknown (no data)`. In `--format json`, fields with nothing behind them are **absent**, not `0`: for example `pools[].total_raw` and `cross_pool.priced_cost_per_month`.
+
+## Figures span several clusters
+
+```
+warning: the metrics tenant holds 2 Mimir clusters (cluster=prod-eu, prod-us), and every figure below
+sums all of them. Select one with --selector or backend.selector, e.g. '{cluster="prod-eu"}'
+```
+
+Your metrics tenant scrapes more than one Mimir cluster, and with no selector every share, total and replication factor is computed across all of them. Pick one cluster with `--selector '{cluster="prod-eu"}'`, or with `backend.selector` in the config, and run once per cluster. The selector then appears in each pool's assumptions. If your clusters are told apart by another label, match on that instead.
 
 ## One tenant is "not measured" in one pool
 
@@ -39,13 +48,18 @@ Pass `--tenant a,b,c` so expected tenants show up as `not measured`, instead of 
 
 ## Rule evaluation mode is "unknown"
 
-```
-rule evaluation | unknown (neither cortex_prometheus_rule_evaluation_duration_seconds_sum nor
-cortex_ruler_query_seconds_total has data in this window: no tenant evaluated rules, or the
-metrics tenant does not scrape the ruler)
-```
+There are two causes, and the evidence text says which one applies:
 
-Either no tenant evaluated rules in the window, or the ruler pods aren't scraped into the metrics tenant. Scrape the ruler's `/metrics`, or widen `--since` if rules are rare. promcost doesn't guess the mode, and in v0.1 there's no config override. The mode is inferred, as [Prerequisites → rule evaluation](prerequisites.md#rule-evaluation-local-remote-or-unknown) explains.
+| Evidence says | Fix |
+|---|---|
+| `neither cortex_prometheus_rule_evaluation_duration_seconds_sum nor any ruler query metric has data in this window` | No tenant evaluated rules, or the ruler pods aren't scraped. Scrape the ruler's `/metrics`, or widen `--since` if rules are rare. |
+| `rules were evaluated, but not under a scrape job matching job=~".*ruler"` | The ruler is scraped under a job promcost doesn't recognise, e.g. a monolithic deployment or a relabelled job. Set `inventory.ruler_evaluation: local` or `remote`, or keep a `job` label ending in `ruler`. |
+
+Either way, `inventory.ruler_evaluation` is the direct fix. promcost doesn't guess the mode. [Prerequisites → rule evaluation](prerequisites.md#rule-evaluation-local-remote-or-unknown) has the full inference.
+
+## Pool 6 includes queries promcost itself ran (known issue, #61)
+
+`cost --rule-outputs` counts each recording rule's series with one query per tenant, sent through the query path as that tenant. Those queries show up in pool 6 for any later window that includes the run. The current run is unaffected, because pool 6 is read first. For repeated runs over overlapping windows, run `--rule-outputs` separately from the report you quote, or keep its runs rare.
 
 ## The query path says "no data for any query-path metric"
 
@@ -74,7 +88,8 @@ Raise `backend.timeout` (e.g. `timeout: 10m`), or shorten `--since`. Mimir enfor
 
 | Message | Meaning |
 |---|---|
-| `unexpected status 401: ...` | No credentials, or wrong ones. If you set `backend.auth.bearer_token_env`, check that the variable is exported in this shell: when it's empty, promcost sends no token at all and doesn't warn you (#55). Basic auth isn't supported in v0.1. |
+| `backend.auth.bearer_token_env names MIMIR_TOKEN, which is unset or empty` (or the same for `basic_auth.password_env`) | Export the variable in the shell or pod that runs promcost. Nothing is sent until it's set. |
+| `unexpected status 401: ...` | Wrong credentials, or the gateway expects the other auth method (bearer vs basic). |
 | `unexpected status 401: no org id`, or a similar message about a missing tenant | The tenant header didn't arrive. A proxy may be stripping it, or it expects a different header name. Set `tenancy.header`. |
 | `unexpected status 403: ...` | Your credentials can't read that tenant. The metrics tenant needs read access. With `--rule-outputs`, so does each costed tenant. |
 | `unexpected status 404: ...` | `backend.url` is wrong. It's the base URL: promcost adds `/prometheus/api/v1/query` itself, so don't end it in `/prometheus`. |
@@ -92,6 +107,12 @@ All of these fail before any query runs:
 | `... has a price but inventory.currency is empty` | Add `inventory.currency`. |
 | `inventory.pools.query_path sets both pool-level replicas/cost_per_replica_month and components` | Use one form, not both. |
 | `section "cost_model" was removed along with the static analyzer` | Delete that section. It was used by the old `promcost check`. |
+| `... cost_per_replica_month must be positive, got 0` | Omit the price to leave a pool or component uncosted. |
+| `inventory.ruler_evaluation must be local or remote` | Use one of those, or leave it out to infer it. |
+| `--selector: selector ... must be a label-matcher set in braces` | Write it as `'{cluster="prod-eu"}'`, with no metric name. Quote it in the shell. |
+| `selector ... matches on user, the tenant label` | A selector picks a Mimir cluster, not tenants. Use `--tenant` for tenants. |
+| `backend.auth sets both bearer_token_env and basic_auth` | Use one. |
+| `backend.auth.basic_auth.password is not supported` | Move the password to `password_env` or `password_file`. |
 | `--rule-outputs is a drill-down under pool ingester_memory` | Add `ingester_memory` to `--pool`, or drop `--rule-outputs`. |
 | `--rule-outputs needs rule definitions: give --dir, or --tenant` | Pass one of them. |
 
@@ -108,11 +129,7 @@ Look at pool 1's Assumptions table. It shows the replication factor and its sour
 
 **Active series look about RF× too high?** Check the write path line. If your cluster runs ingest storage but the line says `classic`, some ingesters may not export `cortex_partition_ring_partitions`, or the scrape dropped the `job`, `namespace` or `cluster` labels the guard matches on.
 
-**Figures look like two clusters added together?** promcost doesn't filter by `cluster`. Run it against a metrics tenant that holds one Mimir cluster's metrics (#54).
-
-## `--format json` fails with `json: unsupported value: NaN`
-
-This happens when a pool is priced at `cost_per_replica_month: 0` (#57). Use a positive price, or leave the price out so the pool is not costed.
+**Figures look like two clusters added together?** See [Figures span several clusters](#figures-span-several-clusters). The replication factor is also read across every cluster the query covers.
 
 ## Still stuck?
 

@@ -98,7 +98,7 @@ flowchart LR
     R2 -.-> P7b["pool 7: mostly waiting"]
 ```
 
-promcost infers the mode from which ruler metrics exist, records it in both pools' assumptions, and says "unknown" when there's no evidence either way. Under remote evaluation, the same rule queries count in pool 6 as work, and in pool 7 as time the ruler spends waiting. The report notes this, and promcost never adds the two pools' drivers together. See [ADR 0003 [A2]](adr/0003-cost-model-pool-driver-mappings.md#a2-why-rules-matter-evaluation-cost-first-output-series-second) and PR #50.
+promcost infers the mode from which metrics the ruler exports, unless you state it with `inventory.ruler_evaluation`. It records the mode and its evidence in both pools' assumptions, and says "unknown" when there's no evidence either way. Under remote evaluation, the same rule queries count in pool 6 as work, and in pool 7 as time the ruler spends waiting. The report notes this, and promcost never adds the two pools' drivers together. See [ADR 0003 [A2]](adr/0003-cost-model-pool-driver-mappings.md#a2-why-rules-matter-evaluation-cost-first-output-series-second) and PR #50.
 
 The pool-level metrics stop at the tenant. To find out **which rule** is expensive, use the drill-downs: `cost --rule-outputs` (the series each recording rule writes) and `report` (rule-group or per-rule workload). See [Getting started](getting-started.md#5-drill-down-which-rules).
 
