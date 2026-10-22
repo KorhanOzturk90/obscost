@@ -219,7 +219,11 @@ def main() -> int:
         cs: list[checks.Check] = []
         cs += checks.shares_sum(js, w)
         cs += checks.unmeasured_not_zero(js, md, w)
-        cs += checks.pool1_truth(js, gt, w, ws, pts, presence, now, event_tol, ev_names)
+        # Ingester restarts the model must know about: any event that rolled
+        # the ingesters, whether or not it overlaps this window (its effect
+        # lasts one idle timeout after it ends).
+        restarts = tuple(e["_end"] for e in events if "ingester" in e["name"].lower())
+        cs += checks.pool1_truth(js, gt, w, ws, pts, presence, now, event_tol, ev_names, restarts)
         cs += checks.pool1_rank(js, gt, w, ws, pts, now)
         cs.append(checks.dominates(js, checks.POOL6, a.query_heavy, w))
         cs.append(checks.dominates(js, checks.POOL7, a.rule_heavy, w))
@@ -247,7 +251,8 @@ def main() -> int:
         windows.append({
             "window": w, "window_s": ws, "end": end, "coverage": coverage, "events": ev_names,
             "run_age_s": end - run_start, "report": js, "rule_outputs": ro.get("rule_outputs"),
-            "expected": {n: model.expect_active(tt, end, ws, pts, now=now).__dict__ for n, tt in gt["tenants"].items()},
+            "expected": {n: model.expect_active(tt, end, ws, pts, now=now, restarts=restarts).__dict__
+                         for n, tt in gt["tenants"].items()},
             "presence": presence, "points": len(pts), "direct": direct,
         })
         results += cs

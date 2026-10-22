@@ -39,6 +39,14 @@ class Active(unittest.TestCase):
         gs = model.groups(tt, T0 + 4 * 3600)
         self.assertEqual(model.active_at(gs, T0 + 3 * 3600 + 300), 3000)
 
+    def test_ingester_restart_forgets_series_replaced_before_it(self):
+        tt = tenant(first=T0, last=T0 + 4 * 3600, churn=600)
+        gs = model.groups(tt, T0 + 4 * 3600)
+        u = T0 + 3 * 3600 + 300
+        # Restart 2m before u: only generations still written after it count.
+        self.assertEqual(model.active_at(gs, u, restarts=(u - 120,)), 1000)
+        self.assertEqual(model.active_at(gs, u), 3000)
+
     def test_silent_tenant_decays_after_idle_timeout(self):
         stop = T0 + 3600
         tt = tenant(last=stop, stopped=True)

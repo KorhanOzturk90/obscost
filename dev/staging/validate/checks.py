@@ -129,7 +129,8 @@ POOL1_REL_TOL = 0.01
 
 
 def pool1_truth(report: dict, gt: dict, window: str, window_s: float, pipeline_points: list[float],
-                presence: dict[str, int], now: float, event_tol: float | None, event_names: list[str]) -> list[Check]:
+                presence: dict[str, int], now: float, event_tol: float | None, event_names: list[str],
+                restarts: tuple[float, ...] = ()) -> list[Check]:
     p = pool(report, POOL1)
     if p is None:
         return []
@@ -137,7 +138,7 @@ def pool1_truth(report: dict, gt: dict, window: str, window_s: float, pipeline_p
     listed = tenants(p)
     out = []
     for name, tt in sorted(gt["tenants"].items()):
-        exp = model.expect_active(tt, end, window_s, pipeline_points, now=now)
+        exp = model.expect_active(tt, end, window_s, pipeline_points, now=now, restarts=restarts)
         lo, hi = exp.time_weighted
         rel = event_tol if event_tol is not None else POOL1_REL_TOL
         lo_t, hi_t = lo * (1 - rel), hi * (1 + rel)

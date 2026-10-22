@@ -95,8 +95,15 @@ def groups(tt: dict, now: float) -> list[Group]:
     return out
 
 
-def active_at(gs: list[Group], u: float, idle: float = IDLE_TIMEOUT_S) -> int:
-    return sum(g.count for g in gs if g.first <= u and g.last > u - idle)
+def active_at(gs: list[Group], u: float, idle: float = IDLE_TIMEOUT_S, restarts: tuple[float, ...] = ()) -> int:
+    """Series with a sample within the idle timeout of u. A restarted
+    ingester rebuilds its active-series tracker only from samples it receives
+    after the restart, so a group whose last sample came before a restart
+    that ended at or before u is not counted again: measured on staging, a
+    churny tenant read 4,011 instead of 6,011 for up to 20m after each
+    ingester rollout, while Mimir still held those series in memory."""
+    return sum(g.count for g in gs if g.first <= u and g.last > u - idle
+               and not any(g.last < r <= u for r in restarts))
 
 
 def subquery_points(end: float, window_s: float, step_s: float) -> list[float]:
@@ -127,13 +134,16 @@ class Expectation:
 
 
 def expect_active(tt: dict, end: float, window_s: float, pipeline_points: list[float] | None = None,
-                  now: float | None = None) -> Expectation:
+                  now: float | None = None, restarts: tuple[float, ...] = ()) -> Expectation:
     """The pool-1 figure for one tenant over (end-window, end], as a
     (low, high) band covering the gauge's lag and purge cadence."""
     now = end if now is None else now
     gs = groups(tt, now)
     pts = pipeline_points if pipeline_points is not None else subquery_points(end, window_s, subquery_step(window_s))
-    lo_vals = [active_at(gs, p - GAUGE_LAG_S) for p in pts]
+    # The low bound also applies ingester restarts (see active_at); the high
+    # bound does not, so the band covers a tracker that re-learned a series
+    # and one that did not.
+    lo_vals = [active_at(gs, p - GAUGE_LAG_S, restarts=restarts) for p in pts]
     hi_vals = [active_at(gs, p, IDLE_TIMEOUT_S + PURGE_SLACK_S) for p in pts]
     # The two bounds are not ordered point by point (lag delays both rises
     # and falls), so take each point's min and max.
