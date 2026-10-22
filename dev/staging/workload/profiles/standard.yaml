@@ -51,13 +51,15 @@ tenants:
     shape: query-heavy (dashboard range queries through the query-frontend)
     series: {metrics: 8, per_metric: 500, shards: 10, interval: 15s}
     queries:
+      # Overview panels: each selects across all 8 of the tenant's metrics
+      # (4,000 series), as a real overview dashboard does.
       panels:
-        - 'sum by (shard) (rate($prefix_load_m0_total[5m]))'
-        - 'sum by (shard) (rate($prefix_load_m1_total[5m]))'
-        - 'histogram_quantile(0.9, sum by (le) (label_replace(rate($prefix_load_m2_total[5m]), "le", "$1", "shard", "(.*)")))'
-        - 'topk(5, rate($prefix_load_m3_total[5m]))'
-        - 'max_over_time($prefix_load_m4_total[10m])'
-        - 'sum(rate($prefix_load_m5_total[1m]))'
+        - 'sum by (shard) (rate({__name__=~"$prefix_load_m[0-7]_total"}[5m]))'
+        - 'sum by (__name__) (rate({__name__=~"$prefix_load_m[0-7]_total"}[5m]))'
+        - 'histogram_quantile(0.9, sum by (le) (label_replace(rate({__name__=~"$prefix_load_m[0-7]_total"}[5m]), "le", "$1", "shard", "(.*)")))'
+        - 'topk(5, rate({__name__=~"$prefix_load_m[0-7]_total"}[5m]))'
+        - 'max by (shard) (max_over_time({__name__=~"$prefix_load_m[0-7]_total"}[10m]))'
+        - 'sum(rate({__name__=~"$prefix_load_m[0-7]_total"}[1m]))'
       refresh: 30s
       range: 6h
       step: 1m
@@ -66,7 +68,11 @@ tenants:
 
   - name: rules
     shape: rule-heavy (mixin-sized corpus)
-    series: {metrics: 10, per_metric: 300, shards: 10, interval: 15s}
+    # 30 metrics x 100 series: each rule touches 100 series. The query
+    # path's driver is chunk bytes fetched, which scales with series
+    # touched x evaluations (each touches a whole head chunk, whatever the
+    # range), and under remote evaluation that is pool-6 traffic.
+    series: {metrics: 30, per_metric: 100, shards: 10, interval: 15s}
     # 12 groups of 10+10: Mimir's default -ruler.max-rules-per-rule-group is 20.
     # Every 1m over 2m ranges, not heavier: under remote evaluation every
     # rule query is pool-6 traffic too, and 30s/10m made this tenant 7x
