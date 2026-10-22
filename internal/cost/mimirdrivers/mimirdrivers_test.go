@@ -47,6 +47,9 @@ func serverWithIngest(t *testing.T, classic, ingest, rf string, queries *[]strin
 		}
 		w.Header().Set("Content-Type", "application/json")
 		switch {
+		case strings.HasPrefix(q, "count_over_time("):
+			// The averaging rule's point count: data at every point.
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1757800000,"60"]}]}}`))
 		case strings.Contains(q, "cortex_ingester_active_series") && strings.Contains(q, "label_replace"):
 			_, _ = w.Write([]byte(ingest))
 		case strings.Contains(q, "cortex_ingester_active_series"):
@@ -84,8 +87,8 @@ func TestReadIngesterMemory_RF3EndToEnd(t *testing.T) {
 		t.Errorf("top tenant = %+v, want analytics with 15005 real series", got)
 	}
 
-	if len(queries) != 2 {
-		t.Fatalf("issued %d queries, want 2", len(queries))
+	if len(queries) != 3 {
+		t.Fatalf("issued %d queries, want 3 (driver, averaging points, RF)", len(queries))
 	}
 	if !strings.Contains(queries[0], "unless on (cluster, namespace, job) cortex_partition_ring_partitions") {
 		t.Errorf("active series query lacks the ingest-storage guard: %s", queries[0])

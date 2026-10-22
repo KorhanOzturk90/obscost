@@ -27,6 +27,8 @@ func twoClusterMimir(t *testing.T) *httptest.Server {
 		switch {
 		case strings.HasPrefix(q, "count by (cluster)"):
 			_, _ = w.Write([]byte(vec(`"cluster":"prod-eu"`, "1", `"cluster":"prod-us"`, "1")))
+		case strings.HasPrefix(q, "count_over_time("):
+			_, _ = w.Write([]byte(vec(``, "60")))
 		case strings.Contains(q, "cortex_ingester_active_series") && !strings.Contains(q, "label_replace") && eu:
 			// prod-eu alone: analytics 900, infra 100 (RF 1).
 			_, _ = w.Write([]byte(vec(`"user":"analytics"`, "900", `"user":"infra"`, "100")))

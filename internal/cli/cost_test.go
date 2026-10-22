@@ -46,6 +46,10 @@ func costFixture(t *testing.T) *httptest.Server {
 			// ...while its own job does evaluate rules.
 			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[
 				{"metric":{},"value":[1757800000,"1"]}]}}`))
+		case strings.HasPrefix(q, "count_over_time("):
+			// Pool 1's averaging points: Mimir's metrics had data at all 60.
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[
+				{"metric":{},"value":[1757800000,"60"]}]}}`))
 		case strings.Contains(q, "cortex_ingester_active_series"):
 			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[
 				{"metric":{"user":"analytics"},"value":[1757800000,"45015"]},
