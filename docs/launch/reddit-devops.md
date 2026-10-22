@@ -12,7 +12,7 @@ I built a CLI that splits a shared Grafana Mimir's cost across tenants (open sou
 
 ---
 
-If you run one Mimir cluster for several teams, you've probably been asked "how much of this is us?" and had no good answer. I hadn't, so I built PRODUCTNAME. It's my project, Apache-2.0: https://github.com/OWNER/REPO
+If you run one Mimir cluster for several teams, you've probably been asked "how much of this is us?" and had no good answer. [TODO(owner): confirm or rewrite. Don't publish an experience the author didn't have.] I hadn't, so I built PRODUCTNAME. It's my project, Apache-2.0: https://github.com/OWNER/REPO
 
 **What it does**
 
@@ -51,10 +51,12 @@ PRODUCTNAME cost --config PRODUCTNAME.yaml --metrics-tenant meta --since 24h
 - Cover everything. Write path, object storage, store-gateway and compactor aren't modelled yet, and every report says so.
 - Compare windows or keep history. It's a snapshot for now.
 
-**How I tested it**
+**How it was tested**
 
-I tested it on a production-shaped staging Mimir (3.2.0, RF=3, ingest storage) with 8 fake tenants, where I knew exactly what each one sent. I did two ingester rolling restarts during the run. 79 of 83 checks passed. The 4 failures were one bug: tenants that joined or left mid-window were overstated. It's fixed now. TODO(evidence: the #66 re-run, pass count and link.) The reports, failures included: https://github.com/OWNER/REPO/tree/main/dev/staging/results
+It was tested on a staging Mimir 3.2.0 with 8 fake tenants, where we knew exactly what each one sent. There was an ingester rolling restart during each run. It passes 87 of 87 checks on both write paths (ingest storage, and classic with RF=3). Active series match what each tenant actually sent, and shares sum to 100%.
 
-Only Mimir 3.2.0 is tested so far. If you run another version and try it, I'd like to know what breaks.
+The first run didn't pass. It scored 79 of 83, and the 4 failures were one bug: tenants that joined or left mid-window were overstated. It's fixed, and the 87/87 runs are on the fix. Reports, failures included: https://github.com/OWNER/REPO/blob/main/dev/staging/results/README.md
+
+The limits: staging is a single cloud container (k3s in Docker), not a multi-node cluster, and the tenants are synthetic. Only Mimir 3.2.0 is tested so far. If you run another version and try it, I'd like to know what breaks.
 
 ---

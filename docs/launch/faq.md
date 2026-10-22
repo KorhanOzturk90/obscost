@@ -18,13 +18,14 @@ It's 14 separate `topk` leaderboards in raw units. They tell you who's biggest o
 
 Short version: the arithmetic is checked against known ground truth, and the model is a choice you can inspect.
 
-What's checked: on a production-shaped staging Mimir with 8 synthetic tenants of known shape, the first run passed 79 of 83 checks ([report](../../dev/staging/results/2026-10-22-ingest/report.md)). Shares summed to 100% in every pool. Active series matched ground truth exactly for the five constant-size tenants. Rule-output counts were exact for all 8. The query-heavy and rule-heavy tenants had 92.5% and 90.3% of their pools. The four failures were one bug (#66), now fixed. TODO(evidence: the #66 re-run, pass count and link.)
+What's checked: on a staging Mimir 3.2.0 with 8 synthetic tenants of known shape, both write paths pass 87 of 87 checks: ingest storage, and classic with RF=3 ([results index](../../dev/staging/results/README.md)). In the clean 30m and 10m windows, checked at ±1%, every tenant's active series is inside its ground-truth band, including the tenants that start late or go silent. The figure equals Mimir's own gauge, read independently, for all 9 tenants. Shares sum to 100% in every pool. Rule-output counts are exact. The query-heavy and rule-heavy tenants get 93.2–97.6% of the query path and 87.1–90.7% of ruler CPU. The first run scored 79 of 83, and all four failures were one bug (#66), which was fixed and re-validated.
 
 What's not checked:
-- Whether active series tracks ingester memory closely on *your* cluster. It's the driver ADR 0003 chose, but we haven't measured memory per series across clusters.
-- Whether fetched chunk bytes track query-path CPU on your cluster. Caching, sharding and concurrency differ between deployments ([#10](https://github.com/OWNER/REPO/issues/10)).
-- Any Mimir version other than 3.2.0.
-- The classic write path on staging. TODO(evidence: classic-profile report.)
+- Whether active series tracks ingester memory closely on *your* cluster. It's the driver ADR 0003 chose, and validation checks that PRODUCTNAME reads it correctly, not that it's the right proxy.
+- Absolute values for the query path and ruler. Fetched chunk bytes and evaluation seconds depend on chunk encoding, caches and CPU contention, so only their ranking is checked ([#10](https://github.com/OWNER/REPO/issues/10)).
+- A multi-node cluster. Staging is one cloud container (k3s in Docker, 4 vCPU), so node loss, network partitions and real cross-host contention aren't exercised.
+- Real tenants. All costed tenants are synthetic, with no native histograms, OTLP ingestion or bursty queries.
+- Windows longer than 1h, and any Mimir version other than 3.2.0.
 
 During an ingester rollout, the active-series average reads low while a replica is down. We measured about 9% on the dev rig.
 
@@ -80,4 +81,4 @@ Not if you pick one. Use `--selector '{cluster="..."}'` (or `backend.selector`).
 
 ### Why is it called PRODUCTNAME, and why is the module path different?
 
-TODO(evidence: owner to fill in after the rename, or delete this question.)
+TODO(owner): fill in after the rename, or delete this question.

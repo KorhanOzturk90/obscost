@@ -18,7 +18,7 @@ Show HN: PRODUCTNAME – per-tenant cost split for self-hosted Mimir
 
 ---
 
-Hi HN. I built this because of a question I couldn't answer: we run one Mimir cluster for many teams, each team is a tenant, and nobody could say who costs what.
+Hi HN. [TODO(owner): confirm or rewrite. Don't publish an experience the author didn't have.] I built this because of a question I couldn't answer: we run one Mimir cluster for many teams, each team is a tenant, and nobody could say who costs what.
 
 The ingesters, queriers and rulers are shared. Every tenant uses the same pods, so Kubernetes cost tools stop at "the ingester StatefulSet costs X a month". Mimir's `mimir-top-tenants` dashboard shows who is biggest on each axis, but it's 14 separate `topk` panels in raw units. None of them is a share of a total, and none of them says what a series costs.
 
@@ -36,19 +36,22 @@ What it deliberately doesn't do:
 - **It doesn't spread what it can't measure.** Pools it doesn't model yet (write path, object storage, store-gateway, compactor) are listed as not modelled. Unpriced pools say "not costed". A tenant with no data says "not measured", never 0. A total across pools says what it covers: "45.4% of the 31.2% of platform cost we can price", not "45.4% of your bill". (That example is from a test fixture, not a real cluster.)
 - **It doesn't write to Mimir**, run an agent or need a database. It's one binary that sends `GET` requests.
 
-How it was validated: I built a production-shaped staging Mimir (3.2.0, Helm chart 6.2.0, microservices, zone-aware, RF=3, ingest-storage write path) and a load generator with 8 synthetic tenants. The generator records exactly what each tenant delivered. Each one has a shape: high cardinality, churny, query-heavy, rule-heavy, one that starts late, one that goes silent. I ran two ingester rolling restarts inside the measured windows.
+How it was validated: on a staging Mimir 3.2.0 (Helm chart 6.2.0, microservices, 3 zones) with a load generator driving 8 synthetic tenants. The generator records exactly what each tenant delivered. Each one has a shape: high cardinality, churny, query-heavy, rule-heavy, one that starts late, one that goes silent. Each run had an ingester rolling restart inside its 1h window. The 30m and 10m windows are clean, and they're checked at ±1%.
 
-The first run passed 79 of 83 checks. Shares summed to 100% in every pool and every window. Active series matched ground truth exactly for the five tenants with a constant series count. The query-heavy tenant had 92.5% of the query path and the rule-heavy tenant had 90.3% of ruler CPU, which is what the workload was built to produce. Rule-output counts were exact for all 8 tenants. The write path and rule evaluation mode were detected correctly.
+Both write paths pass 87 of 87 checks: ingest storage, and classic with RF=3 (the replication factor is read from Mimir and divided out: 30,022 active series reported for a tenant that sent 30,022). Shares sum to 100% in every pool and window. Active series match ground truth, including for the tenants that start late or go silent, and match Mimir's own gauge for all 9 tenants. The query-heavy tenant gets 93–98% of the query path and the rule-heavy tenant 87–91% of ruler CPU, which is what the workload was built to produce. Rule-output counts are exact. The write path and rule evaluation mode are detected correctly.
 
-All four failures had one cause, and it was a real bug. Pool 1 averaged a tenant over the points where it existed, not over the whole window. So a team that joined an hour ago showed its full size in a 24h report, and a team that left kept its old average. Mimir also drops a tenant's active-series gauge when it goes to zero, rather than reporting 0, which made it worse. It's fixed (#66). TODO(evidence: the #66 re-run result and link. Until it exists, say "fixed, re-validation pending".)
+The first run didn't pass. It scored 79 of 83, and all four failures were one real bug. Pool 1 used `avg_over_time`, which averages a tenant over the points where its series exists, not over the whole window. Mimir also drops a tenant's active-series gauge once it has no series, rather than reporting 0. So a team that joined an hour ago showed its full size in a 24h report, and a team that left kept its old average. The fix averages over the whole window and counts absence as zero (#66). The 87/87 runs are on the fix, and the failing run is kept in the repo as the bug's evidence.
 
-The full reports, including the failures, are in the repo: https://github.com/OWNER/REPO/tree/main/dev/staging/results
+Results index, failures included: https://github.com/OWNER/REPO/blob/main/dev/staging/results/README.md
 
 Honest limits:
 
-- Only Mimir 3.2.0 is tested. TODO(evidence: classic write-path staging report. Until then: "the classic write path is tested on a local rig, not on staging".)
+- Only Mimir 3.2.0 is tested.
+- Staging is one cloud container (k3s in Docker, 4 vCPU), not a multi-node cluster. No node loss, no network partitions, and no day-long soak: windows are 1h at most.
+- Every costed tenant is synthetic, so the ground truth is known, but real workloads have shapes it doesn't cover (native histograms, OTLP, bursty queries).
+- The check is that it reads Mimir's per-tenant drivers correctly, not that active series is the right proxy for ingester memory. The query path and ruler are checked by ranking, not absolute value.
 - Three of the seven pools in the cost model are covered. The write path, object storage, store-gateway and compactor aren't in v0.1, and every report says so.
-- During an ingester rollout, the active-series average reads low while a replica is down (about 9% on my dev rig).
+- During an ingester rollout, the active-series average reads low while a replica is down (about 9% on the dev rig).
 - It's a snapshot over one window. No comparisons or history yet.
 - The `--rule-outputs` drill-down runs count queries as each tenant, so they show up in that tenant's query path in later windows (#61). The report says so.
 

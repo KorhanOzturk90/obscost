@@ -43,9 +43,13 @@ The result is a share of each pool that sums to 100% across all tenants, not a `
 
 ### Validation
 
-It was tested on a staging Mimir 3.2.0 (chart `mimir-distributed` 6.2.0, microservices, zone-aware, RF=3, ingest storage) with 8 synthetic tenants of known shape, and two ingester rolling restarts during the measured windows. The first run passed 79 of 83 checks. Every failure came from one bug, now fixed: `avg_over_time` only averages over the points where a series exists, and the ingester drops a tenant's active-series series once it has none. So a tenant that joined or left mid-window was averaged over its own presence (#66). TODO(evidence: the #66 re-run result and link.) A second run with local rule evaluation passed 33 of 34. TODO(evidence: classic write-path staging report.)
+It was tested on a staging Mimir 3.2.0 (chart `mimir-distributed` 6.2.0, microservices, 3 zones, remote rule evaluation) with 8 synthetic tenants of known shape, and an ingester rolling restart in each run's 1h window. **Both write paths pass 87 of 87 checks:** ingest storage, and classic with RF=3 read from `cortex_distributor_replication_factor` and divided out. In the clean 30m and 10m windows, every tenant's active series is inside its ground-truth band at ±1%, and PRODUCTNAME equals Mimir's own gauge, read independently, for every tenant.
 
-Reports: https://github.com/OWNER/REPO/tree/main/dev/staging/results
+The first run found a bug. `avg_over_time` only averages over the points where a series exists, and the ingester drops a tenant's `cortex_ingester_active_series` series once it has none. So a tenant that joined or left mid-window was averaged over its own presence and overstated (#66). The fix averages over the whole window, counting absence as 0. A separate run with local rule evaluation detected `local` mode, and reported tenants that never query as "not measured" in the query path.
+
+Limits up front: the staging environment is one cloud container (k3s in Docker, 4 vCPU), not a multi-node cluster. The tenants are synthetic. Windows are 1h at most. The query path and ruler are checked by ranking, not absolute value.
+
+Results index: https://github.com/OWNER/REPO/blob/main/dev/staging/results/README.md
 
 ### Where I'd like help
 
