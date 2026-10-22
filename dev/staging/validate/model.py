@@ -85,9 +85,11 @@ def groups(tt: dict, now: float) -> list[Group]:
         for first, last in segs:
             # First output: the first evaluation after both the push and two
             # source samples (rate() needs two). Last output: the last
-            # evaluation whose range still holds two source samples.
+            # evaluation whose range still holds two source samples, which
+            # can come up to one evaluation interval after that moment
+            # (evaluation times are the ruler's, not ours).
             of = max(first + tt["series"]["interval_s"], pushed) + interval
-            ol = last + rng - tt["series"]["interval_s"]
+            ol = last + rng - tt["series"]["interval_s"] + interval
             if ol >= of:
                 out.append(Group(n_out, of, min(ol, now), "recording-rule outputs"))
     return out

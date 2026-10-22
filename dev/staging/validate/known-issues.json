@@ -1,1 +1,4 @@
-{"observer": {"issue": "#61", "title": "promcost --rule-outputs charges its own count queries to tenants in pool 6"}}
+{
+  "observer": {"issue": "#61", "title": "promcost --rule-outputs charges its own count queries to tenants in pool 6"},
+  "presence-weighted": {"issue": "#66", "title": "pool 1 averages a tenant over its own presence, not the window (mid-run start and silence overstated)"}
+}

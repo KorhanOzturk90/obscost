@@ -208,6 +208,13 @@ def main() -> int:
                                why="the environment's architecture is known"))
         if overlapping:
             cs += checks.counters_sane(js, w, ev_names)
+        # A rank inversion caused by a tenant whose own figure is presence-
+        # weighted (#66) is that finding, not a separate one.
+        pw = {c.id.split("/", 1)[1] for c in cs if c.id.startswith("pool1-truth/") and c.issue == "presence-weighted"}
+        for c in cs:
+            if c.id == "pool1-rank" and c.status == "fail" and any(n in d.split(" ")[0] for d in c.detail for n in pw) or (
+                    c.id == "pool1-rank" and c.status == "fail" and any(f" {n} (" in d for d in c.detail for n in pw)):
+                c.issue = "presence-weighted"
 
         windows.append({
             "window": w, "window_s": ws, "end": end, "coverage": coverage, "events": ev_names,

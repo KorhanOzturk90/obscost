@@ -308,16 +308,23 @@ def lifecycle(report: dict, gt: dict, window: str, window_s: float, now: float) 
                              measured="not measured" if t is None else f"driver {t.get('driver')}",
                              tolerance="exact", why="the tenant has written nothing yet",
                              detail=[f"planned start: {planned_start / 60:.0f}m after the run began"]))
-        elif planned_stop and last is not None and last + model.IDLE_TIMEOUT_S + 120 < start:
+        elif planned_stop and last is not None and last + output_tail(tt) + model.IDLE_TIMEOUT_S + 120 < start:
             t = listed.get(name)
             v = None if t is None else t.get("driver")
             ok = t is None or v == 0
             out.append(Check(f"lifecycle/{name}", window, f"`{name}` after it went silent: 0 or not measured",
                              "pass" if ok else "fail", expected="0 active series, or not measured",
                              measured="not measured" if t is None else fmt(v), tolerance="exact",
-                             why="its last sample is more than the 20m idle timeout before the window opens",
+                             why="its last sample, and its recording rules' last output, are more than the 20m idle timeout before the window opens",
                              detail=[f"last sample {(last - run_start) / 60:.0f}m into the run"]))
     return out
+
+
+def output_tail(tt: dict) -> float:
+    """How long after the last sample a tenant's recording rules keep
+    writing: its rate() range plus one evaluation interval."""
+    r = tt.get("rules") or {}
+    return (r.get("range_s", 0) + r.get("interval_s", 0)) if r.get("record_series_total") else 0
 
 
 # --- rule outputs ---------------------------------------------------------
