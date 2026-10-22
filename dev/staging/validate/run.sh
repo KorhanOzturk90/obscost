@@ -27,6 +27,12 @@ case "${1:-}" in
     # dev/staging's gateway, forwarded to the host (its MIMIR_PORT).
     url=${MIMIR_URL:-http://localhost:8091}
     wp=$([ "$1" = staging-ingest ] && echo "ingest storage" || echo classic)
+    # dev/staging's state dir: KUBECONFIG, `make promcost-config`'s promcost.yaml
+    # (replica counts read from the cluster), `make events-json`'s events.json.
+    state=${STAGING_STATE:-$HERE/../.state}
+    export KUBECONFIG=${KUBECONFIG:-$state/kubeconfig}
+    [ -s "$state/promcost.yaml" ] && args+=(--config "$state/promcost.yaml")
+    [ -z "${EVENTS:-}" ] && [ -s "$state/events.json" ] && args+=(--events "$state/events.json")
     make -s -C "$WORKLOAD" k8s-truth >/dev/null
     exec "$HERE/validate.py" --env "$1" --url "$url" --metrics-tenant monitoring \
       --ground-truth "$WORKLOAD/.run/ground-truth-k8s.json" \

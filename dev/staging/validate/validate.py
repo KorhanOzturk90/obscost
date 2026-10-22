@@ -140,6 +140,7 @@ def main() -> int:
     ap.add_argument("--out", help="results directory (default: ../results/<date>-<env>)")
     ap.add_argument("--header", action="append", default=[], help="extra HTTP header Name=value for direct Mimir reads")
     ap.add_argument("--config-extra", help="YAML file whose inventory: block is used in promcost.yaml")
+    ap.add_argument("--config", help="use this promcost.yaml as is (e.g. dev/staging's `make promcost-config`); --url is then only for the harness's own reads")
     a = ap.parse_args()
 
     headers = dict(h.split("=", 1) for h in a.header)
@@ -156,9 +157,12 @@ def main() -> int:
         Path(a.ground_truth).with_name("observer.jsonl") if not a.ground_truth.startswith("http") else out / "observer.jsonl")
 
     cfg = raw / "promcost.yaml"
+    if a.config:
+        shutil.copy(a.config, cfg)
     inventory = Path(a.config_extra).read_text() if a.config_extra else (
         "inventory:\n  pools:\n    ingester_memory: {replicas: 1}\n")
-    cfg.write_text(f"backend:\n  url: {a.url}\n  timeout: 5m\n{inventory}")
+    if not a.config:
+        cfg.write_text(f"backend:\n  url: {a.url}\n  timeout: 5m\n{inventory}")
     base = ["--metrics-tenant", a.metrics_tenant, "--config", str(cfg), "--tenant", ",".join(controlled)]
 
     mimir = Mimir(a.url, a.metrics_tenant, headers)

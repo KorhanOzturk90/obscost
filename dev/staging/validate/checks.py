@@ -257,7 +257,17 @@ def absent_from_pool(report: dict, gt: dict, window: str, window_s: float, eval_
                              expected="not measured", measured="not measured", tolerance="exact",
                              why="the tenant issues no queries and rules are evaluated locally"))
             continue
-        issue = "observer" if name in observer else ""
+        if name in observer:
+            # #61, documented as a known issue for launch: promcost's own
+            # --rule-outputs count queries are charged to the tenant, so its
+            # pool-6 figure is only checked in windows with no such run.
+            out.append(Check(
+                f"pool6-absent/{name}", window, f"pool 6: `{name}` (never queries) is not measured", "skip",
+                expected="not measured", measured=f"measured: {t.get('driver_raw')} {p.get('unit')} — promcost's own "
+                f"--rule-outputs queries ran as this tenant inside the window",
+                why="not checkable in a window that contains promcost's own queries as this tenant (#61)", issue="observer"))
+            continue
+        issue = ""
         out.append(Check(
             f"pool6-absent/{name}", window, f"pool 6: `{name}` (never queries) is not measured", "fail",
             expected="not measured", measured=f"measured: {t.get('driver_raw')} {p.get('unit')} ({100 * (t.get('share') or 0):.2f}%)",
