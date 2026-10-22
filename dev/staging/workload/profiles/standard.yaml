@@ -64,3 +64,50 @@ tenants:
         - 'quantile by (__name__) (0.9, {__name__=~"$prefix_load_m[0-7]_total"})'
         - 'topk by (__name__) (3, {__name__=~"$prefix_load_m[0-7]_total"})'
         - 'avg by (shard) ({__name__=~"$prefix_load_m[0-7]_total"})'
+      refresh: 30s
+      range: 6h
+      step: 1m
+      viewers: 3
+    rules: {groups: 1, recording_per_group: 2, alerting_per_group: 2, interval: 1m, range: 5m}
+
+  - name: rules
+    shape: rule-heavy (mixin-sized corpus)
+    # 30 metrics x 100 series: each rule touches 100 series. The query
+    # path's driver is chunk bytes fetched, which scales with series
+    # touched x evaluations (each touches a whole head chunk, whatever the
+    # range), and under remote evaluation that is pool-6 traffic.
+    series: {metrics: 30, per_metric: 100, shards: 10, interval: 15s}
+    # 12 groups of 10+10: Mimir's default -ruler.max-rules-per-rule-group is 20.
+    # Every 1m over 2m ranges, not heavier: under remote evaluation every
+    # rule query is pool-6 traffic too, and 30s/10m made this tenant 7x
+    # `dashboards`' fetched volume on staging (2026-10-22). Pool 7 is
+    # dominated by rule count either way.
+    rules: {groups: 12, recording_per_group: 10, alerting_per_group: 10, interval: 1m, range: 2m}
+
+  - name: tiny
+    shape: tiny
+    series: {metrics: 1, per_metric: 20, shards: 2, interval: 30s}
+    rules: {groups: 1, recording_per_group: 0, alerting_per_group: 1, interval: 1m, range: 5m}
+
+  - name: churn
+    shape: churny (every series replaced each 10m, like a deploy)
+    series: {metrics: 4, per_metric: 500, shards: 10, interval: 15s}
+    churn: {period: 10m}
+    rules: {groups: 1, recording_per_group: 2, alerting_per_group: 0, interval: 1m, range: 5m}
+
+  - name: latecomer
+    shape: starts mid-run
+    series: {metrics: 5, per_metric: 400, shards: 10, interval: 15s}
+    timing: {start_after: 90m}
+    queries:
+      panels: ['sum by (shard) (rate($prefix_load_m0_total[5m]))']
+      refresh: 1m
+      range: 1h
+      step: 1m
+    rules: {groups: 1, recording_per_group: 2, alerting_per_group: 1, interval: 1m, range: 5m}
+
+  - name: ghost
+    shape: goes silent mid-run (rules stay loaded, as when a team stops sending but nobody offboards it)
+    series: {metrics: 5, per_metric: 600, shards: 10, interval: 15s}
+    timing: {stop_after: 2h}
+    rules: {groups: 1, recording_per_group: 2, alerting_per_group: 0, interval: 1m, range: 5m}
