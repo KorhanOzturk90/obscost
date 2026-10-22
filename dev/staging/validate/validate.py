@@ -79,6 +79,27 @@ class Mimir:
         presence = {s["metric"].get("user", ""): len(s["values"]) for s in by_user}
         return have, presence
 
+    # An independent read of pool 1, straight from Mimir: the same
+    # de-duplication promcost documents (zone replicas of a partition
+    # collapsed with max under ingest storage; the replication factor
+    # divided out under classic), averaged over the window's points with a
+    # tenant's absence counted as 0. Where promcost equals this, any gap to
+    # the ground truth is the model's, not promcost's.
+    DIRECT = {
+        "ingest storage": 'sum by (user) (max by (ingester_id, user) (label_replace(cortex_ingester_active_series, '
+                          '"ingester_id", "$1", "pod", ".*?-(rc-[0-9]+-[0-9]+|[0-9]+)$")))',
+        "classic": "sum by (user) (cortex_ingester_active_series)",
+    }
+
+    def direct_pool1(self, end: float, window_s: float, write_path: str, rf: float) -> dict[str, float]:
+        step = model.subquery_step(window_s)
+        pts = model.subquery_points(end, window_s, step)
+        have, _ = self.pipeline_points(end, window_s)
+        if not pts or not have:
+            return {}
+        res = self.range_query(self.DIRECT[write_path], pts[0], pts[-1], step)
+        return {s["metric"].get("user", ""): sum(float(x[1]) for x in s["values"]) / rf / len(have) for s in res}
+
 
 def run_promcost(args: list[str], out: Path) -> str:
     cmd = [PROMCOST, "cost", *args]
@@ -92,6 +113,10 @@ def run_promcost(args: list[str], out: Path) -> str:
 
 
 def promcost_version() -> str:
+    # PROMCOST_REF names the commit the binary was built from, for builds
+    # that have no version command.
+    if os.environ.get("PROMCOST_REF"):
+        return os.environ["PROMCOST_REF"]
     for flag in ("version", "--version"):
         try:
             r = subprocess.run([PROMCOST, flag], capture_output=True, text=True, timeout=30)
@@ -203,6 +228,9 @@ def main() -> int:
         cs += checks.lifecycle(js, gt, w, ws, now)
         cs += checks.rule_outputs(ro, gt, w)
         wp = next((x["value"] for x in (p1 or {}).get("assumptions", []) if x["name"] == "write path"), None)
+        direct = mimir.direct_pool1(end, ws, a.expect_write_path,
+                                    (p1 or {}).get("replication_factor") or 1.0) if p1 else {}
+        cs += checks.pool1_vs_mimir(js, direct, w)
         cs.append(checks.Check("write-path", w, "write path detected correctly", "pass" if wp == a.expect_write_path else "fail",
                                expected=a.expect_write_path, measured=str(wp), tolerance="exact",
                                why="the environment's architecture is known"))
@@ -220,7 +248,7 @@ def main() -> int:
             "window": w, "window_s": ws, "end": end, "coverage": coverage, "events": ev_names,
             "run_age_s": end - run_start, "report": js, "rule_outputs": ro.get("rule_outputs"),
             "expected": {n: model.expect_active(tt, end, ws, pts, now=now).__dict__ for n, tt in gt["tenants"].items()},
-            "presence": presence, "points": len(pts),
+            "presence": presence, "points": len(pts), "direct": direct,
         })
         results += cs
 

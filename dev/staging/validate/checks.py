@@ -203,6 +203,31 @@ def pool1_rank(report: dict, gt: dict, window: str, window_s: float, pipeline_po
                   detail=bad)]
 
 
+def pool1_vs_mimir(report: dict, direct: dict[str, float], window: str) -> list[Check]:
+    """promcost's pool-1 figure against an independent read of Mimir's own
+    gauge over the same points. This separates "promcost misreads Mimir"
+    from "the ground-truth model misreads Mimir"."""
+    p = pool(report, POOL1)
+    if p is None or not direct:
+        return []
+    bad, rows = [], []
+    for name, t in sorted(tenants(p).items()):
+        v, m = t.get("driver"), direct.get(name)
+        if v is None or m is None:
+            bad.append(f"{name}: promcost {fmt(v)}, Mimir {fmt(m)}")
+            continue
+        rows.append(f"{name}: promcost {fmt(v)}, Mimir {fmt(m)}")
+        if abs(v - m) > max(1.0, 0.005 * m):
+            bad.append(rows[-1])
+    return [Check("pool1-vs-mimir", window, "pool 1: promcost equals Mimir's own gauge, read independently",
+                  "fail" if bad else "pass", expected="every tenant within 0.5% (or 1 series) of the direct read",
+                  measured=f"{len(rows) - sum(1 for b in bad if 'promcost' in b and b in rows)} of {len(rows)} tenants equal",
+                  tolerance="0.5% or 1 series",
+                  why="the direct read applies the same de-duplication and averaging to the same points, so only rounding "
+                      "and the instant of each read may differ",
+                  detail=bad or rows)]
+
+
 # --- pools 6 and 7 --------------------------------------------------------
 
 def dominates(report: dict, pid: str, tenant: str, window: str, min_share: float = 0.5) -> Check:

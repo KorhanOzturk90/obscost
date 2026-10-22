@@ -107,7 +107,9 @@ def render(doc: dict, gt: dict, windows: list[dict]) -> str:
             notes.append(f"the metrics pipeline had data for {x['coverage']:.0%} of this window (the run was "
                          f"{x['run_age_s'] / 3600:.1f}h old), so every figure averages over that part")
         if x["events"]:
-            notes.append("overlaps " + ", ".join(x["events"]))
+            notes.append("overlaps " + ", ".join(x["events"]) + ": pool 1 is checked against a band widened to ±15%")
+        else:
+            notes.append("clean window: no operational event inside it, so pool 1 is checked at the normal ±1%")
         for t in notes:
             w(f"> {t}")
         if notes:
@@ -123,15 +125,16 @@ def render(doc: dict, gt: dict, windows: list[dict]) -> str:
         rep = x["report"]
         p = checks.pool(rep, checks.POOL1)
         listed = checks.tenants(p) if p else {}
-        w("| tenant | expected (time-weighted band) | promcost | points present (Mimir / model) |")
-        w("|---|---:|---:|---:|")
+        w("| tenant | expected (time-weighted band) | promcost | Mimir, read directly | points present (Mimir / model) |")
+        w("|---|---:|---:|---:|---:|")
         for name in sorted(listed.keys() | gt["tenants"].keys()):
             e = x["expected"].get(name)
             band = f"{checks.fmt(e['time_weighted'][0])} – {checks.fmt(e['time_weighted'][1])}" if e else "not controlled"
             got = listed.get(name)
             v = "not measured" if got is None else checks.fmt(got.get("driver"))
             pp = f"{x['presence'].get(name, 0)} / {e['present_points'] if e else '—'} of {x['points']}"
-            w(f"| `{name}` | {band} | {v} | {pp} |")
+            d = x.get("direct", {}).get(name)
+            w(f"| `{name}` | {band} | {v} | {checks.fmt(d) if d is not None else '—'} | {pp} |")
         w("")
         w("</details>")
         w("")
@@ -168,6 +171,21 @@ def render(doc: dict, gt: dict, windows: list[dict]) -> str:
       "active series are *the* driver of ingester memory is ADR 0003 decision 6's question, and is not answered here.")
     w("- **Pools 6 and 7 against absolute truth.** Fetched chunk bytes and rule-evaluation seconds depend on "
       "chunk encoding, caches and CPU contention, so only their ranking is checked, not their values.")
+    w("- **Real tenants.** Every costed tenant is synthetic (`loadgen`), so its ground truth is known. Real workloads "
+      "have shapes this profile does not: native histograms, exemplars, OTLP ingestion, bursty queries, rule groups "
+      "that time out.")
+    w("- **A production-sized cluster.** The environment is one cloud container running k3s in Docker on 4 vCPUs: "
+      "Mimir's microservices with zone-aware ingesters (3 zones, one ingester each), Kafka for ingest storage or RF=3 "
+      "for classic, a dedicated ruler query path, kube-prometheus-stack for meta-monitoring. It is not multi-node, so "
+      "nothing here exercises network partitions, node loss or real CPU contention between hosts.")
+    w("- **Upstream images as shipped by their registries.** Every image is pulled from Docker Hub through "
+      "`mirror.gcr.io`, because quay.io, registry.k8s.io and ghcr.io are not reachable from the container. The "
+      "staging lane replaced the charts' non-Docker-Hub images with Docker Hub equivalents (see its README's "
+      "deviations table), and MinIO with a pullable S3-compatible store. Mimir itself is the upstream "
+      "`grafana/mimir:3.2.0`.")
+    w("- **Long windows.** Windows reach at most 1h, on a 45-minute workload timeline (`profiles/short.yaml`): the "
+      "container is reclaimed whenever the session idles. There is no 24h soak, so nothing here covers compaction, "
+      "block upload to the store-gateway, or day-scale counter behaviour.")
     w("- **Anything about tenants it did not generate.** The metrics tenant is real and uncontrolled: it is in "
       "every share and every sum, but no figure for it is checked.")
     w("")

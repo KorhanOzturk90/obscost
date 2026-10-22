@@ -39,7 +39,10 @@ image:
 k8s-import:
 	docker save $(IMAGE) | docker exec -i $(K3S_CONTAINER) ctr -n k8s.io images import -
 
+# Always a fresh run: after the node restarts, an old loadgen pod resumes
+# its old run and writes data the new ground truth does not know about.
 k8s-deploy:
+	$(KUBECTL) delete namespace loadgen --ignore-not-found --wait=true
 	sed -e 's|GATEWAY_PLACEHOLDER|$(K8S_GATEWAY)|' -e 's|PROFILE_PLACEHOLDER|$(PROFILE)|' k8s/loadgen.yaml | $(KUBECTL) apply -f -
 	$(KUBECTL) -n loadgen rollout status deploy/loadgen --timeout=120s
 
