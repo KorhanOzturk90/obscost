@@ -1,0 +1,102 @@
+# Generated from standard.yaml by changing only `timing:` (and the name):
+# the cloud container is reclaimed when the session idles, so a staging run
+# must fit one sitting. Every shape, size and rule is identical.
+# The standard validation workload: eight tenants, each a deliberately
+# different shape, sized so every pool has a clear expected rank order and
+# the whole thing fits a 4-vCPU / 15 GB box next to Mimir itself.
+#
+# Steady-state active series per tenant (before replication) — the pool-1
+# ground truth the harness checks — is live series + recording-rule outputs,
+# and for `churn` it is multiplied by how many generations are inside
+# Mimir's 20m active-series idle timeout. `loadgen plan` prints the exact
+# figures; the table is for reading:
+#
+#   tenant      live series   rule outputs   steady-state active   samples/s
+#   steady           30,000             22               30,022       2,000
+#   cardinal         20,000             10               20,010         333
+#   churn             2,000             11          ~6,000 + 11         133
+#   dashboards        4,000             11                4,011         267
+#   rules             3,000            660                3,660         200
+#   ghost             3,000             11      3,011 → 0 at stop+20m  200
+#   latecomer         2,000             11    0 → 2,011 at start        133
+#   tiny                 20              0                   20         0.7
+#
+# Pool 6 (query path): `dashboards` runs 3 viewers × 6 panels every 30s over
+# 6h ranges — ~36 range queries/min, each reading 500 series. `steady` and
+# `latecomer` run one light panel each; nobody else queries, so they must be
+# "not measured" in pool 6, never 0.
+#
+# Pool 7 (ruler): `rules` has 240 rules (120 recording + 120 alerting — the
+# size of the mimir-mixin's compiled corpus) every 30s over 10m ranges;
+# everyone else has ≤5 rules every 1m over 5m.
+name: short
+description: the standard eight shapes on a compressed timeline (latecomer at 30m, ghost silent at 45m), for a run that fits one session
+rule_namespace: loadgen
+
+tenants:
+  - name: steady
+    shape: large steady ingestion
+    series: {metrics: 30, per_metric: 1000, shards: 10, interval: 15s}
+    queries:
+      panels: ['sum(rate($prefix_load_m0_total[5m]))']
+      refresh: 5m
+      range: 1h
+      step: 1m
+    rules: {groups: 1, recording_per_group: 4, alerting_per_group: 2, interval: 1m, range: 5m}
+
+  - name: cardinal
+    shape: high cardinality, low sample rate
+    # One metric, 20k series, 4 padding labels each: big in memory, cheap to ingest.
+    series: {metrics: 1, per_metric: 20000, shards: 10, interval: 60s, extra_labels: 4}
+    rules: {groups: 1, recording_per_group: 1, alerting_per_group: 0, interval: 1m, range: 5m}
+
+  - name: dashboards
+    shape: query-heavy (dashboard range queries through the query-frontend)
+    series: {metrics: 8, per_metric: 500, shards: 10, interval: 15s}
+    queries:
+      panels:
+        - 'sum by (shard) (rate($prefix_load_m0_total[5m]))'
+        - 'sum by (shard) (rate($prefix_load_m1_total[5m]))'
+        - 'histogram_quantile(0.9, sum by (le) (label_replace(rate($prefix_load_m2_total[5m]), "le", "$1", "shard", "(.*)")))'
+        - 'topk(5, rate($prefix_load_m3_total[5m]))'
+        - 'max_over_time($prefix_load_m4_total[10m])'
+        - 'sum(rate($prefix_load_m5_total[1m]))'
+      refresh: 30s
+      range: 6h
+      step: 1m
+      viewers: 3
+    rules: {groups: 1, recording_per_group: 2, alerting_per_group: 2, interval: 1m, range: 5m}
+
+  - name: rules
+    shape: rule-heavy (mixin-sized corpus)
+    series: {metrics: 10, per_metric: 300, shards: 10, interval: 15s}
+    # 12 groups of 10+10: Mimir's default -ruler.max-rules-per-rule-group is 20.
+    rules: {groups: 12, recording_per_group: 10, alerting_per_group: 10, interval: 30s, range: 10m}
+
+  - name: tiny
+    shape: tiny
+    series: {metrics: 1, per_metric: 20, shards: 2, interval: 30s}
+    rules: {groups: 1, recording_per_group: 0, alerting_per_group: 1, interval: 1m, range: 5m}
+
+  - name: churn
+    shape: churny (every series replaced each 10m, like a deploy)
+    series: {metrics: 4, per_metric: 500, shards: 10, interval: 15s}
+    churn: {period: 10m}
+    rules: {groups: 1, recording_per_group: 2, alerting_per_group: 0, interval: 1m, range: 5m}
+
+  - name: latecomer
+    shape: starts mid-run
+    series: {metrics: 5, per_metric: 400, shards: 10, interval: 15s}
+    timing: {start_after: 30m}
+    queries:
+      panels: ['sum by (shard) (rate($prefix_load_m0_total[5m]))']
+      refresh: 1m
+      range: 1h
+      step: 1m
+    rules: {groups: 1, recording_per_group: 2, alerting_per_group: 1, interval: 1m, range: 5m}
+
+  - name: ghost
+    shape: goes silent mid-run (rules stay loaded, as when a team stops sending but nobody offboards it)
+    series: {metrics: 5, per_metric: 600, shards: 10, interval: 15s}
+    timing: {stop_after: 45m}
+    rules: {groups: 1, recording_per_group: 2, alerting_per_group: 0, interval: 1m, range: 5m}
