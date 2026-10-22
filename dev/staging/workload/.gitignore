@@ -1,1 +1,3 @@
 .run/
+# `go build ./...` here writes the binary next to the source
+/loadgen
