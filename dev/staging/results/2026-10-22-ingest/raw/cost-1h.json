@@ -1,0 +1,580 @@
+{
+  "pools": [
+    {
+      "pool": {
+        "id": "ingester_memory",
+        "name": "ingester memory",
+        "replica_noun": "ingester",
+        "driver": "cortex_ingester_active_series",
+        "driver_unit": "active series"
+      },
+      "window": "1h",
+      "end": "2026-10-22T07:20:03.062751623Z",
+      "driver_kind": "active series",
+      "unit": "count",
+      "tenants": [
+        {
+          "tenant": "monitoring",
+          "driver_raw": 108955.75,
+          "driver": 108955.75,
+          "share": 0.6198013080843442,
+          "equivalent_replicas": 1.8594039242530327,
+          "cost_per_month": 223.12847091036392
+        },
+        {
+          "tenant": "steady",
+          "driver_raw": 30022,
+          "driver": 30022,
+          "share": 0.1707819447005613,
+          "equivalent_replicas": 0.5123458341016839,
+          "cost_per_month": 61.48150009220207
+        },
+        {
+          "tenant": "cardinal",
+          "driver_raw": 20010,
+          "driver": 20010,
+          "share": 0.11382808318760347,
+          "equivalent_replicas": 0.3414842495628104,
+          "cost_per_month": 40.97810994753725
+        },
+        {
+          "tenant": "churn",
+          "driver_raw": 5344.333333333333,
+          "driver": 5344.333333333333,
+          "share": 0.030401560182356263,
+          "equivalent_replicas": 0.09120468054706879,
+          "cost_per_month": 10.944561665648255
+        },
+        {
+          "tenant": "dashboards",
+          "driver_raw": 4011,
+          "driver": 4011,
+          "share": 0.02281681367643566,
+          "equivalent_replicas": 0.06845044102930697,
+          "cost_per_month": 8.214052923516837
+        },
+        {
+          "tenant": "rules",
+          "driver_raw": 3660,
+          "driver": 3660,
+          "share": 0.02082012915875206,
+          "equivalent_replicas": 0.06246038747625618,
+          "cost_per_month": 7.495246497150742
+        },
+        {
+          "tenant": "latecomer",
+          "driver_raw": 2010.8166666666666,
+          "driver": 2010.8166666666666,
+          "share": 0.011438651014910189,
+          "equivalent_replicas": 0.03431595304473056,
+          "cost_per_month": 4.1179143653676675
+        },
+        {
+          "tenant": "ghost",
+          "driver_raw": 1757.5166666666667,
+          "driver": 1757.5166666666667,
+          "share": 0.009997738797447921,
+          "equivalent_replicas": 0.029993216392343765,
+          "cost_per_month": 3.5991859670812514
+        },
+        {
+          "tenant": "tiny",
+          "driver_raw": 20,
+          "driver": 20,
+          "share": 0.00011377119758880908,
+          "equivalent_replicas": 0.00034131359276642724,
+          "cost_per_month": 0.04095763113197127
+        }
+      ],
+      "total_raw": 175791.4166666667,
+      "total": 175791.4166666667,
+      "replication_factor": 1,
+      "replicas": 3,
+      "cost_per_replica_month": 120,
+      "pool_cost_per_month": 360,
+      "currency": "EUR",
+      "costed": true,
+      "assumptions": [
+        {
+          "name": "driver",
+          "value": "cortex_ingester_active_series (active series), averaged over 1h",
+          "source": "Mimir metrics (queried as tenant monitoring)"
+        },
+        {
+          "name": "driver query",
+          "value": "sum_over_time((sum by (user) (max by (ingester_id, user) (label_replace(cortex_ingester_active_series and on (cluster, namespace, job) cortex_partition_ring_partitions, \"ingester_id\", \"$1\", \"pod\", \".*?-(rc-[0-9]+-[0-9]+|[0-9]+)$\"))))[1h:1m]) / scalar(count_over_time((sum(sum by (user) (max by (ingester_id, user) (label_replace(cortex_ingester_active_series and on (cluster, namespace, job) cortex_partition_ring_partitions, \"ingester_id\", \"$1\", \"pod\", \".*?-(rc-[0-9]+-[0-9]+|[0-9]+)$\")))))[1h:1m]))",
+          "source": "Mimir metrics (queried as tenant monitoring)"
+        },
+        {
+          "name": "averaging",
+          "value": "averaged over the whole window; points where the tenant had no series count as 0; points where Mimir's own metrics were missing are excluded (60 of 60)",
+          "source": "count_over_time((sum(sum by (user) (max by (ingester_id, user) (label_replace(cortex_ingester_active_series and on (cluster, namespace, job) cortex_partition_ring_partitions, \"ingester_id\", \"$1\", \"pod\", \".*?-(rc-[0-9]+-[0-9]+|[0-9]+)$\")))))[1h:1m])"
+        },
+        {
+          "name": "write path",
+          "value": "ingest storage",
+          "source": "detected from which driver query returned data"
+        },
+        {
+          "name": "replication factor",
+          "value": "1",
+          "source": "ingest storage: one owner per partition, zone replicas collapsed with max, so there is nothing to divide"
+        },
+        {
+          "name": "ingester replicas",
+          "value": "3",
+          "source": "promcost.yaml inventory"
+        },
+        {
+          "name": "price",
+          "value": "120.00 EUR per ingester-month × 3 = 360.00 EUR/month",
+          "source": "promcost.yaml inventory"
+        }
+      ]
+    },
+    {
+      "pool": {
+        "id": "query_path",
+        "name": "query path",
+        "replica_noun": "query-path replica",
+        "driver": "cortex_query_fetched_chunk_bytes_total",
+        "driver_unit": "fetched volume",
+        "cumulative": true,
+        "components": [
+          "query-frontend",
+          "querier"
+        ]
+      },
+      "window": "1h",
+      "end": "2026-10-22T07:20:03.108234171Z",
+      "driver_kind": "chunk bytes fetched",
+      "unit": "bytes",
+      "rule_evaluation": "remote",
+      "tenants": [
+        {
+          "tenant": "dashboards",
+          "driver_raw": 15574608107.89916,
+          "driver": 15574608107.89916,
+          "share": 0.9736313234203515,
+          "cost_per_month": 155.78101174725623
+        },
+        {
+          "tenant": "rules",
+          "driver_raw": 202684543.86554623,
+          "driver": 202684543.86554623,
+          "share": 0.012670625117082385,
+          "cost_per_month": 2.0273000187331816
+        },
+        {
+          "tenant": "cardinal",
+          "driver_raw": 127488403.36134453,
+          "driver": 127488403.36134453,
+          "share": 0.007969812275565293,
+          "cost_per_month": 1.2751699640904468
+        },
+        {
+          "tenant": "steady",
+          "driver_raw": 63858201.680672266,
+          "driver": 63858201.680672266,
+          "share": 0.003992032735774773,
+          "cost_per_month": 0.6387252377239637
+        },
+        {
+          "tenant": "latecomer",
+          "driver_raw": 16213821.176470587,
+          "driver": 16213821.176470587,
+          "share": 0.0010135911003591454,
+          "cost_per_month": 0.16217457605746327
+        },
+        {
+          "tenant": "churn",
+          "driver_raw": 7119529.411764706,
+          "driver": 7119529.411764706,
+          "share": 0.00044507038605940297,
+          "cost_per_month": 0.07121126176950447
+        },
+        {
+          "tenant": "ghost",
+          "driver_raw": 4273411.764705882,
+          "driver": 4273411.764705882,
+          "share": 0.0002671481377358344,
+          "cost_per_month": 0.042743702037733505
+        },
+        {
+          "tenant": "tiny",
+          "driver_raw": 166311.93277310923,
+          "driver": 166311.93277310923,
+          "share": 0.000010396827071645717,
+          "cost_per_month": 0.0016634923314633146
+        },
+        {
+          "tenant": "monitoring",
+          "driver_raw": 0,
+          "driver": 0,
+          "share": 0,
+          "cost_per_month": 0
+        }
+      ],
+      "total_raw": 15996412331.092438,
+      "total": 15996412331.092438,
+      "components": [
+        {
+          "name": "query-frontend",
+          "replicas": 1,
+          "cost_per_replica_month": 40,
+          "cost_per_month": 40
+        },
+        {
+          "name": "querier",
+          "replicas": 2,
+          "cost_per_replica_month": 60,
+          "cost_per_month": 120
+        }
+      ],
+      "pool_cost_per_month": 160,
+      "currency": "EUR",
+      "costed": true,
+      "assumptions": [
+        {
+          "name": "driver",
+          "value": "cortex_query_fetched_chunk_bytes_total (chunk bytes fetched), total increase over 1h",
+          "source": "Mimir metrics (queried as tenant monitoring)"
+        },
+        {
+          "name": "driver query",
+          "value": "sum by (user) (increase(cortex_query_fetched_chunk_bytes_total[1h]))",
+          "source": "Mimir metrics (queried as tenant monitoring)"
+        },
+        {
+          "name": "driver preference",
+          "value": "fetched volume over time: cortex_query_fetched_chunk_bytes_total → cortex_query_samples_processed_total → cortex_query_fetched_series_total → cortex_query_seconds_total; the first with data is used",
+          "source": "ADR 0003 pool 6, ADR 0002 decision 8"
+        },
+        {
+          "name": "rule queries",
+          "value": "included — rules are evaluated remotely, so every tenant's rule queries are in this pool alongside its user queries, and no label separates the two (inferred: the ruler's job (job=~\".*ruler\") evaluated rules but has no cortex_distributor_query_duration_seconds_count data, which a ruler evaluating locally always records, so its queries go to the query-frontend)",
+          "source": "Mimir metrics (queried as tenant monitoring)"
+        },
+        {
+          "name": "query-frontend price",
+          "value": "40.00 EUR per query-frontend-month × 1 = 40.00 EUR/month",
+          "source": "promcost.yaml inventory"
+        },
+        {
+          "name": "querier price",
+          "value": "60.00 EUR per querier-month × 2 = 120.00 EUR/month",
+          "source": "promcost.yaml inventory"
+        }
+      ]
+    },
+    {
+      "pool": {
+        "id": "ruler_cpu",
+        "name": "ruler CPU",
+        "replica_noun": "ruler",
+        "driver": "cortex_prometheus_rule_evaluation_duration_seconds_sum",
+        "driver_unit": "rule-evaluation seconds",
+        "cumulative": true
+      },
+      "window": "1h",
+      "end": "2026-10-22T07:20:03.18887642Z",
+      "driver_kind": "rule-evaluation seconds",
+      "unit": "seconds",
+      "rule_evaluation": "remote",
+      "tenants": [
+        {
+          "tenant": "rules",
+          "driver_raw": 656.294806881682,
+          "driver": 656.294806881682,
+          "share": 0.9038418114794455,
+          "equivalent_replicas": 0.9038418114794455,
+          "cost_per_month": 54.23050868876673
+        },
+        {
+          "tenant": "steady",
+          "driver_raw": 22.486352114621827,
+          "driver": 22.486352114621827,
+          "share": 0.030967950707110375,
+          "equivalent_replicas": 0.030967950707110375,
+          "cost_per_month": 1.8580770424266224
+        },
+        {
+          "tenant": "dashboards",
+          "driver_raw": 11.777697201680674,
+          "driver": 11.777697201680674,
+          "share": 0.016220111849433828,
+          "equivalent_replicas": 0.016220111849433828,
+          "cost_per_month": 0.9732067109660296
+        },
+        {
+          "tenant": "cardinal",
+          "driver_raw": 11.710931706554623,
+          "driver": 11.710931706554623,
+          "share": 0.016128163162005115,
+          "equivalent_replicas": 0.016128163162005115,
+          "cost_per_month": 0.967689789720307
+        },
+        {
+          "tenant": "latecomer",
+          "driver_raw": 9.747145208067222,
+          "driver": 9.747145208067222,
+          "share": 0.013423658528507807,
+          "equivalent_replicas": 0.013423658528507807,
+          "cost_per_month": 0.8054195117104684
+        },
+        {
+          "tenant": "churn",
+          "driver_raw": 9.097103122689076,
+          "driver": 9.097103122689076,
+          "share": 0.012528427894613758,
+          "equivalent_replicas": 0.012528427894613758,
+          "cost_per_month": 0.7517056736768255
+        },
+        {
+          "tenant": "ghost",
+          "driver_raw": 4.088590407731099,
+          "driver": 4.088590407731099,
+          "share": 0.005630760630393623,
+          "equivalent_replicas": 0.005630760630393623,
+          "cost_per_month": 0.3378456378236174
+        },
+        {
+          "tenant": "tiny",
+          "driver_raw": 0.9142652137815129,
+          "driver": 0.9142652137815129,
+          "share": 0.001259115748489994,
+          "equivalent_replicas": 0.001259115748489994,
+          "cost_per_month": 0.07554694490939964
+        }
+      ],
+      "total_raw": 726.116891856808,
+      "total": 726.116891856808,
+      "replicas": 1,
+      "cost_per_replica_month": 60,
+      "pool_cost_per_month": 60,
+      "currency": "EUR",
+      "costed": true,
+      "assumptions": [
+        {
+          "name": "driver",
+          "value": "cortex_prometheus_rule_evaluation_duration_seconds_sum (rule-evaluation seconds), total increase over 1h",
+          "source": "Mimir metrics (queried as tenant monitoring)"
+        },
+        {
+          "name": "driver query",
+          "value": "sum by (user) (increase(cortex_prometheus_rule_evaluation_duration_seconds_sum[1h]))",
+          "source": "Mimir metrics (queried as tenant monitoring)"
+        },
+        {
+          "name": "rule evaluation",
+          "value": "remote (inferred: the ruler's job (job=~\".*ruler\") evaluated rules but has no cortex_distributor_query_duration_seconds_count data, which a ruler evaluating locally always records, so its queries go to the query-frontend): the rule queries' work is priced in the query path",
+          "source": "Mimir metrics (queried as tenant monitoring)"
+        },
+        {
+          "name": "ruler replicas",
+          "value": "1",
+          "source": "promcost.yaml inventory"
+        },
+        {
+          "name": "price",
+          "value": "60.00 EUR per ruler-month × 1 = 60.00 EUR/month",
+          "source": "promcost.yaml inventory"
+        }
+      ],
+      "notes": [
+        "rules are evaluated remotely, so this time is mostly the ruler waiting on the query path, not ruler CPU: it shows how long each tenant's rules occupy the ruler, and the work behind it is already in the query path pool. It also depends on load — a tenant's rules run slower when a neighbour loads the cluster"
+      ]
+    }
+  ],
+  "cross_pool": {
+    "priced_pools": [
+      "ingester_memory",
+      "query_path",
+      "ruler_cpu"
+    ],
+    "not_modelled": [
+      "ingester write path",
+      "object storage",
+      "store-gateway",
+      "compactor"
+    ],
+    "currency": "EUR",
+    "priced_cost_per_month": 580,
+    "tenants": [
+      {
+        "tenant": "monitoring",
+        "cost_per_month": 223.12847091036392,
+        "share": 0.3847042601902826,
+        "pools": [
+          {
+            "pool": "ingester_memory",
+            "cost_per_month": 223.12847091036392
+          },
+          {
+            "pool": "query_path",
+            "cost_per_month": 0
+          }
+        ],
+        "not_measured_in": [
+          "ruler_cpu"
+        ]
+      },
+      {
+        "tenant": "dashboards",
+        "cost_per_month": 164.9682713817391,
+        "share": 0.2844280541064467,
+        "pools": [
+          {
+            "pool": "ingester_memory",
+            "cost_per_month": 8.214052923516837
+          },
+          {
+            "pool": "query_path",
+            "cost_per_month": 155.78101174725623
+          },
+          {
+            "pool": "ruler_cpu",
+            "cost_per_month": 0.9732067109660296
+          }
+        ]
+      },
+      {
+        "tenant": "steady",
+        "cost_per_month": 63.97830237235265,
+        "share": 0.11030741788336663,
+        "pools": [
+          {
+            "pool": "ingester_memory",
+            "cost_per_month": 61.48150009220207
+          },
+          {
+            "pool": "query_path",
+            "cost_per_month": 0.6387252377239637
+          },
+          {
+            "pool": "ruler_cpu",
+            "cost_per_month": 1.8580770424266224
+          }
+        ]
+      },
+      {
+        "tenant": "rules",
+        "cost_per_month": 63.75305520465066,
+        "share": 0.10991906069767354,
+        "pools": [
+          {
+            "pool": "ingester_memory",
+            "cost_per_month": 7.495246497150742
+          },
+          {
+            "pool": "query_path",
+            "cost_per_month": 2.0273000187331816
+          },
+          {
+            "pool": "ruler_cpu",
+            "cost_per_month": 54.23050868876673
+          }
+        ]
+      },
+      {
+        "tenant": "cardinal",
+        "cost_per_month": 43.220969701348,
+        "share": 0.0745189132781862,
+        "pools": [
+          {
+            "pool": "ingester_memory",
+            "cost_per_month": 40.97810994753725
+          },
+          {
+            "pool": "query_path",
+            "cost_per_month": 1.2751699640904468
+          },
+          {
+            "pool": "ruler_cpu",
+            "cost_per_month": 0.967689789720307
+          }
+        ]
+      },
+      {
+        "tenant": "churn",
+        "cost_per_month": 11.767478601094584,
+        "share": 0.020288756208783766,
+        "pools": [
+          {
+            "pool": "ingester_memory",
+            "cost_per_month": 10.944561665648255
+          },
+          {
+            "pool": "query_path",
+            "cost_per_month": 0.07121126176950447
+          },
+          {
+            "pool": "ruler_cpu",
+            "cost_per_month": 0.7517056736768255
+          }
+        ]
+      },
+      {
+        "tenant": "latecomer",
+        "cost_per_month": 5.085508453135599,
+        "share": 0.008768118022647585,
+        "pools": [
+          {
+            "pool": "ingester_memory",
+            "cost_per_month": 4.1179143653676675
+          },
+          {
+            "pool": "query_path",
+            "cost_per_month": 0.16217457605746327
+          },
+          {
+            "pool": "ruler_cpu",
+            "cost_per_month": 0.8054195117104684
+          }
+        ]
+      },
+      {
+        "tenant": "ghost",
+        "cost_per_month": 3.979775306942602,
+        "share": 0.006861681563694141,
+        "pools": [
+          {
+            "pool": "ingester_memory",
+            "cost_per_month": 3.5991859670812514
+          },
+          {
+            "pool": "query_path",
+            "cost_per_month": 0.042743702037733505
+          },
+          {
+            "pool": "ruler_cpu",
+            "cost_per_month": 0.3378456378236174
+          }
+        ]
+      },
+      {
+        "tenant": "tiny",
+        "cost_per_month": 0.11816806837283422,
+        "share": 0.0002037380489186797,
+        "pools": [
+          {
+            "pool": "ingester_memory",
+            "cost_per_month": 0.04095763113197127
+          },
+          {
+            "pool": "query_path",
+            "cost_per_month": 0.0016634923314633146
+          },
+          {
+            "pool": "ruler_cpu",
+            "cost_per_month": 0.07554694490939964
+          }
+        ]
+      }
+    ],
+    "notes": [
+      "rules are evaluated remotely, so a tenant's rule queries drive its share of both the query path (the work) and the ruler (the time spent waiting for it). Each pool's cost is split once, so nothing is counted twice, but a rule-heavy tenant's total weighs the same queries in both"
+    ]
+  },
+  "generated_at": "2026-10-22T07:20:03.188967347Z"
+}

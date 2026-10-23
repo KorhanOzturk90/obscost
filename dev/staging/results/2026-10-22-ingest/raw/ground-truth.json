@@ -1,0 +1,498 @@
+{
+  "schema": 1,
+  "profile": {
+    "name": "short",
+    "description": "the standard eight shapes on a compressed timeline (latecomer at 30m, ghost silent at 45m), for a run that fits one session",
+    "rule_namespace": "loadgen"
+  },
+  "gateway": "http://mimir-gateway.mimir.svc",
+  "started_at": "2026-10-22T05:49:59.106570757Z",
+  "updated_at": "2026-10-22T07:20:02.924263734Z",
+  "tenants": {
+    "cardinal": {
+      "shape": "high cardinality, low sample rate",
+      "series": {
+        "metrics": 1,
+        "per_metric": 20000,
+        "shards": 10,
+        "live": 20000,
+        "interval_s": 60,
+        "samples_per_second": 333.3333333333333,
+        "extra_labels": 4
+      },
+      "planned_start_after_s": 0,
+      "segments": [
+        {
+          "first_sample_at": "2026-10-22T05:49:59.15575684Z",
+          "last_sample_at": "2026-10-22T07:19:59.155756031Z"
+        }
+      ],
+      "rules": {
+        "groups": 1,
+        "recording": 1,
+        "alerting": 0,
+        "interval_s": 60,
+        "range_s": 300,
+        "evaluations_per_minute": 1,
+        "record_series": {
+          "cardinal:load_r0:rate_by_shard": 10
+        },
+        "record_series_total": 10
+      },
+      "rules_pushed_at": "2026-10-22T05:49:59.155337651Z",
+      "counters": {
+        "samples_sent": 1820000,
+        "samples_failed": 0,
+        "write_requests_failed": 0,
+        "queries_ok": 0,
+        "queries_failed": 0,
+        "query_response_bytes": 0
+      }
+    },
+    "churn": {
+      "shape": "churny (every series replaced each 10m, like a deploy)",
+      "series": {
+        "metrics": 4,
+        "per_metric": 500,
+        "shards": 10,
+        "live": 2000,
+        "interval_s": 15,
+        "samples_per_second": 133.33333333333334,
+        "extra_labels": 0
+      },
+      "churn_period_s": 600,
+      "planned_start_after_s": 0,
+      "segments": [
+        {
+          "first_sample_at": "2026-10-22T05:49:59.145248462Z",
+          "last_sample_at": "2026-10-22T07:19:59.145244972Z"
+        }
+      ],
+      "rules": {
+        "groups": 1,
+        "recording": 2,
+        "alerting": 0,
+        "interval_s": 60,
+        "range_s": 300,
+        "evaluations_per_minute": 2,
+        "record_series": {
+          "churn:load_r0:rate_by_shard": 10,
+          "churn:load_r1:rate_sum": 1
+        },
+        "record_series_total": 11
+      },
+      "rules_pushed_at": "2026-10-22T05:49:59.14510545Z",
+      "counters": {
+        "samples_sent": 722000,
+        "samples_failed": 0,
+        "write_requests_failed": 0,
+        "queries_ok": 0,
+        "queries_failed": 0,
+        "query_response_bytes": 0
+      }
+    },
+    "dashboards": {
+      "shape": "query-heavy (dashboard range queries through the query-frontend)",
+      "series": {
+        "metrics": 8,
+        "per_metric": 500,
+        "shards": 10,
+        "live": 4000,
+        "interval_s": 15,
+        "samples_per_second": 266.6666666666667,
+        "extra_labels": 0
+      },
+      "planned_start_after_s": 0,
+      "segments": [
+        {
+          "first_sample_at": "2026-10-22T05:49:59.144325175Z",
+          "last_sample_at": "2026-10-22T07:19:59.144314729Z"
+        }
+      ],
+      "queries": {
+        "panels": [
+          "sum by (shard) ({__name__=~\"dashboards_load_m[0-7]_total\"})",
+          "count by (__name__) ({__name__=~\"dashboards_load_m[0-7]_total\"})",
+          "max by (__name__) ({__name__=~\"dashboards_load_m[0-7]_total\"})",
+          "quantile by (__name__) (0.9, {__name__=~\"dashboards_load_m[0-7]_total\"})",
+          "topk by (__name__) (3, {__name__=~\"dashboards_load_m[0-7]_total\"})",
+          "avg by (shard) ({__name__=~\"dashboards_load_m[0-7]_total\"})"
+        ],
+        "viewers": 3,
+        "per_minute": 36,
+        "range_s": 21600,
+        "step_s": 60,
+        "refresh_s": 30,
+        "series_per_query": 500
+      },
+      "rules": {
+        "groups": 1,
+        "recording": 2,
+        "alerting": 2,
+        "interval_s": 60,
+        "range_s": 300,
+        "evaluations_per_minute": 4,
+        "record_series": {
+          "dashboards:load_r0:rate_by_shard": 10,
+          "dashboards:load_r1:rate_sum": 1
+        },
+        "record_series_total": 11
+      },
+      "rules_pushed_at": "2026-10-22T05:49:59.144188579Z",
+      "counters": {
+        "samples_sent": 1444000,
+        "samples_failed": 0,
+        "write_requests_failed": 0,
+        "queries_ok": 3246,
+        "queries_failed": 0,
+        "query_response_bytes": 187021679
+      }
+    },
+    "ghost": {
+      "shape": "goes silent mid-run (rules stay loaded, as when a team stops sending but nobody offboards it)",
+      "series": {
+        "metrics": 5,
+        "per_metric": 600,
+        "shards": 10,
+        "live": 3000,
+        "interval_s": 15,
+        "samples_per_second": 200,
+        "extra_labels": 0
+      },
+      "planned_start_after_s": 0,
+      "planned_stop_after_s": 2700,
+      "segments": [
+        {
+          "first_sample_at": "2026-10-22T05:49:59.157651436Z",
+          "last_sample_at": "2026-10-22T06:34:44.157638046Z",
+          "stopped_at": "2026-10-22T06:34:59.112744733Z"
+        }
+      ],
+      "rules": {
+        "groups": 1,
+        "recording": 2,
+        "alerting": 0,
+        "interval_s": 60,
+        "range_s": 300,
+        "evaluations_per_minute": 2,
+        "record_series": {
+          "ghost:load_r0:rate_by_shard": 10,
+          "ghost:load_r1:rate_sum": 1
+        },
+        "record_series_total": 11
+      },
+      "rules_pushed_at": "2026-10-22T05:49:59.157456134Z",
+      "counters": {
+        "samples_sent": 540000,
+        "samples_failed": 0,
+        "write_requests_failed": 0,
+        "queries_ok": 0,
+        "queries_failed": 0,
+        "query_response_bytes": 0
+      }
+    },
+    "latecomer": {
+      "shape": "starts mid-run",
+      "series": {
+        "metrics": 5,
+        "per_metric": 400,
+        "shards": 10,
+        "live": 2000,
+        "interval_s": 15,
+        "samples_per_second": 133.33333333333334,
+        "extra_labels": 0
+      },
+      "planned_start_after_s": 1800,
+      "segments": [
+        {
+          "first_sample_at": "2026-10-22T06:19:59.135480821Z",
+          "last_sample_at": "2026-10-22T07:19:59.13546783Z"
+        }
+      ],
+      "queries": {
+        "panels": [
+          "sum by (shard) (rate(latecomer_load_m0_total[5m]))"
+        ],
+        "viewers": 1,
+        "per_minute": 1,
+        "range_s": 3600,
+        "step_s": 60,
+        "refresh_s": 60,
+        "series_per_query": 400
+      },
+      "rules": {
+        "groups": 1,
+        "recording": 2,
+        "alerting": 1,
+        "interval_s": 60,
+        "range_s": 300,
+        "evaluations_per_minute": 3,
+        "record_series": {
+          "latecomer:load_r0:rate_by_shard": 10,
+          "latecomer:load_r1:rate_sum": 1
+        },
+        "record_series_total": 11
+      },
+      "rules_pushed_at": "2026-10-22T06:19:59.135234911Z",
+      "counters": {
+        "samples_sent": 482000,
+        "samples_failed": 0,
+        "write_requests_failed": 0,
+        "queries_ok": 61,
+        "queries_failed": 0,
+        "query_response_bytes": 654287
+      }
+    },
+    "rules": {
+      "shape": "rule-heavy (mixin-sized corpus)",
+      "series": {
+        "metrics": 30,
+        "per_metric": 100,
+        "shards": 10,
+        "live": 3000,
+        "interval_s": 15,
+        "samples_per_second": 200,
+        "extra_labels": 0
+      },
+      "planned_start_after_s": 0,
+      "segments": [
+        {
+          "first_sample_at": "2026-10-22T05:49:59.762086341Z",
+          "last_sample_at": "2026-10-22T07:19:59.76202119Z"
+        }
+      ],
+      "rules": {
+        "groups": 12,
+        "recording": 120,
+        "alerting": 120,
+        "interval_s": 60,
+        "range_s": 120,
+        "evaluations_per_minute": 240,
+        "record_series": {
+          "rules:load_r0:rate_by_shard": 10,
+          "rules:load_r100:rate_by_shard": 10,
+          "rules:load_r101:rate_sum": 1,
+          "rules:load_r102:rate_by_shard": 10,
+          "rules:load_r103:rate_sum": 1,
+          "rules:load_r104:rate_by_shard": 10,
+          "rules:load_r105:rate_sum": 1,
+          "rules:load_r106:rate_by_shard": 10,
+          "rules:load_r107:rate_sum": 1,
+          "rules:load_r108:rate_by_shard": 10,
+          "rules:load_r109:rate_sum": 1,
+          "rules:load_r10:rate_by_shard": 10,
+          "rules:load_r110:rate_by_shard": 10,
+          "rules:load_r111:rate_sum": 1,
+          "rules:load_r112:rate_by_shard": 10,
+          "rules:load_r113:rate_sum": 1,
+          "rules:load_r114:rate_by_shard": 10,
+          "rules:load_r115:rate_sum": 1,
+          "rules:load_r116:rate_by_shard": 10,
+          "rules:load_r117:rate_sum": 1,
+          "rules:load_r118:rate_by_shard": 10,
+          "rules:load_r119:rate_sum": 1,
+          "rules:load_r11:rate_sum": 1,
+          "rules:load_r12:rate_by_shard": 10,
+          "rules:load_r13:rate_sum": 1,
+          "rules:load_r14:rate_by_shard": 10,
+          "rules:load_r15:rate_sum": 1,
+          "rules:load_r16:rate_by_shard": 10,
+          "rules:load_r17:rate_sum": 1,
+          "rules:load_r18:rate_by_shard": 10,
+          "rules:load_r19:rate_sum": 1,
+          "rules:load_r1:rate_sum": 1,
+          "rules:load_r20:rate_by_shard": 10,
+          "rules:load_r21:rate_sum": 1,
+          "rules:load_r22:rate_by_shard": 10,
+          "rules:load_r23:rate_sum": 1,
+          "rules:load_r24:rate_by_shard": 10,
+          "rules:load_r25:rate_sum": 1,
+          "rules:load_r26:rate_by_shard": 10,
+          "rules:load_r27:rate_sum": 1,
+          "rules:load_r28:rate_by_shard": 10,
+          "rules:load_r29:rate_sum": 1,
+          "rules:load_r2:rate_by_shard": 10,
+          "rules:load_r30:rate_by_shard": 10,
+          "rules:load_r31:rate_sum": 1,
+          "rules:load_r32:rate_by_shard": 10,
+          "rules:load_r33:rate_sum": 1,
+          "rules:load_r34:rate_by_shard": 10,
+          "rules:load_r35:rate_sum": 1,
+          "rules:load_r36:rate_by_shard": 10,
+          "rules:load_r37:rate_sum": 1,
+          "rules:load_r38:rate_by_shard": 10,
+          "rules:load_r39:rate_sum": 1,
+          "rules:load_r3:rate_sum": 1,
+          "rules:load_r40:rate_by_shard": 10,
+          "rules:load_r41:rate_sum": 1,
+          "rules:load_r42:rate_by_shard": 10,
+          "rules:load_r43:rate_sum": 1,
+          "rules:load_r44:rate_by_shard": 10,
+          "rules:load_r45:rate_sum": 1,
+          "rules:load_r46:rate_by_shard": 10,
+          "rules:load_r47:rate_sum": 1,
+          "rules:load_r48:rate_by_shard": 10,
+          "rules:load_r49:rate_sum": 1,
+          "rules:load_r4:rate_by_shard": 10,
+          "rules:load_r50:rate_by_shard": 10,
+          "rules:load_r51:rate_sum": 1,
+          "rules:load_r52:rate_by_shard": 10,
+          "rules:load_r53:rate_sum": 1,
+          "rules:load_r54:rate_by_shard": 10,
+          "rules:load_r55:rate_sum": 1,
+          "rules:load_r56:rate_by_shard": 10,
+          "rules:load_r57:rate_sum": 1,
+          "rules:load_r58:rate_by_shard": 10,
+          "rules:load_r59:rate_sum": 1,
+          "rules:load_r5:rate_sum": 1,
+          "rules:load_r60:rate_by_shard": 10,
+          "rules:load_r61:rate_sum": 1,
+          "rules:load_r62:rate_by_shard": 10,
+          "rules:load_r63:rate_sum": 1,
+          "rules:load_r64:rate_by_shard": 10,
+          "rules:load_r65:rate_sum": 1,
+          "rules:load_r66:rate_by_shard": 10,
+          "rules:load_r67:rate_sum": 1,
+          "rules:load_r68:rate_by_shard": 10,
+          "rules:load_r69:rate_sum": 1,
+          "rules:load_r6:rate_by_shard": 10,
+          "rules:load_r70:rate_by_shard": 10,
+          "rules:load_r71:rate_sum": 1,
+          "rules:load_r72:rate_by_shard": 10,
+          "rules:load_r73:rate_sum": 1,
+          "rules:load_r74:rate_by_shard": 10,
+          "rules:load_r75:rate_sum": 1,
+          "rules:load_r76:rate_by_shard": 10,
+          "rules:load_r77:rate_sum": 1,
+          "rules:load_r78:rate_by_shard": 10,
+          "rules:load_r79:rate_sum": 1,
+          "rules:load_r7:rate_sum": 1,
+          "rules:load_r80:rate_by_shard": 10,
+          "rules:load_r81:rate_sum": 1,
+          "rules:load_r82:rate_by_shard": 10,
+          "rules:load_r83:rate_sum": 1,
+          "rules:load_r84:rate_by_shard": 10,
+          "rules:load_r85:rate_sum": 1,
+          "rules:load_r86:rate_by_shard": 10,
+          "rules:load_r87:rate_sum": 1,
+          "rules:load_r88:rate_by_shard": 10,
+          "rules:load_r89:rate_sum": 1,
+          "rules:load_r8:rate_by_shard": 10,
+          "rules:load_r90:rate_by_shard": 10,
+          "rules:load_r91:rate_sum": 1,
+          "rules:load_r92:rate_by_shard": 10,
+          "rules:load_r93:rate_sum": 1,
+          "rules:load_r94:rate_by_shard": 10,
+          "rules:load_r95:rate_sum": 1,
+          "rules:load_r96:rate_by_shard": 10,
+          "rules:load_r97:rate_sum": 1,
+          "rules:load_r98:rate_by_shard": 10,
+          "rules:load_r99:rate_sum": 1,
+          "rules:load_r9:rate_sum": 1
+        },
+        "record_series_total": 660
+      },
+      "rules_pushed_at": "2026-10-22T05:49:59.761712585Z",
+      "counters": {
+        "samples_sent": 1083000,
+        "samples_failed": 0,
+        "write_requests_failed": 0,
+        "queries_ok": 0,
+        "queries_failed": 0,
+        "query_response_bytes": 0
+      }
+    },
+    "steady": {
+      "shape": "large steady ingestion",
+      "series": {
+        "metrics": 30,
+        "per_metric": 1000,
+        "shards": 10,
+        "live": 30000,
+        "interval_s": 15,
+        "samples_per_second": 2000,
+        "extra_labels": 0
+      },
+      "planned_start_after_s": 0,
+      "segments": [
+        {
+          "first_sample_at": "2026-10-22T05:49:59.148578049Z",
+          "last_sample_at": "2026-10-22T07:19:59.148557541Z"
+        }
+      ],
+      "queries": {
+        "panels": [
+          "sum(rate(steady_load_m0_total[5m]))"
+        ],
+        "viewers": 1,
+        "per_minute": 0.2,
+        "range_s": 3600,
+        "step_s": 60,
+        "refresh_s": 300,
+        "series_per_query": 1000
+      },
+      "rules": {
+        "groups": 1,
+        "recording": 4,
+        "alerting": 2,
+        "interval_s": 60,
+        "range_s": 300,
+        "evaluations_per_minute": 6,
+        "record_series": {
+          "steady:load_r0:rate_by_shard": 10,
+          "steady:load_r1:rate_sum": 1,
+          "steady:load_r2:rate_by_shard": 10,
+          "steady:load_r3:rate_sum": 1
+        },
+        "record_series_total": 22
+      },
+      "rules_pushed_at": "2026-10-22T05:49:59.148164701Z",
+      "counters": {
+        "samples_sent": 10830000,
+        "samples_failed": 0,
+        "write_requests_failed": 0,
+        "queries_ok": 19,
+        "queries_failed": 0,
+        "query_response_bytes": 28214
+      }
+    },
+    "tiny": {
+      "shape": "tiny",
+      "series": {
+        "metrics": 1,
+        "per_metric": 20,
+        "shards": 2,
+        "live": 20,
+        "interval_s": 30,
+        "samples_per_second": 0.6666666666666666,
+        "extra_labels": 0
+      },
+      "planned_start_after_s": 0,
+      "segments": [
+        {
+          "first_sample_at": "2026-10-22T05:49:59.154025255Z",
+          "last_sample_at": "2026-10-22T07:19:59.154026167Z"
+        }
+      ],
+      "rules": {
+        "groups": 1,
+        "recording": 0,
+        "alerting": 1,
+        "interval_s": 60,
+        "range_s": 300,
+        "evaluations_per_minute": 1,
+        "record_series": {},
+        "record_series_total": 0
+      },
+      "rules_pushed_at": "2026-10-22T05:49:59.153823718Z",
+      "counters": {
+        "samples_sent": 3620,
+        "samples_failed": 0,
+        "write_requests_failed": 0,
+        "queries_ok": 0,
+        "queries_failed": 0,
+        "query_response_bytes": 0
+      }
+    }
+  }
+}
