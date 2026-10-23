@@ -1,0 +1,44 @@
+[
+  {
+    "name": "ingester-rolling-restart",
+    "start": "2026-10-22T01:28:19Z",
+    "end": "2026-10-22T01:32:41Z",
+    "profile": "ingest",
+    "detail": {
+      "component": "ingester",
+      "pods": [
+        "pod/mimir-ingester-zone-a-0",
+        "pod/mimir-ingester-zone-b-0",
+        "pod/mimir-ingester-zone-c-0"
+      ]
+    }
+  },
+  {
+    "name": "ingester-rolling-restart",
+    "start": "2026-10-22T02:38:10Z",
+    "end": "2026-10-22T02:42:36Z",
+    "profile": "ingest",
+    "detail": {
+      "component": "ingester",
+      "pods": [
+        "pod/mimir-ingester-zone-a-0",
+        "pod/mimir-ingester-zone-b-0",
+        "pod/mimir-ingester-zone-c-0"
+      ]
+    }
+  },
+  {
+    "name": "ingester-rolling-restart",
+    "start": "2026-10-22T06:23:01Z",
+    "end": "2026-10-22T06:27:26Z",
+    "profile": "ingest",
+    "detail": {
+      "component": "ingester",
+      "pods": [
+        "pod/mimir-ingester-zone-a-0",
+        "pod/mimir-ingester-zone-b-0",
+        "pod/mimir-ingester-zone-c-0"
+      ]
+    }
+  }
+]

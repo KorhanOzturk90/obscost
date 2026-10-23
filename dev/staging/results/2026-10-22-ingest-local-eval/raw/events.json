@@ -1,0 +1,35 @@
+[
+  {
+    "name": "ingester-rolling-restart",
+    "start": "2026-10-22T01:28:19Z",
+    "end": "2026-10-22T01:32:41Z",
+    "profile": "ingest",
+    "detail": {
+      "component": "ingester",
+      "pods": [
+        "pod/mimir-ingester-zone-a-0",
+        "pod/mimir-ingester-zone-b-0",
+        "pod/mimir-ingester-zone-c-0"
+      ]
+    }
+  },
+  {
+    "name": "ingester-rolling-restart",
+    "start": "2026-10-22T02:38:10Z",
+    "end": "2026-10-22T02:42:36Z",
+    "profile": "ingest",
+    "detail": {
+      "component": "ingester",
+      "pods": [
+        "pod/mimir-ingester-zone-a-0",
+        "pod/mimir-ingester-zone-b-0",
+        "pod/mimir-ingester-zone-c-0"
+      ]
+    }
+  },
+  {
+    "name": "query-path restart after switching the ruler to local evaluation (query-frontend and queriers; the switch had already removed the ruler's own query path)",
+    "start": "2026-10-22T03:29:41Z",
+    "end": "2026-10-22T03:31:26Z"
+  }
+]

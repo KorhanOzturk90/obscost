@@ -1,0 +1,16 @@
+[
+  {
+    "name": "ingester-rolling-restart",
+    "start": "2026-10-22T07:58:24Z",
+    "end": "2026-10-22T08:02:36Z",
+    "profile": "classic",
+    "detail": {
+      "component": "ingester",
+      "pods": [
+        "pod/mimir-ingester-zone-a-0",
+        "pod/mimir-ingester-zone-b-0",
+        "pod/mimir-ingester-zone-c-0"
+      ]
+    }
+  }
+]

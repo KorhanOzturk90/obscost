@@ -1,0 +1,21 @@
+# PROFILE=classic: the pre-3.x write path, layered on values/mimir.yaml.
+# Distributors replicate each series to 3 ingesters over gRPC (RF=3,
+# Mimir's default replication_factor, spread across the chart's 3 zones);
+# no Kafka. Everything else is identical to the ingest profile, so the two
+# differ in exactly one thing.
+#
+# Switching a running cluster between profiles is not a supported Mimir
+# migration: `make undeploy` (or `make down cluster`) first.
+kafka:
+  enabled: false
+
+mimir:
+  structuredConfig:
+    ingest_storage:
+      enabled: false
+      kafka:
+        topic: null
+        auto_create_topic_enabled: null
+        auto_create_topic_default_partitions: null
+    ingester:
+      push_grpc_method_enabled: true

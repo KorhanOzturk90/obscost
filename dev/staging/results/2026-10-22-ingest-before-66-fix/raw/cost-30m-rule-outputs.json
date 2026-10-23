@@ -1,0 +1,3070 @@
+{
+  "pools": [
+    {
+      "pool": {
+        "id": "ingester_memory",
+        "name": "ingester memory",
+        "replica_noun": "ingester",
+        "driver": "cortex_ingester_active_series",
+        "driver_unit": "active series"
+      },
+      "window": "30m",
+      "end": "2026-10-22T03:26:58.030466295Z",
+      "driver_kind": "active series",
+      "unit": "count",
+      "tenants": [
+        {
+          "tenant": "monitoring",
+          "driver_raw": 105475.73333333334,
+          "driver": 105475.73333333334,
+          "share": 0.6085194632565839,
+          "equivalent_replicas": 1.8255583897697516,
+          "cost_per_month": 219.0670067723702
+        },
+        {
+          "tenant": "steady",
+          "driver_raw": 30022,
+          "driver": 30022,
+          "share": 0.1732054449733382,
+          "equivalent_replicas": 0.5196163349200146,
+          "cost_per_month": 62.35396019040175
+        },
+        {
+          "tenant": "cardinal",
+          "driver_raw": 20010,
+          "driver": 20010,
+          "share": 0.11544337332344606,
+          "equivalent_replicas": 0.3463301199703382,
+          "cost_per_month": 41.55961439644058
+        },
+        {
+          "tenant": "churn",
+          "driver_raw": 6011,
+          "driver": 6011,
+          "share": 0.034679166269227096,
+          "equivalent_replicas": 0.10403749880768129,
+          "cost_per_month": 12.484499856921754
+        },
+        {
+          "tenant": "dashboards",
+          "driver_raw": 4011,
+          "driver": 4011,
+          "share": 0.023140598220906652,
+          "equivalent_replicas": 0.06942179466271996,
+          "cost_per_month": 8.330615359526394
+        },
+        {
+          "tenant": "rules",
+          "driver_raw": 3660,
+          "driver": 3660,
+          "share": 0.021115579528426416,
+          "equivalent_replicas": 0.06334673858527926,
+          "cost_per_month": 7.6016086302335095
+        },
+        {
+          "tenant": "ghost",
+          "driver_raw": 2111,
+          "driver": 2111,
+          "share": 0.01217895857500223,
+          "equivalent_replicas": 0.03653687572500669,
+          "cost_per_month": 4.384425087000803
+        },
+        {
+          "tenant": "latecomer",
+          "driver_raw": 2011,
+          "driver": 2011,
+          "share": 0.011602030172586209,
+          "equivalent_replicas": 0.034806090517758626,
+          "cost_per_month": 4.176730862131035
+        },
+        {
+          "tenant": "tiny",
+          "driver_raw": 20,
+          "driver": 20,
+          "share": 0.00011538568048320446,
+          "equivalent_replicas": 0.00034615704144961337,
+          "cost_per_month": 0.041538844973953604
+        }
+      ],
+      "total_raw": 173331.73333333334,
+      "total": 173331.73333333334,
+      "replication_factor": 1,
+      "replicas": 3,
+      "cost_per_replica_month": 120,
+      "pool_cost_per_month": 360,
+      "currency": "EUR",
+      "costed": true,
+      "assumptions": [
+        {
+          "name": "driver",
+          "value": "cortex_ingester_active_series (active series), averaged over 30m",
+          "source": "Mimir metrics (queried as tenant monitoring)"
+        },
+        {
+          "name": "driver query",
+          "value": "avg_over_time((sum by (user) (max by (ingester_id, user) (label_replace(cortex_ingester_active_series and on (cluster, namespace, job) cortex_partition_ring_partitions, \"ingester_id\", \"$1\", \"pod\", \".*?-(rc-[0-9]+-[0-9]+|[0-9]+)$\"))))[30m:1m])",
+          "source": "Mimir metrics (queried as tenant monitoring)"
+        },
+        {
+          "name": "write path",
+          "value": "ingest storage",
+          "source": "detected from which driver query returned data"
+        },
+        {
+          "name": "replication factor",
+          "value": "1",
+          "source": "ingest storage: one owner per partition, zone replicas collapsed with max, so there is nothing to divide"
+        },
+        {
+          "name": "ingester replicas",
+          "value": "3",
+          "source": "promcost.yaml inventory"
+        },
+        {
+          "name": "price",
+          "value": "120.00 EUR per ingester-month × 3 = 360.00 EUR/month",
+          "source": "promcost.yaml inventory"
+        }
+      ]
+    },
+    {
+      "pool": {
+        "id": "query_path",
+        "name": "query path",
+        "replica_noun": "query-path replica",
+        "driver": "cortex_query_fetched_chunk_bytes_total",
+        "driver_unit": "fetched volume",
+        "cumulative": true,
+        "components": [
+          "query-frontend",
+          "querier"
+        ]
+      },
+      "window": "30m",
+      "end": "2026-10-22T03:26:58.077800597Z",
+      "driver_kind": "chunk bytes fetched",
+      "unit": "bytes",
+      "rule_evaluation": "remote",
+      "tenants": [
+        {
+          "tenant": "dashboards",
+          "driver_raw": 4468918585.423728,
+          "driver": 4468918585.423728,
+          "share": 0.9417361345176958,
+          "cost_per_month": 150.6777815228313
+        },
+        {
+          "tenant": "rules",
+          "driver_raw": 130466609.38992316,
+          "driver": 130466609.38992316,
+          "share": 0.0274932554849501,
+          "cost_per_month": 4.398920877592015
+        },
+        {
+          "tenant": "cardinal",
+          "driver_raw": 87752831.29567118,
+          "driver": 87752831.29567118,
+          "share": 0.0184921722241519,
+          "cost_per_month": 2.9587475558643037
+        },
+        {
+          "tenant": "steady",
+          "driver_raw": 43200569.49152542,
+          "driver": 43200569.49152542,
+          "share": 0.00910366491226977,
+          "cost_per_month": 1.4565863859631631
+        },
+        {
+          "tenant": "latecomer",
+          "driver_raw": 10987683.050847458,
+          "driver": 10987683.050847458,
+          "share": 0.002315436713785998,
+          "cost_per_month": 0.37046987420575966
+        },
+        {
+          "tenant": "churn",
+          "driver_raw": 3606782.6193898306,
+          "driver": 3606782.6193898306,
+          "share": 0.0007600580447154713,
+          "cost_per_month": 0.12160928715447542
+        },
+        {
+          "tenant": "monitoring",
+          "driver_raw": 317707.9422,
+          "driver": 317707.9422,
+          "share": 0.0000669506601370834,
+          "cost_per_month": 0.010712105621933345
+        },
+        {
+          "tenant": "tiny",
+          "driver_raw": 153406.77966101695,
+          "driver": 153406.77966101695,
+          "share": 0.000032327442293978586,
+          "cost_per_month": 0.005172390767036574
+        },
+        {
+          "tenant": "ghost",
+          "driver_raw": 0,
+          "driver": 0,
+          "share": 0,
+          "cost_per_month": 0
+        }
+      ],
+      "total_raw": 4745404175.992946,
+      "total": 4745404175.992946,
+      "components": [
+        {
+          "name": "query-frontend",
+          "replicas": 1,
+          "cost_per_replica_month": 40,
+          "cost_per_month": 40
+        },
+        {
+          "name": "querier",
+          "replicas": 2,
+          "cost_per_replica_month": 60,
+          "cost_per_month": 120
+        }
+      ],
+      "pool_cost_per_month": 160,
+      "currency": "EUR",
+      "costed": true,
+      "assumptions": [
+        {
+          "name": "driver",
+          "value": "cortex_query_fetched_chunk_bytes_total (chunk bytes fetched), total increase over 30m",
+          "source": "Mimir metrics (queried as tenant monitoring)"
+        },
+        {
+          "name": "driver query",
+          "value": "sum by (user) (increase(cortex_query_fetched_chunk_bytes_total[30m]))",
+          "source": "Mimir metrics (queried as tenant monitoring)"
+        },
+        {
+          "name": "driver preference",
+          "value": "fetched volume over time: cortex_query_fetched_chunk_bytes_total → cortex_query_samples_processed_total → cortex_query_fetched_series_total → cortex_query_seconds_total; the first with data is used",
+          "source": "ADR 0003 pool 6, ADR 0002 decision 8"
+        },
+        {
+          "name": "rule queries",
+          "value": "included — rules are evaluated remotely, so every tenant's rule queries are in this pool alongside its user queries, and no label separates the two (inferred: the ruler's job (job=~\".*ruler\") evaluated rules but has no cortex_distributor_query_duration_seconds_count data, which a ruler evaluating locally always records, so its queries go to the query-frontend)",
+          "source": "Mimir metrics (queried as tenant monitoring)"
+        },
+        {
+          "name": "query-frontend price",
+          "value": "40.00 EUR per query-frontend-month × 1 = 40.00 EUR/month",
+          "source": "promcost.yaml inventory"
+        },
+        {
+          "name": "querier price",
+          "value": "60.00 EUR per querier-month × 2 = 120.00 EUR/month",
+          "source": "promcost.yaml inventory"
+        }
+      ]
+    },
+    {
+      "pool": {
+        "id": "ruler_cpu",
+        "name": "ruler CPU",
+        "replica_noun": "ruler",
+        "driver": "cortex_prometheus_rule_evaluation_duration_seconds_sum",
+        "driver_unit": "rule-evaluation seconds",
+        "cumulative": true
+      },
+      "window": "30m",
+      "end": "2026-10-22T03:26:58.186369178Z",
+      "driver_kind": "rule-evaluation seconds",
+      "unit": "seconds",
+      "rule_evaluation": "remote",
+      "tenants": [
+        {
+          "tenant": "rules",
+          "driver_raw": 336.3595699454213,
+          "driver": 336.3595699454213,
+          "share": 0.9041913531168905,
+          "equivalent_replicas": 0.9041913531168905,
+          "cost_per_month": 54.251481187013425
+        },
+        {
+          "tenant": "steady",
+          "driver_raw": 11.85543663355932,
+          "driver": 11.85543663355932,
+          "share": 0.031869416687709956,
+          "equivalent_replicas": 0.031869416687709956,
+          "cost_per_month": 1.9121650012625975
+        },
+        {
+          "tenant": "cardinal",
+          "driver_raw": 6.604332532881351,
+          "driver": 6.604332532881351,
+          "share": 0.01775356167303001,
+          "equivalent_replicas": 0.01775356167303001,
+          "cost_per_month": 1.0652137003818007
+        },
+        {
+          "tenant": "dashboards",
+          "driver_raw": 6.351663549152549,
+          "driver": 6.351663549152549,
+          "share": 0.01707434475547513,
+          "equivalent_replicas": 0.01707434475547513,
+          "cost_per_month": 1.0244606853285076
+        },
+        {
+          "tenant": "latecomer",
+          "driver_raw": 4.967884653559319,
+          "driver": 4.967884653559319,
+          "share": 0.013354513289927525,
+          "equivalent_replicas": 0.013354513289927525,
+          "cost_per_month": 0.8012707973956514
+        },
+        {
+          "tenant": "churn",
+          "driver_raw": 4.639747309830507,
+          "driver": 4.639747309830507,
+          "share": 0.012472424670054215,
+          "equivalent_replicas": 0.012472424670054215,
+          "cost_per_month": 0.7483454802032529
+        },
+        {
+          "tenant": "ghost",
+          "driver_raw": 0.7638757138983142,
+          "driver": 0.7638757138983142,
+          "share": 0.0020534269783818574,
+          "equivalent_replicas": 0.0020534269783818574,
+          "cost_per_month": 0.12320561870291144
+        },
+        {
+          "tenant": "tiny",
+          "driver_raw": 0.45791721050847456,
+          "driver": 0.45791721050847456,
+          "share": 0.0012309588285308896,
+          "equivalent_replicas": 0.0012309588285308896,
+          "cost_per_month": 0.07385752971185337
+        }
+      ],
+      "total_raw": 372.0004275488111,
+      "total": 372.0004275488111,
+      "replicas": 1,
+      "cost_per_replica_month": 60,
+      "pool_cost_per_month": 60,
+      "currency": "EUR",
+      "costed": true,
+      "assumptions": [
+        {
+          "name": "driver",
+          "value": "cortex_prometheus_rule_evaluation_duration_seconds_sum (rule-evaluation seconds), total increase over 30m",
+          "source": "Mimir metrics (queried as tenant monitoring)"
+        },
+        {
+          "name": "driver query",
+          "value": "sum by (user) (increase(cortex_prometheus_rule_evaluation_duration_seconds_sum[30m]))",
+          "source": "Mimir metrics (queried as tenant monitoring)"
+        },
+        {
+          "name": "rule evaluation",
+          "value": "remote (inferred: the ruler's job (job=~\".*ruler\") evaluated rules but has no cortex_distributor_query_duration_seconds_count data, which a ruler evaluating locally always records, so its queries go to the query-frontend): the rule queries' work is priced in the query path",
+          "source": "Mimir metrics (queried as tenant monitoring)"
+        },
+        {
+          "name": "ruler replicas",
+          "value": "1",
+          "source": "promcost.yaml inventory"
+        },
+        {
+          "name": "price",
+          "value": "60.00 EUR per ruler-month × 1 = 60.00 EUR/month",
+          "source": "promcost.yaml inventory"
+        }
+      ],
+      "notes": [
+        "rules are evaluated remotely, so this time is mostly the ruler waiting on the query path, not ruler CPU: it shows how long each tenant's rules occupy the ruler, and the work behind it is already in the query path pool. It also depends on load — a tenant's rules run slower when a neighbour loads the cluster"
+      ]
+    }
+  ],
+  "cross_pool": {
+    "priced_pools": [
+      "ingester_memory",
+      "query_path",
+      "ruler_cpu"
+    ],
+    "not_modelled": [
+      "ingester write path",
+      "object storage",
+      "store-gateway",
+      "compactor"
+    ],
+    "currency": "EUR",
+    "priced_cost_per_month": 580,
+    "tenants": [
+      {
+        "tenant": "monitoring",
+        "cost_per_month": 219.07771887799214,
+        "share": 0.37772020496205544,
+        "pools": [
+          {
+            "pool": "ingester_memory",
+            "cost_per_month": 219.0670067723702
+          },
+          {
+            "pool": "query_path",
+            "cost_per_month": 0.010712105621933345
+          }
+        ],
+        "not_measured_in": [
+          "ruler_cpu"
+        ]
+      },
+      {
+        "tenant": "dashboards",
+        "cost_per_month": 160.03285756768622,
+        "share": 0.2759187199442866,
+        "pools": [
+          {
+            "pool": "ingester_memory",
+            "cost_per_month": 8.330615359526394
+          },
+          {
+            "pool": "query_path",
+            "cost_per_month": 150.6777815228313
+          },
+          {
+            "pool": "ruler_cpu",
+            "cost_per_month": 1.0244606853285076
+          }
+        ]
+      },
+      {
+        "tenant": "rules",
+        "cost_per_month": 66.25201069483896,
+        "share": 0.11422760464627407,
+        "pools": [
+          {
+            "pool": "ingester_memory",
+            "cost_per_month": 7.6016086302335095
+          },
+          {
+            "pool": "query_path",
+            "cost_per_month": 4.398920877592015
+          },
+          {
+            "pool": "ruler_cpu",
+            "cost_per_month": 54.251481187013425
+          }
+        ]
+      },
+      {
+        "tenant": "steady",
+        "cost_per_month": 65.7227115776275,
+        "share": 0.11331501996142673,
+        "pools": [
+          {
+            "pool": "ingester_memory",
+            "cost_per_month": 62.35396019040175
+          },
+          {
+            "pool": "query_path",
+            "cost_per_month": 1.4565863859631631
+          },
+          {
+            "pool": "ruler_cpu",
+            "cost_per_month": 1.9121650012625975
+          }
+        ]
+      },
+      {
+        "tenant": "cardinal",
+        "cost_per_month": 45.58357565268669,
+        "share": 0.07859237181497705,
+        "pools": [
+          {
+            "pool": "ingester_memory",
+            "cost_per_month": 41.55961439644058
+          },
+          {
+            "pool": "query_path",
+            "cost_per_month": 2.9587475558643037
+          },
+          {
+            "pool": "ruler_cpu",
+            "cost_per_month": 1.0652137003818007
+          }
+        ]
+      },
+      {
+        "tenant": "churn",
+        "cost_per_month": 13.354454624279484,
+        "share": 0.023024921765999108,
+        "pools": [
+          {
+            "pool": "ingester_memory",
+            "cost_per_month": 12.484499856921754
+          },
+          {
+            "pool": "query_path",
+            "cost_per_month": 0.12160928715447542
+          },
+          {
+            "pool": "ruler_cpu",
+            "cost_per_month": 0.7483454802032529
+          }
+        ]
+      },
+      {
+        "tenant": "latecomer",
+        "cost_per_month": 5.348471533732446,
+        "share": 0.009221502644366286,
+        "pools": [
+          {
+            "pool": "ingester_memory",
+            "cost_per_month": 4.176730862131035
+          },
+          {
+            "pool": "query_path",
+            "cost_per_month": 0.37046987420575966
+          },
+          {
+            "pool": "ruler_cpu",
+            "cost_per_month": 0.8012707973956514
+          }
+        ]
+      },
+      {
+        "tenant": "ghost",
+        "cost_per_month": 4.507630705703715,
+        "share": 0.007771777078799508,
+        "pools": [
+          {
+            "pool": "ingester_memory",
+            "cost_per_month": 4.384425087000803
+          },
+          {
+            "pool": "query_path",
+            "cost_per_month": 0
+          },
+          {
+            "pool": "ruler_cpu",
+            "cost_per_month": 0.12320561870291144
+          }
+        ]
+      },
+      {
+        "tenant": "tiny",
+        "cost_per_month": 0.12056876545284355,
+        "share": 0.0002078771818152475,
+        "pools": [
+          {
+            "pool": "ingester_memory",
+            "cost_per_month": 0.041538844973953604
+          },
+          {
+            "pool": "query_path",
+            "cost_per_month": 0.005172390767036574
+          },
+          {
+            "pool": "ruler_cpu",
+            "cost_per_month": 0.07385752971185337
+          }
+        ]
+      }
+    ],
+    "notes": [
+      "rules are evaluated remotely, so a tenant's rule queries drive its share of both the query path (the work) and the ruler (the time spent waiting for it). Each pool's cost is split once, so nothing is counted twice, but a rule-heavy tenant's total weighs the same queries in both"
+    ]
+  },
+  "rule_outputs": {
+    "measured_at": "2026-10-22T03:26:58.22629812Z",
+    "count_query": "count by (__name__) ({__name__=~\"\u003cname\u003e|\u003cname\u003e|...\"})",
+    "queries_issued": 9,
+    "tenants": [
+      {
+        "tenant": "rules",
+        "recording_rules": 120,
+        "alerting_rules": 120,
+        "output_metrics": 120,
+        "not_measured_metrics": 0,
+        "output_series": 660,
+        "output_series_complete": true,
+        "active_series": 3660,
+        "share_of_active_series": 0.18032786885245902,
+        "rules": [
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-00",
+            "rule": "rules:load_r0:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r0:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-00",
+            "rule": "rules:load_r2:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r2:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-00",
+            "rule": "rules:load_r4:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r4:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-00",
+            "rule": "rules:load_r6:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r6:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-00",
+            "rule": "rules:load_r8:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r8:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-01",
+            "rule": "rules:load_r10:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r10:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-01",
+            "rule": "rules:load_r12:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r12:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-01",
+            "rule": "rules:load_r14:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r14:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-01",
+            "rule": "rules:load_r16:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r16:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-01",
+            "rule": "rules:load_r18:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r18:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-02",
+            "rule": "rules:load_r20:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r20:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-02",
+            "rule": "rules:load_r22:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r22:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-02",
+            "rule": "rules:load_r24:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r24:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-02",
+            "rule": "rules:load_r26:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r26:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-02",
+            "rule": "rules:load_r28:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r28:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-03",
+            "rule": "rules:load_r30:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r30:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-03",
+            "rule": "rules:load_r32:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r32:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-03",
+            "rule": "rules:load_r34:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r34:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-03",
+            "rule": "rules:load_r36:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r36:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-03",
+            "rule": "rules:load_r38:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r38:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-04",
+            "rule": "rules:load_r40:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r40:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-04",
+            "rule": "rules:load_r42:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r42:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-04",
+            "rule": "rules:load_r44:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r44:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-04",
+            "rule": "rules:load_r46:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r46:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-04",
+            "rule": "rules:load_r48:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r48:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-05",
+            "rule": "rules:load_r50:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r50:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-05",
+            "rule": "rules:load_r52:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r52:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-05",
+            "rule": "rules:load_r54:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r54:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-05",
+            "rule": "rules:load_r56:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r56:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-05",
+            "rule": "rules:load_r58:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r58:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-06",
+            "rule": "rules:load_r60:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r60:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-06",
+            "rule": "rules:load_r62:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r62:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-06",
+            "rule": "rules:load_r64:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r64:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-06",
+            "rule": "rules:load_r66:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r66:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-06",
+            "rule": "rules:load_r68:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r68:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-07",
+            "rule": "rules:load_r70:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r70:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-07",
+            "rule": "rules:load_r72:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r72:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-07",
+            "rule": "rules:load_r74:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r74:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-07",
+            "rule": "rules:load_r76:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r76:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-07",
+            "rule": "rules:load_r78:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r78:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-08",
+            "rule": "rules:load_r80:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r80:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-08",
+            "rule": "rules:load_r82:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r82:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-08",
+            "rule": "rules:load_r84:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r84:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-08",
+            "rule": "rules:load_r86:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r86:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-08",
+            "rule": "rules:load_r88:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r88:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-09",
+            "rule": "rules:load_r90:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r90:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-09",
+            "rule": "rules:load_r92:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r92:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-09",
+            "rule": "rules:load_r94:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r94:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-09",
+            "rule": "rules:load_r96:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r96:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-09",
+            "rule": "rules:load_r98:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r98:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-10",
+            "rule": "rules:load_r100:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r100:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-10",
+            "rule": "rules:load_r102:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r102:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-10",
+            "rule": "rules:load_r104:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r104:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-10",
+            "rule": "rules:load_r106:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r106:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-10",
+            "rule": "rules:load_r108:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r108:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-11",
+            "rule": "rules:load_r110:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r110:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-11",
+            "rule": "rules:load_r112:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r112:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-11",
+            "rule": "rules:load_r114:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r114:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-11",
+            "rule": "rules:load_r116:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r116:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-11",
+            "rule": "rules:load_r118:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "rules:load_r118:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.00273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-00",
+            "rule": "rules:load_r1:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r1:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-00",
+            "rule": "rules:load_r3:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r3:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-00",
+            "rule": "rules:load_r5:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r5:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-00",
+            "rule": "rules:load_r7:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r7:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-00",
+            "rule": "rules:load_r9:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r9:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-01",
+            "rule": "rules:load_r11:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r11:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-01",
+            "rule": "rules:load_r13:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r13:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-01",
+            "rule": "rules:load_r15:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r15:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-01",
+            "rule": "rules:load_r17:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r17:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-01",
+            "rule": "rules:load_r19:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r19:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-02",
+            "rule": "rules:load_r21:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r21:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-02",
+            "rule": "rules:load_r23:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r23:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-02",
+            "rule": "rules:load_r25:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r25:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-02",
+            "rule": "rules:load_r27:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r27:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-02",
+            "rule": "rules:load_r29:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r29:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-03",
+            "rule": "rules:load_r31:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r31:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-03",
+            "rule": "rules:load_r33:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r33:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-03",
+            "rule": "rules:load_r35:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r35:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-03",
+            "rule": "rules:load_r37:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r37:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-03",
+            "rule": "rules:load_r39:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r39:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-04",
+            "rule": "rules:load_r41:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r41:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-04",
+            "rule": "rules:load_r43:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r43:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-04",
+            "rule": "rules:load_r45:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r45:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-04",
+            "rule": "rules:load_r47:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r47:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-04",
+            "rule": "rules:load_r49:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r49:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-05",
+            "rule": "rules:load_r51:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r51:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-05",
+            "rule": "rules:load_r53:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r53:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-05",
+            "rule": "rules:load_r55:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r55:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-05",
+            "rule": "rules:load_r57:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r57:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-05",
+            "rule": "rules:load_r59:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r59:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-06",
+            "rule": "rules:load_r61:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r61:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-06",
+            "rule": "rules:load_r63:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r63:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-06",
+            "rule": "rules:load_r65:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r65:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-06",
+            "rule": "rules:load_r67:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r67:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-06",
+            "rule": "rules:load_r69:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r69:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-07",
+            "rule": "rules:load_r71:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r71:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-07",
+            "rule": "rules:load_r73:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r73:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-07",
+            "rule": "rules:load_r75:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r75:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-07",
+            "rule": "rules:load_r77:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r77:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-07",
+            "rule": "rules:load_r79:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r79:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-08",
+            "rule": "rules:load_r81:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r81:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-08",
+            "rule": "rules:load_r83:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r83:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-08",
+            "rule": "rules:load_r85:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r85:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-08",
+            "rule": "rules:load_r87:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r87:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-08",
+            "rule": "rules:load_r89:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r89:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-09",
+            "rule": "rules:load_r91:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r91:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-09",
+            "rule": "rules:load_r93:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r93:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-09",
+            "rule": "rules:load_r95:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r95:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-09",
+            "rule": "rules:load_r97:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r97:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-09",
+            "rule": "rules:load_r99:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r99:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-10",
+            "rule": "rules:load_r101:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r101:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-10",
+            "rule": "rules:load_r103:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r103:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-10",
+            "rule": "rules:load_r105:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r105:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-10",
+            "rule": "rules:load_r107:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r107:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-10",
+            "rule": "rules:load_r109:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r109:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-11",
+            "rule": "rules:load_r111:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r111:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-11",
+            "rule": "rules:load_r113:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r113:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-11",
+            "rule": "rules:load_r115:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r115:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-11",
+            "rule": "rules:load_r117:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r117:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-11",
+            "rule": "rules:load_r119:rate_sum",
+            "kind": "recording",
+            "output_metric": "rules:load_r119:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.000273224043715847
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-00",
+            "rule": "RulesLoadNeverFires0",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-00",
+            "rule": "RulesLoadNeverFires1",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-00",
+            "rule": "RulesLoadNeverFires2",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-00",
+            "rule": "RulesLoadNeverFires3",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-00",
+            "rule": "RulesLoadNeverFires4",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-00",
+            "rule": "RulesLoadNeverFires5",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-00",
+            "rule": "RulesLoadNeverFires6",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-00",
+            "rule": "RulesLoadNeverFires7",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-00",
+            "rule": "RulesLoadNeverFires8",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-00",
+            "rule": "RulesLoadNeverFires9",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-01",
+            "rule": "RulesLoadNeverFires10",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-01",
+            "rule": "RulesLoadNeverFires11",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-01",
+            "rule": "RulesLoadNeverFires12",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-01",
+            "rule": "RulesLoadNeverFires13",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-01",
+            "rule": "RulesLoadNeverFires14",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-01",
+            "rule": "RulesLoadNeverFires15",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-01",
+            "rule": "RulesLoadNeverFires16",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-01",
+            "rule": "RulesLoadNeverFires17",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-01",
+            "rule": "RulesLoadNeverFires18",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-01",
+            "rule": "RulesLoadNeverFires19",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-02",
+            "rule": "RulesLoadNeverFires20",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-02",
+            "rule": "RulesLoadNeverFires21",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-02",
+            "rule": "RulesLoadNeverFires22",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-02",
+            "rule": "RulesLoadNeverFires23",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-02",
+            "rule": "RulesLoadNeverFires24",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-02",
+            "rule": "RulesLoadNeverFires25",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-02",
+            "rule": "RulesLoadNeverFires26",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-02",
+            "rule": "RulesLoadNeverFires27",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-02",
+            "rule": "RulesLoadNeverFires28",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-02",
+            "rule": "RulesLoadNeverFires29",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-03",
+            "rule": "RulesLoadNeverFires30",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-03",
+            "rule": "RulesLoadNeverFires31",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-03",
+            "rule": "RulesLoadNeverFires32",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-03",
+            "rule": "RulesLoadNeverFires33",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-03",
+            "rule": "RulesLoadNeverFires34",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-03",
+            "rule": "RulesLoadNeverFires35",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-03",
+            "rule": "RulesLoadNeverFires36",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-03",
+            "rule": "RulesLoadNeverFires37",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-03",
+            "rule": "RulesLoadNeverFires38",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-03",
+            "rule": "RulesLoadNeverFires39",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-04",
+            "rule": "RulesLoadNeverFires40",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-04",
+            "rule": "RulesLoadNeverFires41",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-04",
+            "rule": "RulesLoadNeverFires42",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-04",
+            "rule": "RulesLoadNeverFires43",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-04",
+            "rule": "RulesLoadNeverFires44",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-04",
+            "rule": "RulesLoadNeverFires45",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-04",
+            "rule": "RulesLoadNeverFires46",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-04",
+            "rule": "RulesLoadNeverFires47",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-04",
+            "rule": "RulesLoadNeverFires48",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-04",
+            "rule": "RulesLoadNeverFires49",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-05",
+            "rule": "RulesLoadNeverFires50",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-05",
+            "rule": "RulesLoadNeverFires51",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-05",
+            "rule": "RulesLoadNeverFires52",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-05",
+            "rule": "RulesLoadNeverFires53",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-05",
+            "rule": "RulesLoadNeverFires54",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-05",
+            "rule": "RulesLoadNeverFires55",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-05",
+            "rule": "RulesLoadNeverFires56",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-05",
+            "rule": "RulesLoadNeverFires57",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-05",
+            "rule": "RulesLoadNeverFires58",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-05",
+            "rule": "RulesLoadNeverFires59",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-06",
+            "rule": "RulesLoadNeverFires60",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-06",
+            "rule": "RulesLoadNeverFires61",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-06",
+            "rule": "RulesLoadNeverFires62",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-06",
+            "rule": "RulesLoadNeverFires63",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-06",
+            "rule": "RulesLoadNeverFires64",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-06",
+            "rule": "RulesLoadNeverFires65",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-06",
+            "rule": "RulesLoadNeverFires66",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-06",
+            "rule": "RulesLoadNeverFires67",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-06",
+            "rule": "RulesLoadNeverFires68",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-06",
+            "rule": "RulesLoadNeverFires69",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-07",
+            "rule": "RulesLoadNeverFires70",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-07",
+            "rule": "RulesLoadNeverFires71",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-07",
+            "rule": "RulesLoadNeverFires72",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-07",
+            "rule": "RulesLoadNeverFires73",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-07",
+            "rule": "RulesLoadNeverFires74",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-07",
+            "rule": "RulesLoadNeverFires75",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-07",
+            "rule": "RulesLoadNeverFires76",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-07",
+            "rule": "RulesLoadNeverFires77",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-07",
+            "rule": "RulesLoadNeverFires78",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-07",
+            "rule": "RulesLoadNeverFires79",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-08",
+            "rule": "RulesLoadNeverFires80",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-08",
+            "rule": "RulesLoadNeverFires81",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-08",
+            "rule": "RulesLoadNeverFires82",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-08",
+            "rule": "RulesLoadNeverFires83",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-08",
+            "rule": "RulesLoadNeverFires84",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-08",
+            "rule": "RulesLoadNeverFires85",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-08",
+            "rule": "RulesLoadNeverFires86",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-08",
+            "rule": "RulesLoadNeverFires87",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-08",
+            "rule": "RulesLoadNeverFires88",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-08",
+            "rule": "RulesLoadNeverFires89",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-09",
+            "rule": "RulesLoadNeverFires90",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-09",
+            "rule": "RulesLoadNeverFires91",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-09",
+            "rule": "RulesLoadNeverFires92",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-09",
+            "rule": "RulesLoadNeverFires93",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-09",
+            "rule": "RulesLoadNeverFires94",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-09",
+            "rule": "RulesLoadNeverFires95",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-09",
+            "rule": "RulesLoadNeverFires96",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-09",
+            "rule": "RulesLoadNeverFires97",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-09",
+            "rule": "RulesLoadNeverFires98",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-09",
+            "rule": "RulesLoadNeverFires99",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-10",
+            "rule": "RulesLoadNeverFires100",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-10",
+            "rule": "RulesLoadNeverFires101",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-10",
+            "rule": "RulesLoadNeverFires102",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-10",
+            "rule": "RulesLoadNeverFires103",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-10",
+            "rule": "RulesLoadNeverFires104",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-10",
+            "rule": "RulesLoadNeverFires105",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-10",
+            "rule": "RulesLoadNeverFires106",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-10",
+            "rule": "RulesLoadNeverFires107",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-10",
+            "rule": "RulesLoadNeverFires108",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-10",
+            "rule": "RulesLoadNeverFires109",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-11",
+            "rule": "RulesLoadNeverFires110",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-11",
+            "rule": "RulesLoadNeverFires111",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-11",
+            "rule": "RulesLoadNeverFires112",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-11",
+            "rule": "RulesLoadNeverFires113",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-11",
+            "rule": "RulesLoadNeverFires114",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-11",
+            "rule": "RulesLoadNeverFires115",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-11",
+            "rule": "RulesLoadNeverFires116",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-11",
+            "rule": "RulesLoadNeverFires117",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-11",
+            "rule": "RulesLoadNeverFires118",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "rules-load-11",
+            "rule": "RulesLoadNeverFires119",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          }
+        ]
+      },
+      {
+        "tenant": "steady",
+        "recording_rules": 4,
+        "alerting_rules": 2,
+        "output_metrics": 4,
+        "not_measured_metrics": 0,
+        "output_series": 22,
+        "output_series_complete": true,
+        "active_series": 30022,
+        "share_of_active_series": 0.000732795949636933,
+        "rules": [
+          {
+            "namespace": "loadgen",
+            "group": "steady-load-00",
+            "rule": "steady:load_r0:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "steady:load_r0:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.0003330890680167877
+          },
+          {
+            "namespace": "loadgen",
+            "group": "steady-load-00",
+            "rule": "steady:load_r2:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "steady:load_r2:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.0003330890680167877
+          },
+          {
+            "namespace": "loadgen",
+            "group": "steady-load-00",
+            "rule": "steady:load_r1:rate_sum",
+            "kind": "recording",
+            "output_metric": "steady:load_r1:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.00003330890680167877
+          },
+          {
+            "namespace": "loadgen",
+            "group": "steady-load-00",
+            "rule": "steady:load_r3:rate_sum",
+            "kind": "recording",
+            "output_metric": "steady:load_r3:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.00003330890680167877
+          },
+          {
+            "namespace": "loadgen",
+            "group": "steady-load-00",
+            "rule": "SteadyLoadNeverFires0",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "steady-load-00",
+            "rule": "SteadyLoadNeverFires1",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          }
+        ]
+      },
+      {
+        "tenant": "churn",
+        "recording_rules": 2,
+        "alerting_rules": 0,
+        "output_metrics": 2,
+        "not_measured_metrics": 0,
+        "output_series": 11,
+        "output_series_complete": true,
+        "active_series": 6011,
+        "share_of_active_series": 0.0018299783729828648,
+        "rules": [
+          {
+            "namespace": "loadgen",
+            "group": "churn-load-00",
+            "rule": "churn:load_r0:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "churn:load_r0:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.0016636167027116952
+          },
+          {
+            "namespace": "loadgen",
+            "group": "churn-load-00",
+            "rule": "churn:load_r1:rate_sum",
+            "kind": "recording",
+            "output_metric": "churn:load_r1:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.00016636167027116953
+          }
+        ]
+      },
+      {
+        "tenant": "dashboards",
+        "recording_rules": 2,
+        "alerting_rules": 2,
+        "output_metrics": 2,
+        "not_measured_metrics": 0,
+        "output_series": 11,
+        "output_series_complete": true,
+        "active_series": 4011,
+        "share_of_active_series": 0.002742458239840439,
+        "rules": [
+          {
+            "namespace": "loadgen",
+            "group": "dashboards-load-00",
+            "rule": "dashboards:load_r0:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "dashboards:load_r0:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.0024931438544003987
+          },
+          {
+            "namespace": "loadgen",
+            "group": "dashboards-load-00",
+            "rule": "dashboards:load_r1:rate_sum",
+            "kind": "recording",
+            "output_metric": "dashboards:load_r1:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.0002493143854400399
+          },
+          {
+            "namespace": "loadgen",
+            "group": "dashboards-load-00",
+            "rule": "DashboardsLoadNeverFires0",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "dashboards-load-00",
+            "rule": "DashboardsLoadNeverFires1",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          }
+        ]
+      },
+      {
+        "tenant": "latecomer",
+        "recording_rules": 2,
+        "alerting_rules": 1,
+        "output_metrics": 2,
+        "not_measured_metrics": 0,
+        "output_series": 11,
+        "output_series_complete": true,
+        "active_series": 2011,
+        "share_of_active_series": 0.005469915464942815,
+        "rules": [
+          {
+            "namespace": "loadgen",
+            "group": "latecomer-load-00",
+            "rule": "latecomer:load_r0:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "latecomer:load_r0:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.004972650422675286
+          },
+          {
+            "namespace": "loadgen",
+            "group": "latecomer-load-00",
+            "rule": "latecomer:load_r1:rate_sum",
+            "kind": "recording",
+            "output_metric": "latecomer:load_r1:rate_sum",
+            "status": "series",
+            "series": 1,
+            "share_of_tenant_active_series": 0.0004972650422675286
+          },
+          {
+            "namespace": "loadgen",
+            "group": "latecomer-load-00",
+            "rule": "LatecomerLoadNeverFires0",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          }
+        ]
+      },
+      {
+        "tenant": "cardinal",
+        "recording_rules": 1,
+        "alerting_rules": 0,
+        "output_metrics": 1,
+        "not_measured_metrics": 0,
+        "output_series": 10,
+        "output_series_complete": true,
+        "active_series": 20010,
+        "share_of_active_series": 0.0004997501249375312,
+        "rules": [
+          {
+            "namespace": "loadgen",
+            "group": "cardinal-load-00",
+            "rule": "cardinal:load_r0:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "cardinal:load_r0:rate_by_shard",
+            "status": "series",
+            "series": 10,
+            "share_of_tenant_active_series": 0.0004997501249375312
+          }
+        ]
+      },
+      {
+        "tenant": "ghost",
+        "recording_rules": 2,
+        "alerting_rules": 0,
+        "output_metrics": 2,
+        "not_measured_metrics": 0,
+        "output_series": 0,
+        "output_series_complete": true,
+        "active_series": 2111,
+        "share_of_active_series": 0,
+        "rules": [
+          {
+            "namespace": "loadgen",
+            "group": "ghost-load-00",
+            "rule": "ghost:load_r0:rate_by_shard",
+            "kind": "recording",
+            "output_metric": "ghost:load_r0:rate_by_shard",
+            "status": "no_series",
+            "series": 0,
+            "share_of_tenant_active_series": 0,
+            "reason": "no series right now: never evaluated, evaluates to an empty vector, or its selectors match nothing"
+          },
+          {
+            "namespace": "loadgen",
+            "group": "ghost-load-00",
+            "rule": "ghost:load_r1:rate_sum",
+            "kind": "recording",
+            "output_metric": "ghost:load_r1:rate_sum",
+            "status": "no_series",
+            "series": 0,
+            "share_of_tenant_active_series": 0,
+            "reason": "no series right now: never evaluated, evaluates to an empty vector, or its selectors match nothing"
+          }
+        ]
+      },
+      {
+        "tenant": "tiny",
+        "recording_rules": 0,
+        "alerting_rules": 1,
+        "output_metrics": 0,
+        "not_measured_metrics": 0,
+        "output_series_complete": false,
+        "active_series": 20,
+        "rules": [
+          {
+            "namespace": "loadgen",
+            "group": "tiny-load-00",
+            "rule": "TinyLoadNeverFires0",
+            "kind": "alerting",
+            "status": "no_output",
+            "reason": "alerting rule: writes no series (its cost is ruler CPU and query load, not ingester memory)"
+          }
+        ]
+      }
+    ],
+    "assumptions": [
+      {
+        "name": "output metric",
+        "value": "a recording rule's record: name is the metric it writes",
+        "source": "rule definitions"
+      },
+      {
+        "name": "series count",
+        "value": "point-in-time, at 2026-10-22T03:26:58Z; not an average over the cost window, so shares divide it by a window average (see notes)",
+        "source": "Mimir query API, queried as each rule's own tenant"
+      },
+      {
+        "name": "count query",
+        "value": "count by (__name__) ({__name__=~\"\u003cname\u003e|\u003cname\u003e|...\"})",
+        "source": "Mimir query API, queried as each rule's own tenant"
+      },
+      {
+        "name": "count queries in pool 6",
+        "value": "the count queries run through the query path as each tenant, so they are recorded in that tenant's query-path (pool 6) counters, like any other API query. This run read pool 6 before counting; a later run whose window includes this one charges them to each tenant counted",
+        "source": "Mimir query API, queried as each rule's own tenant"
+      },
+      {
+        "name": "what is counted",
+        "value": "every series named after the rule's record: name in the tenant, including any written by something other than this rule",
+        "source": "PromQL semantics"
+      },
+      {
+        "name": "presence",
+        "value": "an instant query counts series with a sample inside the lookback window (5m by default), which is close to, but not the same as, the ingester's active-series idle timeout",
+        "source": "PromQL semantics"
+      },
+      {
+        "name": "denominator",
+        "value": "cortex_ingester_active_series (active series) per tenant, averaged over the 30m ending 2026-10-22T03:26:58Z, divided by the replication factor",
+        "source": "pool 1 (ingester memory) above"
+      },
+      {
+        "name": "replication factor",
+        "value": "1",
+        "source": "ingest storage: one owner per partition, zone replicas collapsed with max, so there is nothing to divide"
+      }
+    ],
+    "notes": [
+      "these counts are queries run as each tenant through the query path, so they appear in that tenant's query-path (pool 6) figures for any window that includes a --rule-outputs run: a tenant that never queries can turn from not measured into measured there. This run read pool 6 before counting, so its own pool-6 figures are unaffected",
+      "a share compares a point-in-time count with pool 1's window-average active series, so the two diverge whenever series are changing: a rule added or edited, or series repopulating after a restart or rollout. Read the share as indicative then, and re-run once the count has settled"
+    ]
+  },
+  "generated_at": "2026-10-22T03:26:58.186511455Z"
+}
