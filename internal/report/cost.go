@@ -10,14 +10,19 @@ import (
 	"time"
 
 	"github.com/KorhanOzturk90/obscost/internal/cost"
+	"github.com/KorhanOzturk90/obscost/internal/ruleoutput"
 )
 
 // CostResult is everything a CostReporter needs to render one
 // `promcost cost` run. It holds one allocation per pool; today that is
 // only pool 1, and no cross-pool total is rendered (see internal/cost's
 // package doc for why).
+//
+// RuleOutputs is the optional rule -> output-series drill-down under pool
+// 1 (issue #37). It is nil unless `--rule-outputs` was asked for.
 type CostResult struct {
 	Pools       []cost.PoolAllocation `json:"pools"`
+	RuleOutputs *ruleoutput.Report    `json:"rule_outputs,omitempty"`
 	GeneratedAt time.Time             `json:"generated_at"`
 }
 
@@ -91,16 +96,28 @@ Average over the last {{.Window}}, ending {{.End}}. {{.Capacity}}
 | Input | Value | Source |
 |---|---|---|
 {{range .Assumptions}}| {{.Name}} | {{mdcell .Value}} | {{mdcell .Source}} |
-{{end}}{{end}}
-Generated {{.GeneratedAt}}.
-`
+{{end}}{{end}}`
 
+// Render writes the pools, then the rule-output section if one was
+// measured, then the generated-at line.
 func (costMDReporter) Render(w io.Writer, result CostResult) error {
 	data := costMDData(result)
-	return costMDTemplate.Execute(w, data)
+	if err := costMDTemplate.Execute(w, data); err != nil {
+		return err
+	}
+	if result.RuleOutputs != nil {
+		if err := ruleOutputMDTemplate.Execute(w, ruleOutputMDData(*result.RuleOutputs)); err != nil {
+			return err
+		}
+	}
+	_, err := fmt.Fprintf(w, "\nGenerated %s.\n", data.GeneratedAt)
+	return err
 }
 
-var costMDTemplate = template.Must(template.New("cost").Funcs(template.FuncMap{
+var costMDTemplate = template.Must(template.New("cost").Funcs(mdFuncs).Parse(costMDTemplateSrc))
+
+// mdFuncs is shared by the cost and rule-output templates.
+var mdFuncs = template.FuncMap{
 	// mdcell code-formats a table cell. A pipe must be escaped even inside
 	// backticks — GFM splits table cells before parsing code spans, and
 	// the ingest-storage driver query contains a regex alternation.
@@ -108,7 +125,7 @@ var costMDTemplate = template.Must(template.New("cost").Funcs(template.FuncMap{
 		s = strings.ReplaceAll(s, "`", "'")
 		return "`" + strings.ReplaceAll(s, "|", `\|`) + "`"
 	},
-}).Parse(costMDTemplateSrc))
+}
 
 type costMDDoc struct {
 	Pools       []mdCostPool

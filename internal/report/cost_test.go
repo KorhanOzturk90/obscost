@@ -54,6 +54,15 @@ func TestCostMD_Golden(t *testing.T) {
 	}
 }
 
+func TestSharePercent_SmallSharesAreNotZero(t *testing.T) {
+	tests := map[float64]string{0: "0.0%", 0.0004: "<0.1%", 0.001: "0.1%", 0.1: "10.0%"}
+	for in, want := range tests {
+		if got := sharePercent(in); got != want {
+			t.Errorf("sharePercent(%v) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestMoneyAndThousands(t *testing.T) {
 	tests := map[float64]string{0: "0.00", 1496.875: "1,496.88", 999.999: "1,000.00", 1234567.5: "1,234,567.50"}
 	for in, want := range tests {
