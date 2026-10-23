@@ -1,0 +1,14 @@
+# grafana/alloy chart for the interim tenants' agent: scrapes each
+# avalanche pod and remote-writes it under the tenant named by its
+# `tenant` label. The pipeline is generated from dev/mimir-k8s's config
+# (scripts/lib.sh: render_tenant_agent_config).
+alloy:
+  resources:
+    requests: {cpu: 25m, memory: 128Mi}
+controller:
+  type: deployment
+  replicas: 1
+# Its config reloader image is on quay.io; the config changes only on
+# `helm upgrade`, which restarts the pod anyway.
+configReloader:
+  enabled: false

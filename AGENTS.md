@@ -24,6 +24,8 @@ git worktree remove ../obscost-<short-topic>   # after merging/deleting the bran
 
 **A second rig, `dev/mimir-k8s`**, runs microservices Mimir (one pod per component, 3 ingesters at RF=3, classic or ingest-storage write path) on a k3d cluster named `obscost`, with simulated tenants and rules — see its README. It is on `localhost:8090` and is a single cluster per machine, so check `k3d cluster list` before `make up`/`make down`: another session may be using it.
 
+**The staging environment, `dev/staging`**, is the production-shaped one the v0.1.0 launch is gated on (#51). It runs the `mimir-distributed` chart at its defaults (ingest storage, 3 zones, rollout-operator, remote rule evaluation), with every deviation tabled in its README, plus kube-prometheus-stack into a `monitoring` tenant and operational event scripts. `make cluster` (k3s in Docker, container `staging-k3s`, API on `127.0.0.1:6445`) is separate from `make deploy`, which runs against any `KUBECONFIG`. Mimir is port-forwarded to `localhost:8091`. Its README lists the cloud-container workarounds (image preloading, `oom_score_adj`, disk thresholds) so you don't have to rediscover them.
+
 **One exception:** `dev/mimir-local`'s running Docker containers are bound to whatever's on disk in the directory they were started from (currently the shared `obscost/` checkout, on `dev-mimir-local-rig`) — host ports aren't worktree-scoped, so don't start a second copy of that rig from a different worktree without remapping ports/project name first.
 
 ## Writing ADRs and design docs

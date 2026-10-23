@@ -1,0 +1,7 @@
+# RULER_EVAL=local: the ruler evaluates rules itself (its own embedded
+# querier), the chart's default. Layered on values/mimir.yaml, which turns
+# remote evaluation on. Lets the validation lane check that the CLI infers
+# the evaluation mode correctly in both directions (#50). Unlike PROFILE,
+# this switches in place: `make mimir RULER_EVAL=local`.
+ruler:
+  remoteEvaluationDedicatedQueryPath: false
