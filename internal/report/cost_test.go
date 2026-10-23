@@ -3,7 +3,9 @@ package report
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -296,4 +298,87 @@ func TestCostMD_CrossPoolSeparatesAllZeroFromNotMeasured(t *testing.T) {
 	if out := read(map[string]float64{}); !strings.Contains(out, "ruler CPU not measured") {
 		t.Errorf("empty pool not described as not measured:\n%s", out)
 	}
+}
+
+// unmeasuredResult is every pool read with no driver data at all — what a
+// wrong --metrics-tenant produces — with expected tenants, prices and a
+// known replication factor, so nothing but the measurement is missing.
+func unmeasuredResult() CostResult {
+	end := time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)
+	replicas, rf, price := 3, 3, 100.0
+	inv := cost.Inventory{
+		Currency:          "EUR",
+		ReplicationFactor: &rf,
+		Pools: map[cost.PoolID]cost.PoolInventory{
+			cost.PoolIngesterMemory: {Replicas: &replicas, CostPerReplicaMonth: &price},
+			cost.PoolRulerCPU:       {Replicas: &replicas, CostPerReplicaMonth: &price},
+		},
+	}
+	empty := map[string]float64{}
+	r := cost.AllocateAll([]cost.Measurement{
+		{Pool: cost.IngesterMemory, Window: time.Hour, End: end, Source: "s", Drivers: empty},
+		{Pool: cost.QueryPath, Window: time.Hour, End: end, Source: "s", Drivers: empty, Unreplicated: true, Unit: cost.UnitBytes},
+		{Pool: cost.RulerCPU, Window: time.Hour, End: end, Source: "s", Drivers: empty, Unreplicated: true, Unit: cost.UnitSeconds},
+	}, inv, []string{"analytics", "infra"})
+	return CostResult{Pools: r.Pools, CrossPool: r.CrossPool, GeneratedAt: end}
+}
+
+// Issue #52: nothing unmeasured is ever rendered as 0, in any renderer.
+// The md check looks at every table cell of the pool tables; the json
+// check at every number in the document, since with no driver data and
+// non-zero prices no number in it can legitimately be 0.
+func TestCost_UnmeasuredPoolsRenderNoZero(t *testing.T) {
+	result := unmeasuredResult()
+
+	md := renderCostMD(t, result)
+	zero := regexp.MustCompile(`^\**(0|0\.0+|0 B|0\.0+%)\**$`)
+	for _, line := range strings.Split(md, "\n") {
+		if !strings.HasPrefix(line, "|") {
+			continue
+		}
+		for _, cell := range strings.Split(strings.Trim(line, "|"), "|") {
+			if zero.MatchString(strings.TrimSpace(cell)) {
+				t.Errorf("md renders an unmeasured figure as 0: %q", line)
+			}
+		}
+	}
+	for _, want := range []string{
+		"| **Total** | **not measured** | **—** | **3** | **300.00** |",
+		"| **Total** | **not measured** | **—** | **—** |",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("md missing %q:\n%s", want, md)
+		}
+	}
+
+	rep, err := NewCost(FormatJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := rep.Render(&buf, result); err != nil {
+		t.Fatalf("json Render: %v", err)
+	}
+	var doc any
+	if err := json.Unmarshal(buf.Bytes(), &doc); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	var walk func(path string, v any)
+	walk = func(path string, v any) {
+		switch v := v.(type) {
+		case map[string]any:
+			for k, c := range v {
+				walk(path+"."+k, c)
+			}
+		case []any:
+			for i, c := range v {
+				walk(fmt.Sprintf("%s[%d]", path, i), c)
+			}
+		case float64:
+			if v == 0 {
+				t.Errorf("json renders an unmeasured figure as 0 at %s", path)
+			}
+		}
+	}
+	walk("$", doc)
 }

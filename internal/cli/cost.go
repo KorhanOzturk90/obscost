@@ -52,8 +52,9 @@ func newCostCmd(stdout, stderr io.Writer) *cobra.Command {
 	cmd.Flags().StringVar(&opts.format, "format", "md", "output format: md|json")
 	cmd.Flags().StringVar(&opts.since, "since", "", "window to average or total over (e.g. 1h, 24h, 7d); defaults to 1h")
 	cmd.Flags().StringVar(&opts.pools, "pool", "", "comma-separated pools to cost: "+poolList()+" (default: all)")
-	cmd.Flags().BoolVar(&opts.ruleOutputs, "rule-outputs", false, "also count, per tenant, the series each recording rule writes (its record: name), as a point-in-time figure and a share of the tenant's active series. Rule definitions come from --dir, or from the ruler API for --tenant")
+	cmd.Flags().BoolVar(&opts.ruleOutputs, "rule-outputs", false, "also count, per tenant, the series each recording rule writes (its record: name), as a point-in-time figure and a share of the tenant's active series. Rule definitions come from --dir, or from the ruler API for --tenant. The count queries run through the query path as each tenant, so they show up in pool 6 for any later window that includes this run")
 	cmd.Flags().StringVar(&opts.dir, "dir", "", "directory of rule files for --rule-outputs. If omitted, rule definitions are fetched from Mimir's ruler API for --tenant's tenants")
+	cmd.Flags().StringVar(&opts.selector, "selector", "", `label matchers added to every query of Mimir's own metrics, e.g. '{cluster="prod-eu"}', when the metrics tenant holds several Mimir clusters. Overrides backend.selector in the config`)
 	cmd.Flags().IntVar(&opts.ruleOutputConcurrency, "rule-output-concurrency", 4, "maximum --rule-outputs count queries in flight at once")
 	return cmd
 }
@@ -65,6 +66,7 @@ type costOptions struct {
 	format        string
 	since         string
 	pools         string
+	selector      string
 
 	ruleOutputs           bool
 	dir                   string
@@ -164,14 +166,29 @@ func runCost(ctx context.Context, stdout, stderr io.Writer, opts costOptions) er
 		return err
 	}
 
-	header, bearerToken := backendAuth(cfg)
+	sel, selectorSource, err := resolveSelector(cfg, opts.selector)
+	if err != nil {
+		return err
+	}
+
+	creds, err := backendAuth(cfg)
+	if err != nil {
+		return err
+	}
 	src := mimirdrivers.New(mimirdrivers.Config{
-		BaseURL:       cfg.Backend.URL,
-		Header:        header,
-		MetricsTenant: opts.metricsTenant,
-		BearerToken:   bearerToken,
-		Timeout:       cfg.Backend.Timeout.Duration(),
+		BaseURL:        cfg.Backend.URL,
+		Header:         creds.header,
+		MetricsTenant:  opts.metricsTenant,
+		BearerToken:    creds.bearerToken,
+		BasicAuth:      creds.basicAuth,
+		Timeout:        cfg.Backend.Timeout.Duration(),
+		Selector:       sel,
+		SelectorSource: selectorSource,
+		RuleEvaluation: inv.RuleEvaluation,
 	})
+	if sel.IsZero() {
+		warnIfSeveralClusters(ctx, stderr, src.Clusters)
+	}
 	readers := map[cost.PoolID]func(context.Context, time.Duration) (cost.Measurement, error){
 		cost.PoolIngesterMemory: src.ReadIngesterMemory,
 		cost.PoolQueryPath:      src.ReadQueryPath,
@@ -198,13 +215,45 @@ func runCost(ctx context.Context, stdout, stderr io.Writer, opts costOptions) er
 			// Unreachable: --rule-outputs without pool 1 is rejected above.
 			return fmt.Errorf("--rule-outputs needs pool %s", cost.PoolIngesterMemory)
 		}
-		ro, err := measureRuleOutputs(ctx, stderr, opts, cfg, pool)
+		ro, err := measureRuleOutputs(ctx, stderr, opts, cfg, creds, pool)
 		if err != nil {
 			return err
 		}
 		result.RuleOutputs = &ro
 	}
 	return rep.Render(stdout, result)
+}
+
+// resolveSelector picks the cluster selector: --selector, else
+// backend.selector, parsed and validated (promapi.ParseSelector). The
+// second result names where it came from, for the trail.
+func resolveSelector(cfg config.Config, flag string) (promapi.Selector, string, error) {
+	text, source := cfg.Backend.Selector, "backend.selector in the config file"
+	if flag != "" {
+		text, source = flag, "--selector"
+	}
+	sel, err := promapi.ParseSelector(text)
+	if err != nil {
+		return promapi.Selector{}, "", fmt.Errorf("%s: %w", source, err)
+	}
+	return sel, source, nil
+}
+
+// warnIfSeveralClusters warns on stderr when, with no selector, the
+// metrics a command reads carry more than one cluster label value: every
+// figure then sums several Mimir clusters (#54, #63). The check is advice,
+// so a failure to run it is only mentioned, never fatal.
+func warnIfSeveralClusters(ctx context.Context, stderr io.Writer, clustersOf func(context.Context) ([]string, error)) {
+	clusters, err := clustersOf(ctx)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "warning: could not check whether the metrics tenant holds several Mimir clusters: %v\n", err)
+		return
+	}
+	if len(clusters) > 1 {
+		_, _ = fmt.Fprintf(stderr, "warning: the metrics tenant holds %d Mimir clusters (cluster=%s), and every figure below sums all of them. "+
+			"Select one with --selector or backend.selector, e.g. '{cluster=%q}'\n",
+			len(clusters), strings.Join(clusters, ", "), clusters[0])
+	}
 }
 
 // measureRuleOutputs loads rule definitions exactly as `report` does, then
@@ -214,7 +263,7 @@ func runCost(ctx context.Context, stdout, stderr io.Writer, opts costOptions) er
 // rules would understate its rule output. A count query that fails is not:
 // its rules render as not measured, with the reason, and a warning goes to
 // stderr.
-func measureRuleOutputs(ctx context.Context, stderr io.Writer, opts costOptions, cfg config.Config, pool cost.PoolAllocation) (ruleoutput.Report, error) {
+func measureRuleOutputs(ctx context.Context, stderr io.Writer, opts costOptions, cfg config.Config, creds backendCreds, pool cost.PoolAllocation) (ruleoutput.Report, error) {
 	defs, err := newDefinitionsSource(reportOptions{dir: opts.dir, tenants: opts.tenants}, cfg)
 	if err != nil {
 		return ruleoutput.Report{}, err
@@ -230,14 +279,14 @@ func measureRuleOutputs(ctx context.Context, stderr io.Writer, opts costOptions,
 		return ruleoutput.Report{}, fmt.Errorf("%d rule source(s) failed to load", len(loadErrs))
 	}
 
-	header, bearerToken := backendAuth(cfg)
 	counts := ruleoutput.Count(ctx, ruleoutput.CountConfig{
 		NewQuerier: func(tenant string) ruleoutput.Querier {
 			return promapi.New(promapi.Config{
 				BaseURL:     cfg.Backend.URL,
-				Header:      header,
+				Header:      creds.header,
 				Tenant:      tenant,
-				BearerToken: bearerToken,
+				BearerToken: creds.bearerToken,
+				BasicAuth:   creds.basicAuth,
 				Timeout:     cfg.Backend.Timeout.Duration(),
 			})
 		},
@@ -265,6 +314,7 @@ func inventoryFromConfig(c config.InventoryConfig) cost.Inventory {
 		Currency:          c.Currency,
 		ReplicationFactor: c.ReplicationFactor,
 		PlatformCostMonth: c.PlatformCostMonth,
+		RuleEvaluation:    cost.RuleEvaluation(c.RulerEvaluation),
 		Pools:             make(map[cost.PoolID]cost.PoolInventory, len(c.Pools)),
 	}
 	for id, p := range c.Pools {

@@ -59,7 +59,7 @@ func TestAllocate_ReplicationFactorDividesAbsoluteFigures(t *testing.T) {
 	if got := a.Tenants[0].Driver; got == nil || !approx(*got, 15005) {
 		t.Errorf("analytics Driver = %v, want 15005", got)
 	}
-	if !approx(a.TotalRaw, 24058*3) {
+	if !(a.TotalRaw != nil && approx(*a.TotalRaw, 24058*3)) {
 		t.Errorf("TotalRaw = %v, want the undivided sum %v", a.TotalRaw, 24058*3)
 	}
 }
@@ -212,8 +212,12 @@ func TestInventoryValidate(t *testing.T) {
 	}{
 		{"price without currency", Inventory{Pools: map[PoolID]PoolInventory{PoolIngesterMemory: {CostPerReplicaMonth: floatp(1)}}}, "currency"},
 		{"zero replicas", Inventory{Pools: map[PoolID]PoolInventory{PoolIngesterMemory: {Replicas: intp(0)}}}, "replicas"},
-		{"negative price", Inventory{Currency: "EUR", Pools: map[PoolID]PoolInventory{PoolIngesterMemory: {CostPerReplicaMonth: floatp(-1)}}}, "negative"},
+		{"negative price", Inventory{Currency: "EUR", Pools: map[PoolID]PoolInventory{PoolIngesterMemory: {CostPerReplicaMonth: floatp(-1)}}}, "must be positive"},
+		// #57: a zero price made every share of priced cost 0/0 (NaN% in md,
+		// a json encoding error).
+		{"zero price", Inventory{Currency: "EUR", Pools: map[PoolID]PoolInventory{PoolRulerCPU: {Replicas: intp(1), CostPerReplicaMonth: floatp(0)}}}, "omit cost_per_replica_month"},
 		{"zero RF", Inventory{ReplicationFactor: intp(0)}, "replication_factor"},
+		{"unknown ruler evaluation", Inventory{RuleEvaluation: "inferred"}, "ruler_evaluation must be local or remote"},
 		{"unknown pool", Inventory{Pools: map[PoolID]PoolInventory{"ingesters": {Replicas: intp(8)}}}, "unknown pool"},
 	}
 	for _, tt := range tests {
@@ -286,7 +290,7 @@ func TestAllocate_UnreplicatedCounterHasNoReplicationFactor(t *testing.T) {
 	if a.ReplicationFactor != nil {
 		t.Errorf("ReplicationFactor = %v, want nil: a counter counted once has no divisor", *a.ReplicationFactor)
 	}
-	if a.Total == nil || !approx(*a.Total, a.TotalRaw) {
+	if a.Total == nil || a.TotalRaw == nil || !approx(*a.Total, *a.TotalRaw) {
 		t.Errorf("Total = %v, want the raw sum %v undivided even though the inventory says RF=3", a.Total, a.TotalRaw)
 	}
 	for _, as := range a.Assumptions {
@@ -427,6 +431,7 @@ func TestInventoryValidate_Components(t *testing.T) {
 			Components: map[string]ComponentInventory{"ruler": {Replicas: intp(1)}}}}}, "single component"},
 		{"component price without currency", Inventory{Pools: map[PoolID]PoolInventory{PoolQueryPath: {
 			Components: map[string]ComponentInventory{"querier": {CostPerReplicaMonth: floatp(1)}}}}}, "currency"},
+		{"zero component price", queryPathInv(map[string]ComponentInventory{"querier": {Replicas: intp(1), CostPerReplicaMonth: floatp(0)}}), "must be positive"},
 		{"zero component replicas", queryPathInv(map[string]ComponentInventory{"querier": {Replicas: intp(0)}}), "replicas"},
 		{"zero platform cost", Inventory{Currency: "EUR", PlatformCostMonth: floatp(0)}, "platform_cost_month"},
 		{"platform cost without currency", Inventory{PlatformCostMonth: floatp(100)}, "currency"},

@@ -138,7 +138,11 @@ type Inventory struct {
 	// the fraction is not derivable from the pools alone, because an
 	// unpriced pool's cost is unknown, not zero.
 	PlatformCostMonth *float64
-	Pools             map[PoolID]PoolInventory
+	// RuleEvaluation is the operator's statement of how the ruler evaluates
+	// rules, local or remote. When set it replaces the inference from
+	// metric presence (ADR 0003 [V]); empty means infer.
+	RuleEvaluation RuleEvaluation
+	Pools          map[PoolID]PoolInventory
 }
 
 // PoolInventory prices one pool. A single-component pool (1 and 7) uses
@@ -161,12 +165,16 @@ type ComponentInventory struct {
 
 // Validate rejects inventories that would produce a figure nobody could
 // defend: a price with no currency to print it in, or a non-positive
-// replica count or replication factor. A negative price is rejected for
-// the same reason. None of these are defaulted — the whole point of the
+// replica count, replication factor or price. None of these are defaulted — the whole point of the
 // inventory is that promcost never invents a coefficient.
 func (inv Inventory) Validate() error {
 	if inv.ReplicationFactor != nil && *inv.ReplicationFactor < 1 {
 		return fmt.Errorf("inventory.replication_factor must be at least 1, got %d", *inv.ReplicationFactor)
+	}
+	switch inv.RuleEvaluation {
+	case "", RuleEvaluationLocal, RuleEvaluationRemote:
+	default:
+		return fmt.Errorf("inventory.ruler_evaluation must be %s or %s, got %q (leave it out to infer it)", RuleEvaluationLocal, RuleEvaluationRemote, inv.RuleEvaluation)
 	}
 	if inv.PlatformCostMonth != nil {
 		if *inv.PlatformCostMonth <= 0 {
@@ -222,8 +230,16 @@ func validatePrice(path string, replicas *int, price *float64, currency string) 
 		return fmt.Errorf("%s.replicas must be at least 1, got %d", path, *replicas)
 	}
 	if price != nil {
-		if *price < 0 {
-			return fmt.Errorf("%s.cost_per_replica_month must not be negative, got %g", path, *price)
+		// Zero is rejected along with negatives, as platform_cost_month
+		// is: a pool priced at 0 would be counted as priced coverage in
+		// the cross-pool total while contributing nothing to it, and with
+		// every priced pool at 0 a share of priced cost is 0/0 (#57). A
+		// pool whose cost is already inside another pool's price is not
+		// free, it is not costed separately — which is what omitting the
+		// price says.
+		if *price <= 0 {
+			return fmt.Errorf("%s.cost_per_replica_month must be positive, got %g: to leave a pool or component uncosted "+
+				"(for example because its cost is already in another pool's price), omit cost_per_replica_month instead of setting it to 0", path, *price)
 		}
 		if currency == "" {
 			return fmt.Errorf("%s has a price but inventory.currency is empty: a cost figure is never rendered without its unit", path)
@@ -313,6 +329,12 @@ type Measurement struct {
 	Architecture string
 }
 
+// HasShares reports whether the pool can be split: some tenant was
+// measured, and the measured total is positive.
+func (a PoolAllocation) HasShares() bool {
+	return a.TotalRaw != nil && *a.TotalRaw > 0
+}
+
 // Assumption is one line of a figure's assumption trail: what was assumed,
 // the value used, and where that value came from — so an operator who
 // disputes a number knows which input to change.
@@ -375,7 +397,11 @@ type PoolAllocation struct {
 	// They are not in the denominator (ADR 0003 decision 5).
 	Unmeasured []string `json:"unmeasured,omitempty"`
 
-	TotalRaw          float64  `json:"total_raw"`
+	// TotalRaw and Total are nil when no tenant was measured at all: a
+	// pool with no driver data has no total, and a 0 there would be the
+	// fabricated zero decision 5 forbids. Every tenant measuring 0 is a
+	// measured total of 0, and is kept.
+	TotalRaw          *float64 `json:"total_raw,omitempty"`
 	Total             *float64 `json:"total,omitempty"`
 	ReplicationFactor *float64 `json:"replication_factor,omitempty"`
 
@@ -482,8 +508,9 @@ func Allocate(m Measurement, inv Inventory, expected []string) PoolAllocation {
 		a.Assumptions = append(a.Assumptions, Assumption{Name: AssumptionReplicationFactor, Value: rf.display(), Source: rf.source})
 	}
 
+	var totalRaw float64
 	for tenant, v := range m.Drivers {
-		a.TotalRaw += v
+		totalRaw += v
 		a.Tenants = append(a.Tenants, TenantShare{Tenant: tenant, DriverRaw: v})
 	}
 	sort.Slice(a.Tenants, func(i, j int) bool {
@@ -502,9 +529,12 @@ func Allocate(m Measurement, inv Inventory, expected []string) PoolAllocation {
 	}
 	sort.Strings(a.Unmeasured)
 
-	if rf.value != nil {
-		total := a.TotalRaw / *rf.value
-		a.Total = &total
+	if len(a.Tenants) > 0 {
+		a.TotalRaw = &totalRaw
+		if rf.value != nil {
+			total := totalRaw / *rf.value
+			a.Total = &total
+		}
 	}
 
 	pinv := inv.Pools[m.Pool.ID]
@@ -514,7 +544,7 @@ func Allocate(m Measurement, inv Inventory, expected []string) PoolAllocation {
 		priceFlat(&a, m.Pool, inv, pinv)
 	}
 
-	if a.TotalRaw <= 0 {
+	if totalRaw <= 0 {
 		if len(a.Tenants) > 0 {
 			a.Notes = append(a.Notes, fmt.Sprintf(
 				"every measured tenant reported 0 %s, so shares are undefined rather than 0%%", kind))
@@ -531,7 +561,7 @@ func Allocate(m Measurement, inv Inventory, expected []string) PoolAllocation {
 		// The replication factor is deliberately absent here: a uniform
 		// divisor cancels in a ratio, which is why shares survive an
 		// unknown replication factor and absolute figures do not.
-		share := t.DriverRaw / a.TotalRaw
+		share := t.DriverRaw / totalRaw
 		t.Share = &share
 		if a.Replicas != nil {
 			eq := share * float64(*a.Replicas)

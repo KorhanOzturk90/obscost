@@ -11,7 +11,7 @@
 // Pools 1 (ingester memory), 6 (query path) and 7 (ruler CPU) are
 // implemented. Pool 1's query follows ADR 0003 "[A] How each driver must be
 // read", which in turn follows the mimir-top-tenants mixin — see
-// ingesterMemoryQuery. Pools 6 and 7 are per-tenant counters read by
+// windowAverage. Pools 6 and 7 are per-tenant counters read by
 // counters.go.
 package mimirdrivers
 
@@ -32,8 +32,17 @@ type Config struct {
 	Header        string
 	MetricsTenant string
 	BearerToken   string
-	Timeout       time.Duration
-	HTTPClient    *http.Client
+	BasicAuth     *promapi.BasicAuth
+	// Selector scopes every query to one Mimir cluster; SelectorSource
+	// names where it came from, for the assumption trail.
+	Selector       promapi.Selector
+	SelectorSource string
+	// RuleEvaluation is the operator's inventory.ruler_evaluation, if set.
+	// It replaces the inference in ruleEvaluation, and the trail labels it
+	// operator-supplied.
+	RuleEvaluation cost.RuleEvaluation
+	Timeout        time.Duration
+	HTTPClient     *http.Client
 }
 
 type Source struct {
@@ -54,6 +63,7 @@ func New(cfg Config) *Source {
 			Header:      cfg.Header,
 			Tenant:      cfg.MetricsTenant,
 			BearerToken: cfg.BearerToken,
+			BasicAuth:   cfg.BasicAuth,
 			Timeout:     cfg.Timeout,
 			HTTPClient:  cfg.HTTPClient,
 		}),
@@ -61,32 +71,23 @@ func New(cfg Config) *Source {
 	}
 }
 
-// ingesterMemoryQuery is pool 1's driver under the classic architecture:
-// each tenant's in-memory active series, summed across ingesters, averaged
-// over the window.
+// classicSeries is pool 1's per-tenant series under the classic
+// architecture: each tenant's in-memory active series, summed across
+// ingesters. windowAverage turns it into the driver.
 //
-// Three choices in it are load-bearing:
+// Two choices in it are load-bearing:
 //
-//   - The sum happens *inside* a subquery and the average outside it,
-//     rather than avg_over_time per series and then sum. An ingester
-//     rollout replaces every series (new pod label), and a per-series
-//     average credits a pod that lived for half the window with its full
-//     average — a rollout would then read as double the memory. Summing
-//     first and averaging the sum is what "average active series over the
-//     window" actually means.
 //   - `unless on (cluster, namespace, job) cortex_partition_ring_partitions`
 //     drops ingesters running ingest storage, whose series are counted by
-//     ingestStorageMemoryQuery instead. On a classic cluster no ingester
+//     ingestStorageSeries instead. On a classic cluster no ingester
 //     exports that metric and the guard is a no-op.
 //   - There is no replication divisor here. Drivers stay summed across
 //     replicas, and internal/cost divides by the replication factor it
 //     reads separately (replicationFactorQuery), so the divisor used is
 //     visible in the assumption trail rather than buried in PromQL.
-//
-// The two %s are the window and the subquery step.
-const ingesterMemoryQuery = `avg_over_time((sum by (user) (cortex_ingester_active_series unless on (cluster, namespace, job) cortex_partition_ring_partitions))[%s:%s])`
+const classicSeries = `sum by (user) (cortex_ingester_active_series unless on (cluster, namespace, job) cortex_partition_ring_partitions)`
 
-// ingestStorageMemoryQuery is pool 1's driver under ingest storage, the
+// ingestStorageSeries is the same under ingest storage, the
 // mimir-distributed chart's default since 6.0 (Mimir 3.x). There is no
 // distributor->ingester replication there: each ingester owns one Kafka
 // partition, and replication comes from running the same partition's
@@ -96,7 +97,31 @@ const ingesterMemoryQuery = `avg_over_time((sum by (user) (cortex_ingester_activ
 // "# Ingest storage" branch of the mixin's top-tenants query, verified
 // against the k3d rig in dev/mimir-k8s where the classic query returns
 // nothing at all. The result already counts each series once.
-const ingestStorageMemoryQuery = `avg_over_time((sum by (user) (max by (ingester_id, user) (label_replace(cortex_ingester_active_series and on (cluster, namespace, job) cortex_partition_ring_partitions, "ingester_id", "$1", "pod", ".*?-(rc-[0-9]+-[0-9]+|[0-9]+)$"))))[%s:%s])`
+const ingestStorageSeries = `sum by (user) (max by (ingester_id, user) (label_replace(cortex_ingester_active_series and on (cluster, namespace, job) cortex_partition_ring_partitions, "ingester_id", "$1", "pod", ".*?-(rc-[0-9]+-[0-9]+|[0-9]+)$")))`
+
+// windowAverage is pool 1's driver: a tenant's series (%[1]s, one of the
+// two above), averaged over the whole window (%[2]s) at the subquery step
+// (%[3]s). Two choices in it are load-bearing:
+//
+//   - The sum by user happens *inside* the subquery and the average
+//     outside it, rather than averaging per series and then summing. An
+//     ingester rollout replaces every series (new pod label), and a
+//     per-series average credits a pod that lived for half the window with
+//     its full average — a rollout would then read as double the memory.
+//   - The average divides by the points where Mimir's own metrics had data
+//     at all, not by the points where this tenant had series (#66).
+//     avg_over_time would do the latter, and a tenant absent for part of
+//     the window — joined late, or left, whose series Mimir drops rather
+//     than reporting 0 — would be credited with its size while present, as
+//     if it had been there all along. Its absent points count as 0. Points
+//     where no tenant had any series (an outage of Mimir's own monitoring)
+//     are excluded instead, so a gap in the pipeline does not read as
+//     every tenant dropping to zero.
+const windowAverage = `sum_over_time((%[1]s)[%[2]s:%[3]s]) / scalar(count_over_time((sum(%[1]s))[%[2]s:%[3]s]))`
+
+// pipelinePoints counts windowAverage's denominator, for the trail: how many
+// of the window's subquery points Mimir's own metrics had data at.
+const pipelinePoints = `count_over_time((sum(%[1]s))[%[2]s:%[3]s])`
 
 // replicationFactorQuery reads the distributor's configured replication
 // factor. max, not avg: during a change the higher value is the one
@@ -115,6 +140,49 @@ func subqueryStep(window time.Duration) time.Duration {
 		return time.Minute
 	}
 	return step.Truncate(time.Second)
+}
+
+// averagingAssumption states windowAverage's rule in the trail, with how
+// many of the window's points it averaged over (N of M).
+func (s *Source) averagingAssumption(ctx context.Context, series, rangeStr, stepStr string, window time.Duration) (cost.Assumption, error) {
+	q, err := s.query(pipelinePoints, series, rangeStr, stepStr)
+	if err != nil {
+		return cost.Assumption{}, err
+	}
+	samples, err := s.api.Instant(ctx, q)
+	if err != nil {
+		return cost.Assumption{}, fmt.Errorf("active series point count: %w", err)
+	}
+	n := "unknown"
+	if len(samples) == 1 {
+		if v, ok := samples[0].Float(); ok {
+			n = fmt.Sprintf("%.0f", v)
+		}
+	}
+	return cost.Assumption{
+		Name: "averaging",
+		Value: fmt.Sprintf("averaged over the whole window; points where the tenant had no series count as 0; "+
+			"points where Mimir's own metrics were missing are excluded (%s of %d)", n, window/subqueryStep(window)),
+		Source: q,
+	}, nil
+}
+
+// source is every Measurement's Source.
+func (s *Source) source() string {
+	return fmt.Sprintf("Mimir metrics (queried as tenant %s)", s.cfg.MetricsTenant)
+}
+
+// selectorAssumptions is the trail line for the cluster selector, if any:
+// every query of the pool carries it.
+func (s *Source) selectorAssumptions() []cost.Assumption {
+	if s.cfg.Selector.IsZero() {
+		return nil
+	}
+	return []cost.Assumption{{
+		Name:   "cluster selector",
+		Value:  s.cfg.Selector.String() + ", added to every query this pool ran",
+		Source: s.cfg.SelectorSource,
+	}}
 }
 
 func (s *Source) requireMetricsTenant() error {
@@ -138,14 +206,27 @@ func (s *Source) ReadIngesterMemory(ctx context.Context, window time.Duration) (
 		return cost.Measurement{}, err
 	}
 
+	classicQuery, err := s.query(windowAverage, classicSeries, rangeStr, stepStr)
+	if err != nil {
+		return cost.Measurement{}, err
+	}
+	ingestQuery, err := s.query(windowAverage, ingestStorageSeries, rangeStr, stepStr)
+	if err != nil {
+		return cost.Measurement{}, err
+	}
+	rfQuery, err := s.query(replicationFactorQuery, rangeStr)
+	if err != nil {
+		return cost.Measurement{}, err
+	}
 	m := cost.Measurement{
 		Pool:        cost.IngesterMemory,
 		Window:      window,
 		End:         s.now(),
-		Source:      fmt.Sprintf("Mimir metrics (queried as tenant %s)", s.cfg.MetricsTenant),
-		DriverQuery: fmt.Sprintf(ingesterMemoryQuery, rangeStr, stepStr),
-		RFQuery:     fmt.Sprintf(replicationFactorQuery, rangeStr),
+		Source:      s.source(),
+		DriverQuery: classicQuery,
+		RFQuery:     rfQuery,
 		Drivers:     map[string]float64{},
+		Assumptions: s.selectorAssumptions(),
 	}
 
 	// Classic first: its guard excludes ingest-storage ingesters, so a
@@ -153,22 +234,42 @@ func (s *Source) ReadIngesterMemory(ctx context.Context, window time.Duration) (
 	// finds nothing is the ingest-storage form tried — running both and
 	// adding would double-count a cluster mid-migration, where the mixin's
 	// own query also picks one branch per cluster.
-	m.Architecture = "classic"
 	samples, err := s.api.Instant(ctx, m.DriverQuery)
 	if err != nil {
 		return cost.Measurement{}, fmt.Errorf("active series query: %w", err)
 	}
-	if len(samples) == 0 {
-		ingestQuery := fmt.Sprintf(ingestStorageMemoryQuery, rangeStr, stepStr)
+	series := classicSeries
+	if len(samples) > 0 {
+		m.Architecture = "classic"
+	} else {
 		samples, err = s.api.Instant(ctx, ingestQuery)
 		if err != nil {
 			return cost.Measurement{}, fmt.Errorf("active series query (ingest storage): %w", err)
 		}
 		if len(samples) > 0 {
 			m.DriverQuery = ingestQuery
+			series = ingestStorageSeries
 			m.Architecture = "ingest storage"
 			m.Deduplicated = true
 		}
+	}
+	if m.Architecture == "" {
+		// Neither query returned data, so there is no evidence of either
+		// write path, and the trail claims none — as the ruler's
+		// evaluation mode reports "unknown" with no rule data.
+		m.Assumptions = append(m.Assumptions, cost.Assumption{
+			Name:   "write path",
+			Value:  "unknown (no data)",
+			Source: "neither the classic nor the ingest-storage driver query returned data",
+		})
+		m.Notes = append(m.Notes, "Mimir returned no data for cortex_ingester_active_series: the metrics tenant may not be the one that scrapes Mimir's ingesters (check --metrics-tenant)")
+	}
+	if m.Architecture != "" {
+		a, err := s.averagingAssumption(ctx, series, rangeStr, stepStr, window)
+		if err != nil {
+			return cost.Measurement{}, err
+		}
+		m.Assumptions = append(m.Assumptions, a)
 	}
 	for _, smp := range samples {
 		tenant := smp.Metric["user"]

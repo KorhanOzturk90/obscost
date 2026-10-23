@@ -37,9 +37,19 @@ func costFixture(t *testing.T) *httptest.Server {
 				{"metric":{"user":"infra"},"value":[1757800000,"281.5"]},
 				{"metric":{"user":"payments"},"value":[1757800000,"165"]},
 				{"metric":{"user":"platform"},"value":[1757800000,"149.4"]}]}}`))
-		case strings.Contains(q, "cortex_ruler_query_seconds_total["):
-			// Remote evaluation: the ruler records no query time of its own.
+		case strings.Contains(q, "cortex_ruler_query_seconds_total["),
+			strings.Contains(q, "cortex_distributor_query_duration_seconds_count{"):
+			// Remote evaluation: the ruler records no query time of its own,
+			// and has no distributor to query through.
 			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+		case strings.Contains(q, "cortex_prometheus_rule_evaluation_duration_seconds_count{"):
+			// ...while its own job does evaluate rules.
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[
+				{"metric":{},"value":[1757800000,"1"]}]}}`))
+		case strings.HasPrefix(q, "count_over_time("):
+			// Pool 1's averaging points: Mimir's metrics had data at all 60.
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[
+				{"metric":{},"value":[1757800000,"60"]}]}}`))
 		case strings.Contains(q, "cortex_ingester_active_series"):
 			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[
 				{"metric":{"user":"analytics"},"value":[1757800000,"45015"]},
@@ -359,5 +369,80 @@ func TestCost_PoolUsageErrors(t *testing.T) {
 				t.Errorf("exit=%d stderr=%q, want exit 1 mentioning %q", code, stderr, tt.want)
 			}
 		})
+	}
+}
+
+// emptyMimir answers every query with an empty vector: what a wrong
+// --metrics-tenant (one that holds no cortex_* series) looks like.
+func emptyMimir(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+	}))
+}
+
+// Issue #52, end to end: with no driver data, every pool's Total reads
+// "not measured", in md and in json.
+func TestCost_NoDataTotalsAreNotMeasured(t *testing.T) {
+	srv := emptyMimir(t)
+	defer srv.Close()
+	cfg := writeCostConfig(t, srv.URL, "")
+
+	stdout, stderr, code := run("cost", "--metrics-tenant", "analytics", "--config", cfg, "--tenant", "analytics,infra")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0. stderr=%s", code, stderr)
+	}
+	if n := strings.Count(stdout, "| **Total** | **not measured** |"); n != 3 {
+		t.Errorf("want 3 Total rows reading not measured, got %d:\n%s", n, stdout)
+	}
+	for _, bad := range []string{"**0 B**", "**0.0**", "withheld (no RF)"} {
+		if strings.Contains(stdout, bad) {
+			t.Errorf("stdout contains %q for an unmeasured pool:\n%s", bad, stdout)
+		}
+	}
+
+	stdout, stderr, code = run("cost", "--metrics-tenant", "analytics", "--config", cfg, "--format", "json")
+	if code != 0 {
+		t.Fatalf("json exit code = %d, want 0. stderr=%s", code, stderr)
+	}
+	var doc struct {
+		Pools []map[string]any `json:"pools"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	for _, p := range doc.Pools {
+		for _, k := range []string{"total", "total_raw"} {
+			if v, ok := p[k]; ok {
+				t.Errorf("pool %v: %s = %v, want it absent", p["pool"], k, v)
+			}
+		}
+	}
+}
+
+// #65: inventory.ruler_evaluation replaces the inference, and the trail
+// says the operator supplied it. costFixture's evidence says remote.
+func TestCost_RulerEvaluationOverride(t *testing.T) {
+	srv := costFixture(t)
+	defer srv.Close()
+
+	stdout, stderr, code := run("cost", "--metrics-tenant", "monitoring", "--pool", "ruler_cpu",
+		"--config", writeCostConfig(t, srv.URL, "inventory:\n  ruler_evaluation: local\n"))
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	if !strings.Contains(stdout, "| rule evaluation | `local (operator-supplied, not inferred)") ||
+		!strings.Contains(stdout, "`operator-supplied: inventory.ruler_evaluation` |") {
+		t.Errorf("want the operator's local mode, labelled operator-supplied:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "waiting on the query path") {
+		t.Errorf("the remote-evaluation caveat is shown although the operator said local:\n%s", stdout)
+	}
+
+	_, stderr, code = run("cost", "--metrics-tenant", "monitoring",
+		"--config", writeCostConfig(t, srv.URL, "inventory:\n  ruler_evaluation: Local\n"))
+	if code == 0 || !strings.Contains(stderr, "ruler_evaluation must be local or remote") {
+		t.Errorf("code=%d stderr=%q, want a validation error", code, stderr)
 	}
 }

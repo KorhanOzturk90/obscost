@@ -16,14 +16,34 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// BackendAuth is how promcost authenticates to Mimir: a bearer token or
+// HTTP basic auth, never both. Secrets are named (an environment variable
+// or a file), never written inline, so promcost.yaml can be committed.
 type BackendAuth struct {
-	BearerTokenEnv string `yaml:"bearer_token_env,omitempty"`
+	BearerTokenEnv string     `yaml:"bearer_token_env,omitempty"`
+	BasicAuth      *BasicAuth `yaml:"basic_auth,omitempty"`
+}
+
+// BasicAuth is backend.auth.basic_auth. The password comes from exactly one
+// of PasswordEnv or PasswordFile. Password exists only so an inline
+// password is rejected with a message saying why, rather than with yaml's
+// generic unknown-field error.
+type BasicAuth struct {
+	Username     string `yaml:"username,omitempty"`
+	PasswordEnv  string `yaml:"password_env,omitempty"`
+	PasswordFile string `yaml:"password_file,omitempty"`
+	Password     string `yaml:"password,omitempty"`
 }
 
 type BackendConfig struct {
 	URL     string      `yaml:"url,omitempty"`
 	Auth    BackendAuth `yaml:"auth,omitempty"`
 	Timeout Duration    `yaml:"timeout,omitempty"`
+	// Selector is a PromQL label-matcher set, e.g. '{cluster="prod-eu"}',
+	// that `cost` adds to every query of Mimir's own metrics, for a
+	// metrics tenant that holds several Mimir clusters. See
+	// mimirdrivers.Selector.
+	Selector string `yaml:"selector,omitempty"`
 }
 
 // DiscoverySource is one entry in tenancy.discovery. Only Source=="static"
@@ -88,6 +108,10 @@ type InventoryConfig struct {
 	// priced pools cover; without it that fraction is reported as unknown
 	// rather than guessed (ADR 0003 [A]).
 	PlatformCostMonth *float64 `yaml:"platform_cost_month,omitempty"`
+	// RulerEvaluation is "local" or "remote": how the ruler evaluates
+	// rules, which decides whether rule queries are in the query path or
+	// the ruler pool. Omitted, it is inferred from Mimir's metrics.
+	RulerEvaluation string `yaml:"ruler_evaluation,omitempty"`
 	// Pools is keyed by pool ID: "ingester_memory", "query_path",
 	// "ruler_cpu".
 	Pools map[string]PoolInventory `yaml:"pools,omitempty"`

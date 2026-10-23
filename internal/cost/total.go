@@ -50,8 +50,9 @@ type CrossPool struct {
 
 	Currency string `json:"currency,omitempty"`
 	// PricedCostMonth is the sum of the priced pools' monthly cost: the
-	// denominator of every TenantTotal.Share.
-	PricedCostMonth float64 `json:"priced_cost_per_month"`
+	// denominator of every TenantTotal.Share. It is absent from JSON when no pool is priced: there is no priced
+	// cost to state, not a priced cost of 0.
+	PricedCostMonth float64 `json:"priced_cost_per_month,omitempty"`
 	// PlatformCostMonth is the operator's own figure for the whole
 	// platform, and PricedFraction is PricedCostMonth over it — the "78%
 	// of platform cost we can price". Both are nil when the operator gave
@@ -139,7 +140,7 @@ func crossPool(pools []PoolAllocation, inv Inventory, expected []string) CrossPo
 	var priced []PoolAllocation
 	for _, a := range pools {
 		switch {
-		case a.TotalRaw <= 0:
+		case !a.HasShares():
 			cp.Unmeasured = append(cp.Unmeasured, a.Pool.ID)
 		case a.Costed:
 			priced = append(priced, a)

@@ -149,7 +149,7 @@ func DenominatorFromPool(a cost.PoolAllocation) Denominator {
 			d.PerTenant[t.Tenant] = *t.Driver
 		}
 	}
-	d.Description = fmt.Sprintf("%s (%s) per tenant, averaged over the %s ending %s, divided by the replication factor",
+	d.Description = fmt.Sprintf("%s (%s) per tenant, averaged over the whole %s ending %s (time without series counted as 0), divided by the replication factor",
 		a.Pool.Driver, a.Pool.DriverUnit, a.WindowText, a.End.UTC().Format(time.RFC3339))
 	if a.ReplicationFactor == nil {
 		d.Withheld = "no replication factor is known, so the tenant's deduplicated active series are unknown and no share of them is computed"
@@ -296,6 +296,14 @@ func assumptions(counts Counts, denom *Denominator) []cost.Assumption {
 		},
 		{Name: "count query", Value: counts.QueryShape, Source: src},
 		{
+			// #61: the count queries are ordinary API queries, so Mimir
+			// records them against each tenant's query path. A real fix is
+			// post-launch.
+			Name:   "count queries in pool 6",
+			Value:  "the count queries run through the query path as each tenant, so they are recorded in that tenant's query-path (pool 6) counters, like any other API query. This run read pool 6 before counting; a later run whose window includes this one charges them to each tenant counted",
+			Source: src,
+		},
+		{
 			Name:   "what is counted",
 			Value:  "every series named after the rule's record: name in the tenant, including any written by something other than this rule",
 			Source: "PromQL semantics",
@@ -317,7 +325,7 @@ func assumptions(counts Counts, denom *Denominator) []cost.Assumption {
 }
 
 func notes(r Report, denom *Denominator) []string {
-	var n []string
+	n := []string{"these counts are queries run as each tenant through the query path, so they appear in that tenant's query-path (pool 6) figures for any window that includes a --rule-outputs run: a tenant that never queries can turn from not measured into measured there. This run read pool 6 before counting, so its own pool-6 figures are unaffected"}
 	if denom != nil && denom.Withheld != "" {
 		n = append(n, denom.Withheld)
 	}
@@ -327,7 +335,7 @@ func notes(r Report, denom *Denominator) []string {
 		// minute later, against an unchanged window average. Which
 		// denominator a sub-tenant share should use is open (PR #44, open
 		// question 1); until it is settled, the report says so.
-		n = append(n, "a share compares a point-in-time count with pool 1's window-average active series, so the two diverge whenever series are changing: a rule added or edited, or series repopulating after a restart or rollout. Read the share as indicative then, and re-run once the count has settled")
+		n = append(n, "a share compares a point-in-time count with pool 1's window-average active series, so the two diverge whenever series are changing: a rule added or edited, series repopulating after a restart or rollout, or a tenant that joined during the window, whose average counts the time before it had series as 0 and so can sit well below its count now. Read the share as indicative then, and re-run once the count has settled")
 	}
 	shared := 0
 	incomplete := 0

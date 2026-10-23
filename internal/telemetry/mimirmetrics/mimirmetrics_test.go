@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/prometheus/prometheus/promql/parser"
+
+	"github.com/KorhanOzturk90/obscost/internal/promapi"
 )
 
 // The three fixtures below are byte-shape-accurate copies of what
@@ -468,6 +470,52 @@ func TestSplitRuleGroup(t *testing.T) {
 			if gotNamespace != tt.wantNamespace || gotGroup != tt.wantGroup {
 				t.Errorf("splitRuleGroup(%q) = (%q, %q), want (%q, %q)", tt.value, gotNamespace, gotGroup, tt.wantNamespace, tt.wantGroup)
 			}
+		})
+	}
+}
+
+// #63: the selector reaches every query Read and Clusters send, checked by
+// parsing what the server received.
+func TestRead_SelectorOnEveryQuery(t *testing.T) {
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.URL.Query().Get("query"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+	}))
+	defer srv.Close()
+
+	sel, err := promapi.ParseSelector(`{cluster="prod-eu"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := New(Config{BaseURL: srv.URL, MetricsTenant: "monitoring", Selector: sel})
+	if _, err := s.Read(context.Background(), time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Clusters(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != 4 {
+		t.Fatalf("sent %d queries, want 4 (three reads and the cluster probe)", len(seen))
+	}
+	p := parser.NewParser(parser.Options{})
+	for _, q := range seen {
+		expr, err := p.ParseExpr(q)
+		if err != nil {
+			t.Fatalf("%q: %v", q, err)
+		}
+		parser.Inspect(expr, func(n parser.Node, _ []parser.Node) error {
+			if vs, ok := n.(*parser.VectorSelector); ok {
+				found := false
+				for _, m := range vs.LabelMatchers {
+					found = found || (m.Name == "cluster" && m.Value == "prod-eu")
+				}
+				if !found {
+					t.Errorf("%q: %s lacks the selector", q, vs)
+				}
+			}
+			return nil
 		})
 	}
 }

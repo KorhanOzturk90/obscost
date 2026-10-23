@@ -47,6 +47,9 @@ func serverWithIngest(t *testing.T, classic, ingest, rf string, queries *[]strin
 		}
 		w.Header().Set("Content-Type", "application/json")
 		switch {
+		case strings.HasPrefix(q, "count_over_time("):
+			// The averaging rule's point count: data at every point.
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1757800000,"60"]}]}}`))
 		case strings.Contains(q, "cortex_ingester_active_series") && strings.Contains(q, "label_replace"):
 			_, _ = w.Write([]byte(ingest))
 		case strings.Contains(q, "cortex_ingester_active_series"):
@@ -84,8 +87,8 @@ func TestReadIngesterMemory_RF3EndToEnd(t *testing.T) {
 		t.Errorf("top tenant = %+v, want analytics with 15005 real series", got)
 	}
 
-	if len(queries) != 2 {
-		t.Fatalf("issued %d queries, want 2", len(queries))
+	if len(queries) != 3 {
+		t.Fatalf("issued %d queries, want 3 (driver, averaging points, RF)", len(queries))
 	}
 	if !strings.Contains(queries[0], "unless on (cluster, namespace, job) cortex_partition_ring_partitions") {
 		t.Errorf("active series query lacks the ingest-storage guard: %s", queries[0])
@@ -184,5 +187,30 @@ func TestReadIngesterMemory_ClassicDataSkipsIngestQuery(t *testing.T) {
 		if strings.Contains(q, "label_replace") {
 			t.Errorf("ingest-storage query issued although the classic one returned data: %s", q)
 		}
+	}
+}
+
+// Issue #53: with no data from either query there is no evidence of a
+// write path, so the trail must not claim "classic — detected".
+func TestReadIngesterMemory_NoDataClaimsNoWritePath(t *testing.T) {
+	srv := serverWithIngest(t, empty, empty, empty, nil)
+	defer srv.Close()
+
+	m, err := New(Config{BaseURL: srv.URL, MetricsTenant: "monitoring"}).ReadIngesterMemory(context.Background(), time.Hour)
+	if err != nil {
+		t.Fatalf("ReadIngesterMemory: %v", err)
+	}
+	a := cost.Allocate(m, cost.Inventory{}, []string{"analytics"})
+	var writePath []cost.Assumption
+	for _, as := range a.Assumptions {
+		if as.Name == "write path" {
+			writePath = append(writePath, as)
+		}
+	}
+	if len(writePath) != 1 || writePath[0].Value != "unknown (no data)" || strings.Contains(writePath[0].Source, "detected") {
+		t.Errorf("write path assumptions = %+v, want exactly one, unknown (no data), not detected", writePath)
+	}
+	if !strings.Contains(strings.Join(a.Notes, "\n"), "--metrics-tenant") {
+		t.Errorf("notes = %q, want a hint that --metrics-tenant may be wrong", a.Notes)
 	}
 }

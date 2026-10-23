@@ -29,12 +29,31 @@ import (
 // Config configures a Client. It mirrors rulerapi.Config, since both talk
 // to the same Mimir HTTP API with the same tenancy and auth mechanics.
 type Config struct {
-	BaseURL     string // Mimir's HTTP API address, e.g. http://localhost:8080
-	Header      string // tenancy header name; defaults to X-Scope-OrgID
-	Tenant      string // the value sent in Header — the tenant the query runs as
-	BearerToken string // optional; sent as "Authorization: Bearer <token>" if set
+	BaseURL     string     // Mimir's HTTP API address, e.g. http://localhost:8080
+	Header      string     // tenancy header name; defaults to X-Scope-OrgID
+	Tenant      string     // the value sent in Header — the tenant the query runs as
+	BearerToken string     // optional; sent as "Authorization: Bearer <token>" if set
+	BasicAuth   *BasicAuth // optional; sent as HTTP basic auth if set
 	Timeout     time.Duration
 	HTTPClient  *http.Client // optional; a default client with Timeout is used if nil
+}
+
+// BasicAuth is HTTP basic auth credentials, for a Mimir gateway that
+// requires them. It is shared by every client that talks to Mimir.
+type BasicAuth struct {
+	Username string
+	Password string
+}
+
+// SetAuth sets req's Authorization header from a bearer token or basic
+// auth, whichever is set; config validation rejects setting both.
+func SetAuth(req *http.Request, bearerToken string, basic *BasicAuth) {
+	switch {
+	case basic != nil:
+		req.SetBasicAuth(basic.Username, basic.Password)
+	case bearerToken != "":
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
 }
 
 type Client struct {
@@ -127,9 +146,7 @@ func (c *Client) Instant(ctx context.Context, promql string) ([]Sample, error) {
 	}
 	req.URL.RawQuery = url.Values{"query": []string{promql}}.Encode()
 	req.Header.Set(c.cfg.Header, c.cfg.Tenant)
-	if c.cfg.BearerToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.cfg.BearerToken)
-	}
+	SetAuth(req, c.cfg.BearerToken, c.cfg.BasicAuth)
 
 	resp, err := c.client.Do(req)
 	if err != nil {
