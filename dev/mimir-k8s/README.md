@@ -33,7 +33,7 @@ Both can run at once: this one is on `localhost:8090`, the compose rig on
 make up                 # cluster + Mimir + Alloy + Grafana + tenants + rules (~5–10 min first time)
 make up MIXIN_RULES=1   # also sync the mimir-mixin's recording rules (see Grafana, below)
 make status             # pods, and per-tenant active series as Mimir sees them
-make cost               # promcost cost against the rig (build ../../bin/promcost first)
+make cost               # promcost cost: ingester memory, query path and ruler CPU (build ../../bin/promcost first)
 make down               # delete the whole cluster
 k3d cluster stop obscost   # pause cleanly (frees CPU/memory, keeps data); `k3d cluster start obscost` resumes
 ```
@@ -48,6 +48,15 @@ by default: they evaluate every minute through the query path, a noticeable
 share of a laptop rig's CPU. `make up MIXIN_RULES=1` syncs them into the
 `monitoring` tenant; without it those panels stay empty. There is one
 datasource per tenant (`Mimir (analytics)`, …) for Explore.
+
+`make cost` reads three pools — ADR 0003's pool 1 (ingester memory, by
+active series), pool 6 (query path, by chunk bytes fetched) and pool 7
+(ruler CPU, by rule-evaluation seconds) — and totals them under a coverage
+line. [`promcost.yaml`](promcost.yaml) prices them with illustrative
+numbers (each Mimir process is a 120 EUR/month VM): the query path is
+priced per component (`query-frontend`, `querier`), and
+`platform_cost_month` lets the report say what fraction of the platform the
+priced pools cover. `promcost cost --pool ingester_memory` reads just one.
 
 `make up ARCH=ingest` deploys Mimir 3.x's default **ingest-storage**
 architecture instead (distributors → Kafka → ingesters). Switching an
@@ -95,7 +104,10 @@ CPU, not memory), `platform` has almost nothing.
 ## Scenarios
 
 `./scripts/scenarios.py <path/to/promcost>` runs all three in order and
-logs prediction vs measurement (~45 min).
+logs prediction vs measurement (~45 min). The expensive-rule scenario is
+also an acceptance test for pools 6 and 7: it asserts the shares below and
+exits non-zero if they do not hold (`./scripts/scenarios.py <promcost>
+expensive`, about 12 min).
 
 Each changes one thing, so its effect on a promcost report can be predicted
 before it is measured. That prediction is the test.
@@ -104,7 +116,7 @@ before it is measured. That prediction is the test.
 |---|---|---|
 | `make scale TARGET=avalanche-analytics-bi REPLICAS=2` | +8,000 analytics series | analytics' share of ingester memory rises; `by-team` shows it is `bi` |
 | `make rollout-ingesters` | every ingester pod replaced | a window spanning it must **not** show a jump in active series (sum-then-average query) |
-| `make scenario-expensive-rule` / `-off` | two analytics rules with one output series each but expensive queries (6h quantile subquery, 1h/15s subquery) | analytics' rule-evaluation and query time jump; querier CPU rises; active series +2, so `promcost cost` (pool 1 only) does **not** move — the ADR 0003 [A2] case |
+| `make scenario-expensive-rule` / `-off` | two analytics rules with one output series each but expensive queries (6h quantile subquery, 1h/15s subquery) | analytics' rule-evaluation and query time jump; querier CPU rises; active series +2. Its `promcost cost` share of pool 7 (ruler) and pool 6 (query path) rises materially while pool 1 (ingester memory) does **not** move — the ADR 0003 [A2] case |
 | `make up ARCH=ingest` (after `make down`) | ingest storage | the classic-only active-series query finds nothing — see below |
 
 ## Findings so far
@@ -146,7 +158,16 @@ until that expires.
 
 Exactly the ADR 0003 [A2] case: the tenant's cost on pools 6 and 7 roughly
 quintuples while pool 1 moves by two series, so `promcost cost` as it
-stands reports nothing at all.
+stood — pool 1 only — reported nothing at all. It now reads pools 6 and 7,
+and the scenario asserts it. Analytics' share of each pool, before → after,
+on two runs of `scripts/scenarios.py expensive` (2026-09-20), all assertions
+passing both times:
+
+| pool | driver | run 1 | run 2 |
+|---|---|---:|---:|
+| 7 ruler CPU | rule-evaluation seconds | 39.1% → **67.3%** | 36.7% → **81.5%** |
+| 6 query path | chunk bytes fetched | 46.8% → **90.6%** | 43.2% → **90.8%** |
+| 1 ingester memory | active series | 37.48% → 37.43% | 37.43% → 37.43% |
 
 **And a finding nobody predicted: contention leaks into wall time.**
 `infra`, which was not touched, also doubled — evaluation 3.94s → 8.89s,
@@ -156,6 +177,18 @@ tenant for its neighbours' behaviour; data volume fetched does not move
 like this. ADR 0002 decision 8 already prefers fetched volume over wall
 time; this is the first measurement showing why it matters for cost, not
 just for ranking.
+
+**It did not reproduce cleanly, though.** On the next two runs `infra`'s
+query time rose only ×1.15 (28.1s → 32.4s) and ×1.30 (21.7s → 28.2s),
+while its fetched bytes moved ×0.37 and ×1.36 — bytes are lumpy at a 5m
+window too (a plausible cause, not investigated: rules with long ranges
+fetch in lumps, so a window holds a different number of them from one run
+to the next). So the doubling is one observation of three, and these
+windows cannot separate contention from noise in `infra`'s own fetching.
+The argument for driving pool 6 by bytes is still that time *can* leak a
+neighbour's load and volume cannot, but it is not yet a measured effect
+size. The runner now says "contention" only when time rose past ×1.5 while
+bytes did not (`contention_note` in `scripts/scenarios.py`).
 
 **Earlier findings**
 

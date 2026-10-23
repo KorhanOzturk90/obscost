@@ -556,6 +556,20 @@ type GroupObservation struct {
 //     slightly approximate. Rounding happens here, once, rather than each
 //     caller silently deciding — and callers should present these as
 //     evaluation counts over a window, not as an exact ledger.
+//
+// The wall-time ranking is contention-sensitive, and this path cannot do
+// better. Rule-evaluation time depends on how loaded the cluster is, not
+// only on what a tenant's rules ask for: on one run of the dev/mimir-k8s
+// rig an untouched tenant's evaluation and query time roughly doubled while
+// a neighbour's expensive rules ran, with nothing about its own rules
+// changed (the next two runs saw ×1.15 and ×1.30, so the size of the effect
+// is variable — a caveat to state, not a constant to correct for). It is
+// still the ranking here because Mimir's rule metrics carry
+// no measure of data volume (ADR 0002), so there is nothing better to rank
+// by — which is why the caveat is stated in the rendered report
+// (report.WorkloadResult.SourceNote) instead of the ranking being changed. `promcost cost`
+// avoids the problem where it can, by pricing the query path on fetched
+// volume and using time only as a flagged fallback.
 func AggregateObservations(tenantObs []TenantObservation, groupObs []GroupObservation) Report {
 	groupsByTenant := make(map[string][]GroupObservation)
 	for _, g := range groupObs {
