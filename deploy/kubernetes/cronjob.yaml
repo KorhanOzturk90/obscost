@@ -1,0 +1,66 @@
+# Daily cost snapshot as one JSON document on stdout, for whatever ships
+# your pod logs (Loki, a log bucket) to keep:
+#   kubectl apply -f configmap.yaml -f cronjob.yaml
+#   kubectl create job --from=cronjob/promcost-daily promcost-now   # run once now
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: promcost-daily
+  labels:
+    app.kubernetes.io/name: promcost
+spec:
+  schedule: "17 6 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: promcost
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: promcost
+              image: ghcr.io/korhanozturk90/promcost:0.1.0
+              args:
+                - cost
+                - --config=/etc/promcost/promcost.yaml
+                - --metrics-tenant=meta-monitoring
+                - --since=24h
+                - --format=json
+              env:
+                - name: MIMIR_BEARER_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: promcost
+                      key: bearer-token
+                      optional: true
+              volumeMounts:
+                - name: config
+                  mountPath: /etc/promcost
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+          volumes:
+            - name: config
+              configMap:
+                name: promcost

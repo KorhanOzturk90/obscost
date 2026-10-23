@@ -68,6 +68,10 @@ Try the cost view against the local rig: `./bin/promcost cost --metrics-tenant i
 
 Try `report` against a fixture: `./bin/promcost report --dir internal/cli/testdata/report/clean/rules --config internal/cli/testdata/report/clean/promcost.yaml --telemetry internal/cli/testdata/report/clean/executions.ndjson`.
 
+### Releasing
+
+A `v*` tag runs `.github/workflows/release.yml`: GoReleaser (`.goreleaser.yaml`) builds linux/darwin/windows binaries, archives with LICENSE and README, `checksums.txt`, a changelog, and a multi-arch image `ghcr.io/korhanozturk90/<project_name>` (from `Dockerfile`, which only packages the prebuilt binary). Tags are pushed by the maintainer, never by an agent. A PR touching release config runs the same build as a dry run; `make release-snapshot` reproduces it locally into `dist/`. Version, commit and date reach `--version` through `-ldflags -X main.version=...` (package `main`, so the paths survive a module rename), falling back to `debug.ReadBuildInfo` (`internal/buildinfo`). The product name lives in `project_name` in `.goreleaser.yaml`, plus `builds[0].main`.
+
 ## What promcost is
 
 promcost attributes the resource use and cost of a shared, multi-tenant metrics platform (Grafana Mimir first) down to individual tenants — see `README.md` and `PRODUCT-DIRECTION.md` for the full thesis. It is explicitly **not** a linter: pint owns rule hygiene (annotations, `for:`, owners, naming).
