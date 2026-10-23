@@ -1,0 +1,26 @@
+# DOCKERHUB_ONLY=1 (the default): Docker Hub copies of images the chart
+# pulls from quay.io / registry.k8s.io, which the cloud container's network
+# policy denies. Upstream projects publish most of them to Docker Hub
+# themselves (prom/*); kube-state-metrics and the operator come from
+# Rancher's verbatim mirrors (rancher/mirrored-*), the ones Rancher's own
+# monitoring chart - itself built on this chart - uses. Delete this file
+# from the install (DOCKERHUB_ONLY=0) wherever quay.io is reachable.
+alertmanager:
+  alertmanagerSpec:
+    image: {registry: docker.io, repository: prom/alertmanager, tag: v0.28.1}
+prometheus:
+  prometheusSpec:
+    image: {registry: docker.io, repository: prom/prometheus, tag: v3.5.0}
+prometheusOperator:
+  image: {registry: docker.io, repository: rancher/mirrored-prometheus-operator-prometheus-operator, tag: v0.85.0}
+  prometheusConfigReloader:
+    image: {registry: docker.io, repository: rancher/mirrored-prometheus-operator-prometheus-config-reloader, tag: v0.85.0}
+kube-state-metrics:
+  # v2.16.0 (the chart's) has no Docker Hub copy yet; v2.15.0 exposes the
+  # same kube_pod_container_resource_* series.
+  image: {registry: docker.io, repository: rancher/mirrored-kube-state-metrics-kube-state-metrics, tag: v2.15.0}
+prometheus-node-exporter:
+  image: {registry: docker.io, repository: prom/node-exporter, tag: v1.9.1}
+grafana:
+  sidecar:
+    image: {registry: docker.io, repository: kiwigrid/k8s-sidecar, tag: 1.30.3}

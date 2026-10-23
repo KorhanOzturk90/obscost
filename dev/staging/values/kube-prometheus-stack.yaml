@@ -1,0 +1,95 @@
+# kube-prometheus-stack 77.0.0, namespace `monitoring`: Mimir's
+# meta-monitoring the way most operators run it. Prometheus discovers the
+# Mimir chart's ServiceMonitors and PrometheusRules (the mimir-mixin's
+# recording rules and alerts), scrapes kube-state-metrics, the kubelet's
+# cAdvisor and the API server alongside, and remote-writes everything into
+# Mimir's dedicated `monitoring` tenant - the tenant promcost reads with
+# --metrics-tenant. README.md says why this pattern over the chart's
+# metaMonitoring.grafanaAgent / Alloy.
+#
+# Deviations from this chart's defaults are commented where they are made
+# and listed in README.md. Image overrides (DOCKERHUB_ONLY) live in
+# values/dockerhub/kube-prometheus-stack.yaml, not here.
+
+fullnameOverride: kps
+
+# CRDs are applied separately, server-side, before the Mimir chart needs
+# them (scripts/monitoring-crds.sh): Helm installs a chart's CRDs only on
+# first install and never upgrades them.
+crds:
+  enabled: false
+
+prometheus:
+  prometheusSpec:
+    # Same `cluster` value the Mimir ServiceMonitors stamp on Mimir's own
+    # series, so mixin queries join cAdvisor and kube-state-metrics.
+    externalLabels:
+      cluster: staging
+    # Pick up ServiceMonitors / PrometheusRules from any release (the
+    # Mimir chart's), not only ones labelled for this one. The usual
+    # setting whenever another chart ships its own monitors.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    # Local storage is a buffer; Mimir is the long-term store.
+    retention: 1d
+    resources:
+      requests: {cpu: 100m, memory: 512Mi}
+    remoteWrite:
+      - url: http://mimir-gateway.mimir.svc/api/v1/push
+        headers:
+          X-Scope-OrgID: monitoring
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 5Gi
+
+prometheusOperator:
+  # The admission webhook's certificate job needs
+  # registry.k8s.io/ingress-nginx/kube-webhook-certgen, which has no Docker
+  # Hub copy. The webhook only validates PrometheusRule syntax on apply.
+  admissionWebhooks:
+    enabled: false
+  tls:
+    enabled: false
+
+# k3s embeds etcd, the scheduler, the controller-manager and kube-proxy in
+# its own process: there is nothing at the endpoints these ServiceMonitors
+# look for, and their "target down" alerts would fire forever. On a managed
+# cluster (GKE/EKS) the control plane is not scrapeable either.
+kubeEtcd:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeProxy:
+  enabled: false
+
+grafana:
+  # No login on a staging box reached through a port-forward.
+  grafana.ini:
+    auth.anonymous:
+      enabled: true
+      org_role: Admin
+  sidecar:
+    dashboards:
+      # The Mimir chart's mixin dashboards (metaMonitoring.dashboards)
+      # land in this namespace with grafana_dashboard=1, the default label.
+      folderAnnotation: k8s-sidecar-target-directory
+      provider:
+        foldersFromFilesStructure: true
+  additionalDataSources:
+    - name: Mimir (monitoring)
+      uid: mimir-monitoring
+      type: prometheus
+      url: http://mimir-gateway.mimir.svc/prometheus
+      jsonData:
+        httpHeaderName1: X-Scope-OrgID
+        timeInterval: 30s
+      secureJsonData:
+        httpHeaderValue1: monitoring

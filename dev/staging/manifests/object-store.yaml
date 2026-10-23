@@ -1,0 +1,83 @@
+# Stand-in for the external object storage bucket a production Mimir
+# writes to (S3, GCS, ...). It lives in its own namespace and is not part
+# of the Mimir release, exactly as a cloud bucket would not be: Mimir only
+# knows an endpoint and credentials (values/mimir.yaml, Secret
+# `mimir-bucket`).
+#
+# MinIO server, from Bitnami's image: MinIO stopped publishing its own
+# images to Docker Hub, and quay.io (where the chart's bundled MinIO comes
+# from) is denied in the cloud container. Credentials are staging-only.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: object-store
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: object-store
+  namespace: object-store
+stringData:
+  MINIO_ROOT_USER: staging
+  MINIO_ROOT_PASSWORD: staging-not-a-secret
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: object-store
+  namespace: object-store
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: object-store
+  namespace: object-store
+  labels: {app: object-store}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: object-store}
+  template:
+    metadata:
+      labels: {app: object-store}
+    spec:
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: minio
+          image: docker.io/bitnamilegacy/minio:2025.7.23-debian-12-r3
+          envFrom:
+            - secretRef: {name: object-store}
+          env:
+            - name: MINIO_DEFAULT_BUCKETS
+              value: mimir-blocks,mimir-ruler,mimir-alertmanager
+            - name: MINIO_PROMETHEUS_AUTH_TYPE
+              value: public
+          ports:
+            - {name: s3, containerPort: 9000}
+          readinessProbe:
+            httpGet: {path: /minio/health/ready, port: 9000}
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 50m, memory: 256Mi}
+          volumeMounts:
+            - {name: data, mountPath: /bitnami/minio/data}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: object-store}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: object-store
+  namespace: object-store
+spec:
+  selector: {app: object-store}
+  ports:
+    - {name: s3, port: 9000, targetPort: 9000}
