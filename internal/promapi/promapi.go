@@ -14,9 +14,11 @@ package promapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -27,12 +29,31 @@ import (
 // Config configures a Client. It mirrors rulerapi.Config, since both talk
 // to the same Mimir HTTP API with the same tenancy and auth mechanics.
 type Config struct {
-	BaseURL     string // Mimir's HTTP API address, e.g. http://localhost:8080
-	Header      string // tenancy header name; defaults to X-Scope-OrgID
-	Tenant      string // the value sent in Header — the tenant the query runs as
-	BearerToken string // optional; sent as "Authorization: Bearer <token>" if set
+	BaseURL     string     // Mimir's HTTP API address, e.g. http://localhost:8080
+	Header      string     // tenancy header name; defaults to X-Scope-OrgID
+	Tenant      string     // the value sent in Header — the tenant the query runs as
+	BearerToken string     // optional; sent as "Authorization: Bearer <token>" if set
+	BasicAuth   *BasicAuth // optional; sent as HTTP basic auth if set
 	Timeout     time.Duration
 	HTTPClient  *http.Client // optional; a default client with Timeout is used if nil
+}
+
+// BasicAuth is HTTP basic auth credentials, for a Mimir gateway that
+// requires them. It is shared by every client that talks to Mimir.
+type BasicAuth struct {
+	Username string
+	Password string
+}
+
+// SetAuth sets req's Authorization header from a bearer token or basic
+// auth, whichever is set; config validation rejects setting both.
+func SetAuth(req *http.Request, bearerToken string, basic *BasicAuth) {
+	switch {
+	case basic != nil:
+		req.SetBasicAuth(basic.Username, basic.Password)
+	case bearerToken != "":
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
 }
 
 type Client struct {
@@ -40,11 +61,20 @@ type Client struct {
 	client *http.Client
 }
 
-// New builds a Client. The default timeout is 30s rather than rulerapi's
-// 10s: listing rule definitions is a cheap metadata read, whereas a
-// *_over_time or increase() over a 7d or 30d window fans out across every
-// matching series in the tenant and is a genuinely heavy query on a large
-// cluster.
+// DefaultTimeout is the client-side limit on one query when Config.Timeout
+// (promcost.yaml's backend.timeout) is unset. It is Mimir's own default
+// query timeout (-querier.timeout, 2m): a shorter client limit only gives
+// up on queries the server was still willing to finish. It used to be 30s,
+// and the pool-1 subquery took ~40s on a loaded k3d rig (PR #44's live
+// test), failing the whole run with a bare "context deadline exceeded".
+//
+// It is longer than rulerapi's 10s because listing rule definitions is a
+// cheap metadata read, whereas a *_over_time or increase() over a 7d or
+// 30d window fans out across every matching series in the tenant and is a
+// genuinely heavy query on a large cluster.
+const DefaultTimeout = 2 * time.Minute
+
+// New builds a Client; see DefaultTimeout.
 func New(cfg Config) *Client {
 	if cfg.Header == "" {
 		cfg.Header = "X-Scope-OrgID"
@@ -53,7 +83,7 @@ func New(cfg Config) *Client {
 	if client == nil {
 		timeout := cfg.Timeout
 		if timeout <= 0 {
-			timeout = 30 * time.Second
+			timeout = DefaultTimeout
 		}
 		client = &http.Client{Timeout: timeout}
 	}
@@ -116,13 +146,11 @@ func (c *Client) Instant(ctx context.Context, promql string) ([]Sample, error) {
 	}
 	req.URL.RawQuery = url.Values{"query": []string{promql}}.Encode()
 	req.Header.Set(c.cfg.Header, c.cfg.Tenant)
-	if c.cfg.BearerToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.cfg.BearerToken)
-	}
+	SetAuth(req, c.cfg.BearerToken, c.cfg.BasicAuth)
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, c.explainTimeout(ctx, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -150,6 +178,23 @@ func (c *Client) Instant(ctx context.Context, promql string) ([]Sample, error) {
 		return nil, fmt.Errorf("unexpected resultType %q, want vector", parsed.Data.ResultType)
 	}
 	return parsed.Data.Result, nil
+}
+
+// explainTimeout turns the HTTP client's own timeout into an error that
+// says which knob to turn. The raw error ("context deadline exceeded
+// (Client.Timeout exceeded while awaiting headers)") names neither the
+// limit nor where it is configured. A deadline or cancellation on the
+// caller's ctx is passed through unchanged: that limit is not ours.
+func (c *Client) explainTimeout(ctx context.Context, err error) error {
+	if ctx.Err() != nil || c.client.Timeout <= 0 {
+		return err
+	}
+	var ne net.Error
+	if !errors.As(err, &ne) || !ne.Timeout() {
+		return err
+	}
+	return fmt.Errorf("query gave up after the client timeout of %s; a heavy query (a long --since, a large cluster under load) can need longer, so raise backend.timeout in promcost.yaml: %w",
+		c.client.Timeout, err)
 }
 
 // durationUnits is the ladder Duration renders against, largest first.

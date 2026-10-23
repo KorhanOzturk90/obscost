@@ -1,0 +1,61 @@
+# loadgen on the staging cluster: one pod drives every tenant of the profile
+# through the Mimir gateway, and serves its ground truth on :9100
+# (GET /ground-truth) for the harness. Apply with `make k8s-deploy`, which
+# sets the gateway URL and profile. The state file is on an emptyDir, so a
+# container restart resumes the same run; a rescheduled pod starts a new
+# one (the harness snapshots the ground truth on every run, so nothing is lost).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: loadgen
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loadgen
+  namespace: loadgen
+  labels: {app: loadgen}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: loadgen}
+  template:
+    metadata:
+      labels: {app: loadgen}
+    spec:
+      containers:
+        - name: loadgen
+          image: promcost-loadgen:dev
+          imagePullPolicy: Never
+          args:
+            - run
+            - --profile=/etc/loadgen/profiles/$(PROFILE).yaml
+            - --gateway=$(GATEWAY)
+            - --state=/var/lib/loadgen/ground-truth.json
+            - --listen=:9100
+          env:
+            - {name: GATEWAY, value: GATEWAY_PLACEHOLDER}
+            - {name: PROFILE, value: PROFILE_PLACEHOLDER}
+          ports:
+            - {name: http, containerPort: 9100}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+          resources:
+            requests: {cpu: 200m, memory: 128Mi}
+            limits: {memory: 512Mi}
+          volumeMounts:
+            - {name: state, mountPath: /var/lib/loadgen}
+      volumes:
+        - name: state
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loadgen
+  namespace: loadgen
+spec:
+  selector: {app: loadgen}
+  ports:
+    - {name: http, port: 9100, targetPort: http}

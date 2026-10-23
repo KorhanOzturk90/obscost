@@ -1,0 +1,108 @@
+name: release
+
+# A v* tag publishes the GitHub Release (binaries, checksums, changelog)
+# and the multi-arch image on ghcr.io. A PR that touches the release
+# config gets the same build as a dry run, so a broken config fails the PR
+# rather than the tag push. Locally: `make release-snapshot`.
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - .goreleaser.yaml
+      - Dockerfile
+      - .github/workflows/release.yml
+      - Makefile
+      - go.mod
+      - go.sum
+      - cmd/**
+      - internal/buildinfo/**
+
+# Nothing by default; each job asks for what it needs.
+permissions: {}
+
+env:
+  GORELEASER_VERSION: v2.18.3
+
+jobs:
+  dry-run:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the changelog and snapshot version read history
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      # The arm64 image needs QEMU only to run it; buildx itself is
+      # required by dockers_v2.
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: goreleaser check
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          version: ${{ env.GORELEASER_VERSION }}
+          args: check
+
+      - name: goreleaser snapshot build
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          version: ${{ env.GORELEASER_VERSION }}
+          args: release --snapshot --clean
+
+      - name: smoke-test the snapshot binary and both images
+        run: |
+          set -euo pipefail
+          name=$(awk '/^project_name:/ {print $2}' .goreleaser.yaml)
+          "dist/cli_linux_amd64_v1/$name" --version
+          version=$(jq -r .version dist/metadata.json)
+          for arch in amd64 arm64; do
+            docker run --rm --platform "linux/$arch" "ghcr.io/korhanozturk90/$name:$version-$arch" --version
+          done
+
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub Release and upload assets
+      packages: write # push the image to ghcr.io
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Hand-written notes for this tag, if any, replace the generated
+      # changelog (see .goreleaser.yaml).
+      - name: release notes
+        id: notes
+        run: |
+          f=".github/release-notes/${GITHUB_REF_NAME}.md"
+          if [ -f "$f" ]; then
+            echo "using $f"
+            echo "args=--release-notes=$f" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: goreleaser release
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          version: ${{ env.GORELEASER_VERSION }}
+          args: release --clean ${{ steps.notes.outputs.args }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

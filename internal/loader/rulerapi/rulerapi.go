@@ -28,6 +28,7 @@ import (
 	"github.com/prometheus/prometheus/promql/parser"
 
 	"github.com/KorhanOzturk90/obscost/internal/loader"
+	"github.com/KorhanOzturk90/obscost/internal/promapi"
 	"github.com/KorhanOzturk90/obscost/internal/rule"
 )
 
@@ -36,11 +37,12 @@ import (
 // it was fetched for (Tenants), read directly from Mimir rather than
 // inferred from a file path.
 type Config struct {
-	BaseURL     string       // Mimir's HTTP API address, e.g. http://localhost:8080
-	Header      string       // tenancy header name; defaults to X-Scope-OrgID
-	Tenants     []string     // explicit tenant list to fetch rules for
-	BearerToken string       // optional; sent as "Authorization: Bearer <token>" if set
-	HTTPClient  *http.Client // optional; a default client with Timeout is used if nil
+	BaseURL     string             // Mimir's HTTP API address, e.g. http://localhost:8080
+	Header      string             // tenancy header name; defaults to X-Scope-OrgID
+	Tenants     []string           // explicit tenant list to fetch rules for
+	BearerToken string             // optional; sent as "Authorization: Bearer <token>" if set
+	BasicAuth   *promapi.BasicAuth // optional; sent as HTTP basic auth if set
+	HTTPClient  *http.Client       // optional; a default client with Timeout is used if nil
 	Timeout     time.Duration
 }
 
@@ -176,9 +178,7 @@ func (l *Loader) fetch(ctx context.Context, tenant string) (*rulesResponse, erro
 		return nil, err
 	}
 	req.Header.Set(l.cfg.Header, tenant)
-	if l.cfg.BearerToken != "" {
-		req.Header.Set("Authorization", "Bearer "+l.cfg.BearerToken)
-	}
+	promapi.SetAuth(req, l.cfg.BearerToken, l.cfg.BasicAuth)
 
 	resp, err := l.client.Do(req)
 	if err != nil {

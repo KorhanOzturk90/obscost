@@ -16,6 +16,7 @@ import (
 	"github.com/KorhanOzturk90/obscost/internal/loader"
 	"github.com/KorhanOzturk90/obscost/internal/loader/dir"
 	"github.com/KorhanOzturk90/obscost/internal/loader/rulerapi"
+	"github.com/KorhanOzturk90/obscost/internal/promapi"
 	"github.com/KorhanOzturk90/obscost/internal/report"
 	"github.com/KorhanOzturk90/obscost/internal/rule"
 	"github.com/KorhanOzturk90/obscost/internal/telemetry"
@@ -48,6 +49,7 @@ func newReportCmd(stdout, stderr io.Writer) *cobra.Command {
 		format        string
 		since         string
 		strict        bool
+		selector      string
 	)
 
 	cmd := &cobra.Command{
@@ -64,6 +66,7 @@ func newReportCmd(stdout, stderr io.Writer) *cobra.Command {
 				format:        format,
 				since:         since,
 				strict:        strict,
+				selector:      selector,
 			})
 		},
 	}
@@ -76,6 +79,7 @@ func newReportCmd(stdout, stderr io.Writer) *cobra.Command {
 	cmd.Flags().StringVar(&configPath, "config", "", "path to promcost.yaml")
 	cmd.Flags().StringVar(&format, "format", "md", "output format: md|json|html")
 	cmd.Flags().StringVar(&since, "since", "", "window to report over (e.g. 24h, 7d, 2w). With --telemetry it filters executions; with the metrics source it is the query window and defaults to 1h")
+	cmd.Flags().StringVar(&selector, "selector", "", `label matchers added to every query of Mimir's own metrics, e.g. '{cluster="prod-eu"}', when the metrics tenant holds several Mimir clusters. Overrides backend.selector in the config; metrics source only`)
 	cmd.Flags().BoolVar(&strict, "strict", false, "fail instead of warning when telemetry records can't be read/matched (e.g. an unmatched or ambiguous mimirlogs line)")
 
 	// --metrics-tenant only has an effect when --telemetry is omitted (the
@@ -84,6 +88,7 @@ func newReportCmd(stdout, stderr io.Writer) *cobra.Command {
 	// Without these, each flag combination below silently ignores half of
 	// what was passed instead of erroring.
 	cmd.MarkFlagsMutuallyExclusive("telemetry", "metrics-tenant")
+	cmd.MarkFlagsMutuallyExclusive("telemetry", "selector")
 	cmd.MarkFlagsMutuallyExclusive("dir", "metrics-tenant")
 	cmd.MarkFlagsMutuallyExclusive("tenant", "metrics-tenant")
 
@@ -100,6 +105,7 @@ type reportOptions struct {
 	format        string
 	since         string
 	strict        bool
+	selector      string
 }
 
 // defaultMetricsWindow is the window the metrics source queries when --since
@@ -136,7 +142,7 @@ func runReport(ctx context.Context, stdout, stderr io.Writer, opts reportOptions
 	// identity, and they cannot be drilled past that no matter what
 	// definitions we load (ADR 0002).
 	if opts.telemetryPath == "" {
-		return runMetricsReport(ctx, stdout, opts, cfg, sinceDuration)
+		return runMetricsReport(ctx, stdout, stderr, opts, cfg, sinceDuration)
 	}
 
 	defsLoader, err := newDefinitionsSource(opts, cfg)
@@ -245,7 +251,7 @@ func observedRange(executions []rule.RuleExecution) (start, end time.Time, ok bo
 // answer. The trade is granularity — these metrics carry no rule name, so
 // the report stops at the rule group and says so rather than presenting an
 // empty rule tier as "nothing ran".
-func runMetricsReport(ctx context.Context, stdout io.Writer, opts reportOptions, cfg config.Config, since time.Duration) error {
+func runMetricsReport(ctx context.Context, stdout, stderr io.Writer, opts reportOptions, cfg config.Config, since time.Duration) error {
 	if cfg.Backend.URL == "" {
 		return fmt.Errorf("--telemetry was omitted, so workload comes from Mimir's rule metrics — but config's backend.url is empty, so there is nowhere to query")
 	}
@@ -258,15 +264,32 @@ func runMetricsReport(ctx context.Context, stdout io.Writer, opts reportOptions,
 		window = defaultMetricsWindow
 	}
 
-	header, bearerToken := backendAuth(cfg)
+	sel, selectorSource, err := resolveSelector(cfg, opts.selector)
+	if err != nil {
+		return err
+	}
+	creds, err := backendAuth(cfg)
+	if err != nil {
+		return err
+	}
 
 	src := mimirmetrics.New(mimirmetrics.Config{
 		BaseURL:       cfg.Backend.URL,
-		Header:        header,
+		Header:        creds.header,
 		MetricsTenant: opts.metricsTenant,
-		BearerToken:   bearerToken,
+		BearerToken:   creds.bearerToken,
+		BasicAuth:     creds.basicAuth,
+		Selector:      sel,
 		Timeout:       cfg.Backend.Timeout.Duration(),
 	})
+	sourceLabel := "Mimir rule metrics (cortex_prometheus_rule_*)"
+	if sel.IsZero() {
+		warnIfSeveralClusters(ctx, stderr, src.Clusters)
+	} else {
+		// The workload report has no per-figure assumption trail; its
+		// source label is the line every renderer prints about provenance.
+		sourceLabel += ", cluster selector " + sel.String() + " from " + selectorSource
+	}
 	workload, err := src.Read(ctx, window)
 	if err != nil {
 		return err
@@ -309,11 +332,13 @@ func runMetricsReport(ctx context.Context, stdout io.Writer, opts reportOptions,
 		RankMetric:      agg.RankMetric,
 		GroupRankMetric: agg.GroupRankMetric,
 		Granularity:     agg.Granularity,
-		SourceLabel:     "Mimir rule metrics (cortex_prometheus_rule_*)",
-		SourceNote:      "counts are PromQL increase() figures, extrapolated at window edges",
-		ObservedStart:   &start,
-		ObservedEnd:     &end,
-		GeneratedAt:     time.Now(),
+		SourceLabel:     sourceLabel,
+		SourceNote: "counts are PromQL increase() figures, extrapolated at window edges; " +
+			"tenants rank by rule-evaluation wall time, which depends on cluster load as well as on the rules, " +
+			"so a tenant's time can rise because a neighbour loads the cluster",
+		ObservedStart: &start,
+		ObservedEnd:   &end,
+		GeneratedAt:   time.Now(),
 	})
 }
 
@@ -353,13 +378,17 @@ func newDefinitionsSource(opts reportOptions, cfg config.Config) (loader.Loader,
 		return nil, fmt.Errorf("--tenant was given but contained no tenant IDs")
 	}
 
-	header, bearerToken := backendAuth(cfg)
+	creds, err := backendAuth(cfg)
+	if err != nil {
+		return nil, err
+	}
 
 	return rulerapi.New(rulerapi.Config{
 		BaseURL:     cfg.Backend.URL,
-		Header:      header,
+		Header:      creds.header,
 		Tenants:     tenants,
-		BearerToken: bearerToken,
+		BearerToken: creds.bearerToken,
+		BasicAuth:   creds.basicAuth,
 		Timeout:     cfg.Backend.Timeout.Duration(),
 	}), nil
 }
@@ -412,17 +441,75 @@ func windowLabel(since string) string {
 	return "last " + since
 }
 
-// backendAuth resolves the tenancy header name and bearer token every
-// Mimir HTTP API client needs, from config's tenancy and backend blocks.
-func backendAuth(cfg config.Config) (header, bearerToken string) {
-	header = cfg.Tenancy.Header
-	if header == "" {
-		header = "X-Scope-OrgID"
+// backendCreds is what every Mimir HTTP API client needs besides a URL:
+// the tenancy header name and at most one of a bearer token or basic auth.
+type backendCreds struct {
+	header      string
+	bearerToken string
+	basicAuth   *promapi.BasicAuth
+}
+
+// backendAuth resolves backendCreds from config's tenancy and backend
+// blocks. A credential that is configured but resolves to nothing is an
+// error, not an anonymous request: otherwise an unset variable surfaces
+// later as a bare 401 (#55). Errors name the variable or file, never its
+// contents.
+func backendAuth(cfg config.Config) (backendCreds, error) {
+	c := backendCreds{header: cfg.Tenancy.Header}
+	if c.header == "" {
+		c.header = "X-Scope-OrgID"
 	}
-	if cfg.Backend.Auth.BearerTokenEnv != "" {
-		bearerToken = os.Getenv(cfg.Backend.Auth.BearerTokenEnv)
+	auth := cfg.Backend.Auth
+	if auth.BearerTokenEnv != "" && auth.BasicAuth != nil {
+		return backendCreds{}, fmt.Errorf("backend.auth sets both bearer_token_env and basic_auth: use one")
 	}
-	return header, bearerToken
+	if auth.BearerTokenEnv != "" {
+		c.bearerToken = os.Getenv(auth.BearerTokenEnv)
+		if c.bearerToken == "" {
+			return backendCreds{}, fmt.Errorf("backend.auth.bearer_token_env names %s, which is unset or empty", auth.BearerTokenEnv)
+		}
+	}
+	if b := auth.BasicAuth; b != nil {
+		password, err := basicAuthPassword(*b)
+		if err != nil {
+			return backendCreds{}, err
+		}
+		c.basicAuth = &promapi.BasicAuth{Username: b.Username, Password: password}
+	}
+	return c, nil
+}
+
+func basicAuthPassword(b config.BasicAuth) (string, error) {
+	const path = "backend.auth.basic_auth"
+	switch {
+	case b.Password != "":
+		return "", fmt.Errorf("%s.password is not supported: never put a password in promcost.yaml; use password_env or password_file", path)
+	case b.Username == "":
+		return "", fmt.Errorf("%s.username is empty", path)
+	case b.PasswordEnv != "" && b.PasswordFile != "":
+		return "", fmt.Errorf("%s sets both password_env and password_file: use one", path)
+	case b.PasswordEnv != "":
+		p := os.Getenv(b.PasswordEnv)
+		if p == "" {
+			return "", fmt.Errorf("%s.password_env names %s, which is unset or empty", path, b.PasswordEnv)
+		}
+		return p, nil
+	case b.PasswordFile != "":
+		data, err := os.ReadFile(b.PasswordFile)
+		if err != nil {
+			// The os error names the file and the reason, never its contents.
+			return "", fmt.Errorf("%s.password_file: %w", path, err)
+		}
+		// A trailing newline is an editor's, not the password's, as in
+		// Prometheus' own password_file.
+		p := strings.TrimRight(string(data), "\r\n")
+		if p == "" {
+			return "", fmt.Errorf("%s.password_file %s is empty", path, b.PasswordFile)
+		}
+		return p, nil
+	default:
+		return "", fmt.Errorf("%s needs password_env or password_file", path)
+	}
 }
 
 // splitTenants parses a comma-separated --tenant value, dropping blanks.
