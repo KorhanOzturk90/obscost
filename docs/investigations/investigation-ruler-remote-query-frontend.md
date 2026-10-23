@@ -141,7 +141,7 @@ Not a config flip — a small but real feature, with a real tradeoff:
    name/group either, same limitation `mimirlogs`'s `exprindex.go` already
    solves for the ruler's own line (parse both sides, compare canonical AST
    form, reject ambiguous matches — see
-   [ADR 0001, decision 5](adr/0001-observed-workload-attribution-layer.md#5-recovering-a-rules-identity-from-a-log-that-doesnt-have-one)).
+   [ADR 0001, decision 5](../adr/0001-observed-workload-attribution-layer.md#5-recovering-a-rules-identity-from-a-log-that-doesnt-have-one)).
    The same technique applies here unchanged, just pointed at a different field.
 3. **A genuine Mimir-architecture change, not just a logging toggle** —
    `-ruler.query-frontend.address` is Mimir's real "remote rule evaluation"
@@ -184,9 +184,9 @@ collision risk.
 - `grafana/mimir` source at tag `mimir-3.2.0` (the version this repo's dev rig
   pins): `pkg/ruler/compat.go` (`RecordAndReportRuleQueryMetrics`),
   `pkg/ruler/remotequerier.go`, `pkg/ruler/http_roundtripper.go`
-- [`docs/runtime-telemetry-notes.md`](runtime-telemetry-notes.md) — flagged
+- [`docs/archive/runtime-telemetry-notes.md`](../archive/runtime-telemetry-notes.md) — flagged
   this exact ruler-vs-frontend distinction as an open problem before this
   investigation had concrete evidence for it
-- [ADR 0001](adr/0001-observed-workload-attribution-layer.md) — the existing
+- [ADR 0001](../adr/0001-observed-workload-attribution-layer.md) — the existing
   `mimirlogs` source and its expression-matching rule-identity recovery, which
   this investigation's proposed next step would reuse rather than replace

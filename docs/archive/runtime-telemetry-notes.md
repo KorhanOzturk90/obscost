@@ -37,7 +37,7 @@ The implementation must explicitly distinguish:
 
 and must avoid double-counting these when calculating tenant/rule workload.
 
-[`docs/investigation-ruler-remote-query-frontend.md`](investigation-ruler-remote-query-frontend.md)
+[`docs/investigations/investigation-ruler-remote-query-frontend.md`](../investigations/investigation-ruler-remote-query-frontend.md)
 has concrete, source- and live-rig-verified findings on this: the ruler's own
 `component=ruler` log line never carries `samples_processed` (local or
 remote), while the query-frontend's separate `component=query-frontend` line

@@ -305,7 +305,7 @@ metric explicitly so this is never ambiguous to a reader.
 ## References
 
 - `PRODUCT-DIRECTION.md` — the product thesis this implements
-- `docs/runtime-telemetry-notes.md` — the telemetry-source research this
+- `docs/archive/runtime-telemetry-notes.md` — the telemetry-source research this
   was built on
 - GitHub issues #4–#8 (this ADR), #9 (the follow-up join with static
   analysis)

@@ -10,9 +10,9 @@ Up to now promcost has answered a platform-team question:
 > of it.
 
 A design conversation
-([`docs/pivot-mimir-cost-attribution-conversation.md`](../pivot-mimir-cost-attribution-conversation.md))
+([`docs/archive/pivot-mimir-cost-attribution-conversation.md`](../archive/pivot-mimir-cost-attribution-conversation.md))
 and the collection-layer plan that came out of it
-([`docs/pivot-mimir-collection-layer-design.md`](../pivot-mimir-collection-layer-design.md))
+([`docs/archive/pivot-mimir-collection-layer-design.md`](../archive/pivot-mimir-collection-layer-design.md))
 propose widening this into an end-to-end FinOps product. Tenant-level
 chargeback comes first, fed by a per-cluster agent writing to BigQuery, with
 change-event capture, anomaly alerts, budgets, and integrations on top.
@@ -52,7 +52,7 @@ concrete claims were checked against `dev/mimir-local` (Mimir 3.2.0) on
 | `cortex_ruler_rules{user, rule_type}` | ❌ does not exist. The nearest is `cortex_prometheus_rule_group_rules{user, rule_group}`, which has no recording/alerting split |
 | per-tenant compactor bytes (`compactor_bytes_processed`) | ❌ no `cortex_compactor_*` metric carries `user`. ADR 0003 uses `cortex_bucket_index_estimated_compaction_jobs` as a low-confidence proxy instead |
 | "`query_stats_enabled: true` is the default" | ⚠️ half right. `-query-frontend.query-stats-enabled` defaults to **true**. `-ruler.query-stats-enabled` defaults to **false**, and ruler logs are what ADR 0001 depends on |
-| "querier and ruler emit `query stats` lines" | ⚠️ the detailed lines come from the **query-frontend** and the ruler, not the querier. The ruler's line has no rule name and no `samples_processed` (ADR 0001 decision 5; `docs/investigation-ruler-remote-query-frontend.md`) |
+| "querier and ruler emit `query stats` lines" | ⚠️ the detailed lines come from the **query-frontend** and the ruler, not the querier. The ruler's line has no rule name and no `samples_processed` (ADR 0001 decision 5; `docs/investigations/investigation-ruler-remote-query-frontend.md`) |
 
 Two problems in the pivot's reasoning, beyond metric names:
 
@@ -66,7 +66,7 @@ either side drops out of the result instead of counting as zero.
 **It double-counts under remote ruler evaluation.** With
 `-ruler.query-frontend.address` set, every rule evaluation is also a
 frontend query. Adding the two counts counts that work twice.
-`docs/runtime-telemetry-notes.md` already warns about this.
+`docs/archive/runtime-telemetry-notes.md` already warns about this.
 
 The row-count estimate is also inconsistent: the conversation doc says 72k
 rows/day for 250 tenants, the collection doc says 72k for 50 (it's ~14k).
@@ -273,9 +273,9 @@ changes. So:
 
 ## References
 
-- [`docs/pivot-mimir-cost-attribution-conversation.md`](../pivot-mimir-cost-attribution-conversation.md)
+- [`docs/archive/pivot-mimir-cost-attribution-conversation.md`](../archive/pivot-mimir-cost-attribution-conversation.md)
   — the design conversation this evaluates
-- [`docs/pivot-mimir-collection-layer-design.md`](../pivot-mimir-collection-layer-design.md)
+- [`docs/archive/pivot-mimir-collection-layer-design.md`](../archive/pivot-mimir-collection-layer-design.md)
   — the agent/BigQuery plan this re-sequences
 - [ADR 0001](0001-observed-workload-attribution-layer.md) — rule-level
   attribution, now the drill-down layer
@@ -285,7 +285,7 @@ changes. So:
 - ADR 0003 (PR #26, `docs/adr/0003-cost-model-pool-driver-mappings.md`) —
   the pool→driver cost model this adopts
 - `PRODUCT-DIRECTION.md` — Milestones F–H, pulled forward by this ADR
-- `docs/runtime-telemetry-notes.md` — the remote-evaluation double-counting
+- `docs/archive/runtime-telemetry-notes.md` — the remote-evaluation double-counting
   warning
 - Measurements: `dev/mimir-local`, Mimir 3.2.0 (rev `9ab70ccf`), `/metrics`
   and `mimir -help-all`, 2026-09-17
